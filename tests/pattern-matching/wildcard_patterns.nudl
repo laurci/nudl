@@ -1,0 +1,117 @@
+// Test: Wildcard pattern `_` — matches any value without creating a binding.
+
+enum Direction {
+    North,
+    South,
+    East,
+    West,
+}
+
+enum Shape {
+    Circle(f64),
+    Rectangle(f64, f64),
+    Triangle(f64, f64, f64),
+}
+
+fn main() {
+    // Wildcard as catch-all in match
+    let x = 42;
+    let desc = match x {
+        0 => "zero",
+        1 => "one",
+        _ => "something else",
+    };
+    println(f"{x}: {desc}");
+
+    // Wildcard in tuple patterns to ignore specific elements
+    let triple = (1, 2, 3);
+    match triple {
+        (_, _, 3) => println("Third element is 3"),
+        (_, _, _) => println("Third element is not 3"),
+    }
+
+    // Wildcard ignoring first element
+    let pair = ("hello", 42);
+    match pair {
+        (_, 42) => println("Second is 42"),
+        (_, n) => println(f"Second is {n}"),
+    }
+
+    // Multiple wildcards in a single pattern
+    let quad = (1, 2, 3, 4);
+    match quad {
+        (1, _, _, 4) => println("Starts with 1 and ends with 4"),
+        (_, _, _, _) => println("Other quadruple"),
+    }
+
+    // Wildcard in enum patterns
+    let dir = Direction::North;
+    let is_vertical = match dir {
+        Direction::North => true,
+        Direction::South => true,
+        _ => false,
+    };
+    println(f"North is vertical: {is_vertical}");
+
+    // Wildcard inside enum variant data
+    let shape = Shape::Rectangle(10.0, 20.0);
+    match shape {
+        Shape::Circle(_) => println("It's a circle (radius ignored)"),
+        Shape::Rectangle(w, _) => println(f"Rectangle with width {w} (height ignored)"),
+        Shape::Triangle(_, _, _) => println("It's a triangle (all sides ignored)"),
+    }
+
+    // Wildcard in Option pattern
+    let opt: Option<i32> = Some(99);
+    match opt {
+        Some(_) => println("Has a value (ignored)"),
+        None => println("Empty"),
+    }
+
+    // Wildcard in Result pattern
+    let res: Result<i32, string> = Err("failed");
+    match res {
+        Ok(_) => println("Success (value ignored)"),
+        Err(_) => println("Error (message ignored)"),
+    }
+
+    // Wildcard combined with specific matches
+    let n = 5;
+    let parity = match n {
+        0 => "zero",
+        _ if n % 2 == 0 => "even",
+        _ => "odd",
+    };
+    println(f"{n} is {parity}");
+
+    // Wildcard in for loop (ignore loop variable)
+    let mut count = 0;
+    for _ in 0..5 {
+        count += 1;
+    }
+    println(f"Counted {count} iterations");
+
+    // Wildcard in let binding (discard value)
+    let _ = 42;
+    let (first, _) = (10, 20);
+    println(f"First: {first}");
+
+    let (_, second, _) = ("a", "b", "c");
+    println(f"Second: {second}");
+
+    // Wildcard with nested patterns
+    let data: Option<(i32, i32)> = Some((5, 10));
+    match data {
+        Some((_, y)) => println(f"Second in tuple: {y}"),
+        None => println("No data"),
+    }
+
+    // Multiple wildcard arms for exhaustiveness
+    let code = 302;
+    let response = match code {
+        200 => "OK",
+        404 => "Not Found",
+        _ => "Other",
+    };
+    println(f"HTTP {code}: {response}");
+}

@@ -1,0 +1,121 @@
+// Test: Or-patterns (pattern1 | pattern2) in match expressions.
+//       All alternatives must bind the same set of variables with the same types.
+
+enum Season {
+    Spring,
+    Summer,
+    Autumn,
+    Winter,
+}
+
+enum Suit {
+    Hearts,
+    Diamonds,
+    Clubs,
+    Spades,
+}
+
+enum Shape {
+    Circle(f64),
+    Square(f64),
+    Triangle(f64),
+}
+
+fn main() {
+    // Basic or-pattern with integer literals
+    let x = 3;
+    let desc = match x {
+        1 | 2 | 3 => "one, two, or three",
+        4 | 5 | 6 => "four, five, or six",
+        7 | 8 | 9 => "seven, eight, or nine",
+        _ => "other",
+    };
+    println(f"{x} is {desc}");
+
+    // Or-pattern with HTTP status codes
+    let code = 201;
+    let category = match code {
+        200 | 201 | 202 | 204 => "success",
+        301 | 302 | 307 | 308 => "redirect",
+        400 | 401 | 403 => "client error",
+        404 => "not found",
+        500 | 502 | 503 | 504 => "server error",
+        _ => "unknown",
+    };
+    println(f"HTTP {code}: {category}");
+
+    // Or-pattern with enum variants
+    let season = Season::Summer;
+    let temp = match season {
+        Season::Spring | Season::Autumn => "mild",
+        Season::Summer => "hot",
+        Season::Winter => "cold",
+    };
+    println(f"Temperature: {temp}");
+
+    // Or-pattern for grouping related variants
+    let suit = Suit::Hearts;
+    let color = match suit {
+        Suit::Hearts | Suit::Diamonds => "red",
+        Suit::Clubs | Suit::Spades => "black",
+    };
+    println(f"Suit color: {color}");
+
+    // Or-pattern with char ranges (combining or with range)
+    let ch = '5';
+    let kind = match ch {
+        'a' | 'e' | 'i' | 'o' | 'u' => "lowercase vowel",
+        'A' | 'E' | 'I' | 'O' | 'U' => "uppercase vowel",
+        '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' => "digit",
+        _ => "other",
+    };
+    println(f"'{ch}' is a {kind}");
+
+    // Or-pattern with boolean
+    let flags = (true, false);
+    let desc = match flags {
+        (true, true) | (false, false) => "same",
+        (true, false) | (false, true) => "different",
+    };
+    println(f"Flags are {desc}");
+
+    // Or-pattern with bindings (same binding in each alternative)
+    let shape = Shape::Square(5.0);
+    let side_length = match shape {
+        Shape::Circle(r) => r,
+        Shape::Square(s) | Shape::Triangle(s) => s,
+    };
+    println(f"Side/radius: {side_length}");
+
+    // Or-pattern with string literals
+    let command = "exit";
+    let action = match command {
+        "quit" | "exit" | "q" => "exiting",
+        "help" | "h" | "?" => "showing help",
+        "version" | "v" => "showing version",
+        _ => "unknown command",
+    };
+    println(f"'{command}' -> {action}");
+
+    // Or-pattern in nested position
+    let opt: Option<i32> = Some(3);
+    let result = match opt {
+        Some(1) | Some(2) | Some(3) => "small",
+        Some(n) if n > 100 => "large",
+        Some(_) => "medium",
+        None => "none",
+    };
+    println(f"Option category: {result}");
+
+    // Multiple or-patterns in sequence
+    for i in 0..15 {
+        let label = match i {
+            0 | 5 | 10 => "milestone",
+            1 | 2 | 3 | 4 => "first group",
+            6 | 7 | 8 | 9 => "second group",
+            11 | 12 | 13 | 14 => "third group",
+            _ => "out of range",
+        };
+        println(f"  {i}: {label}");
+    }
+}

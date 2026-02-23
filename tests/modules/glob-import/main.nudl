@@ -1,0 +1,28 @@
+// Test: Glob import — import all public items from a module with *
+//
+// Verifies that `import module::*;` brings all public items (functions,
+// structs, etc.) into scope. Private items remain inaccessible.
+
+import utils::*;
+
+fn main() {
+    // All public functions should be accessible
+    let h1 = helper1();
+    assert(h1 == "helper1 called", "helper1 should work");
+
+    let h2 = helper2();
+    assert(h2 == "helper2 called", "helper2 should work");
+
+    let name = format_name("John", last: "Doe");
+    assert(name == "John Doe", "format_name should work");
+
+    // Public struct should also be imported
+    let p = Pair { a: 1, b: 2 };
+    assert(p.a == 1, "Pair.a should be 1");
+    assert(p.b == 2, "Pair.b should be 2");
+
+    // Private function is NOT accessible via glob
+    // secret();  // ERROR: secret is private
+
+    println("glob-import: all assertions passed");
+}

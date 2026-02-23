@@ -1,0 +1,62 @@
+// Test: Turbofish syntax — parse::<i64>("42") explicit type arguments
+
+fn identity<T>(value: T) -> T {
+    value
+}
+
+// Function where type can't be inferred from args alone
+fn default_value<T>() -> T {
+    T::default()
+}
+
+// Function with multiple type params
+fn convert<From, To>(value: From) -> To
+where
+    From: Printable,
+{
+    // Simulated conversion
+    parse::<To>(value.to_string())
+}
+
+// Generic container construction
+fn empty_list<T>() -> T[] {
+    []
+}
+
+fn parse<T>(input: string) -> Result<T, string> {
+    // Built-in parse function
+    parse_value::<T>(input)
+}
+
+fn main() {
+    // Turbofish on function call — needed when type can't be inferred
+    let x = parse::<i32>("42");
+    let y = parse::<f64>("3.14");
+    let z = parse::<i64>("1000000");
+
+    // Turbofish on generic construction
+    let empty = empty_list::<string>();
+    let nums = empty_list::<i32>();
+
+    // Turbofish on static method
+    let map = Map::new::<string, i32>();
+
+    // Turbofish not needed when inference works
+    let a = identity(42);          // T = i32, inferred
+    let b = identity::<f64>(42.0); // explicit, also works
+
+    // Turbofish with multiple type params
+    let result = convert::<i32, string>(42);
+
+    match x {
+        Ok(val) => println(f"parsed i32: {val}"),
+        Err(e) => println(f"error: {e}"),
+    }
+
+    match y {
+        Ok(val) => println(f"parsed f64: {val}"),
+        Err(e) => println(f"error: {e}"),
+    }
+
+    println(f"empty string list len: {empty.len()}");
+}

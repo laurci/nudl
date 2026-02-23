@@ -1,0 +1,111 @@
+// Word Counter — text tokenizer and word frequency analysis
+// Features: Map<K,V>, |> pipe operator, closures, string operations, f-strings
+
+fn tokenize(input: string) -> string[] {
+    input.split(" ")
+}
+
+fn to_lowercase(words: string[]) -> string[] {
+    let mut result: string[] = [];
+    for word in words { result.push(word.to_lower()); }
+    result
+}
+
+fn remove_punctuation(words: string[]) -> string[] {
+    let mut result: string[] = [];
+    for word in words {
+        let cleaned = word.replace(",", "")
+            .replace(".", "")
+            .replace("!", "")
+            .replace("?", "")
+            .replace(";", "")
+            .replace(":", "");
+        if cleaned.len() > 0 {
+            result.push(cleaned);
+        }
+    }
+    result
+}
+
+fn remove_stopwords(words: string[]) -> string[] {
+    let stops = ["the", "a", "an", "is", "in", "of", "and", "to", "it", "for"];
+    let mut result: string[] = [];
+    for word in words {
+        if !stops.contains(word) {
+            result.push(word);
+        }
+    }
+    result
+}
+
+fn word_count(words: string[]) -> Map<string, i32> {
+    let mut counts: Map<string, i32> = Map::new();
+    for word in words {
+        let current = counts.get(word).unwrap_or(0);
+        counts.insert(word, current + 1);
+    }
+    counts
+}
+
+fn top_n(counts: Map<string, i32>, n: u64) -> (string, i32)[] {
+    // Collect entries and sort by count descending
+    let mut entries: (string, i32)[] = [];
+    for (word, count) in counts {
+        entries.push((word, count));
+    }
+    // Simple selection sort for top N
+    let mut result: (string, i32)[] = [];
+    for _ in 0..n {
+        if entries.len() == 0 { break; }
+        let mut max_idx: u64 = 0;
+        for (i, entry) in entries.enumerate() {
+            if entry.1 > entries[max_idx].1 {
+                max_idx = i;
+            }
+        }
+        result.push(entries[max_idx]);
+        entries.remove(max_idx);
+    }
+    result
+}
+
+fn main() {
+    let text = "The quick brown fox jumps over the lazy dog. \
+                The dog barked at the fox, and the fox ran away. \
+                A quick brown cat sat in the sun, and the dog slept.";
+
+    // Full pipeline using |>
+    let counts = text
+        |> tokenize
+        |> to_lowercase
+        |> remove_punctuation
+        |> remove_stopwords
+        |> word_count;
+
+    println("Word frequencies (excluding stop words):");
+    for (word, count) in counts {
+        let bar = "";
+        for _ in 0..count {
+            bar = f"{bar}#";
+        }
+        println(f"  {word}: {count} {bar}");
+    }
+
+    // Top words
+    println("\nTop 5 words:");
+    let top = top_n(counts, n: 5);
+    for (i, entry) in top.enumerate() {
+        let (word, count) = entry;
+        println(f"  {i + 1}. \"{word}\" ({count} occurrences)");
+    }
+
+    // Total unique words
+    let unique = counts.len();
+    let total_words = text
+        |> tokenize
+        |> to_lowercase
+        |> remove_punctuation
+        |> remove_stopwords;
+    println(f"\nTotal words (filtered): {total_words.len()}");
+    println(f"Unique words: {unique}");
+}

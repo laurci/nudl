@@ -1,0 +1,71 @@
+// Test: Integer types — i8, i16, i32, i64, u8, u16, u32, u64
+// Covers: hex/octal/binary literals, underscore separators, type suffixes,
+//         default inference to i32, explicit type annotations
+
+fn main() {
+    // --- Default integer type (i32) ---
+    let x = 42;
+    let zero = 0;
+    let negative = -100;
+
+    // --- Underscore separators for readability ---
+    let million = 1_000_000;
+    let grouped = 1_2_3_4;
+
+    // --- Leading zeros are valid ---
+    let padded = 007;
+
+    // --- Signed integer types with suffixes ---
+    let a: i8 = 127i8;
+    let b: i8 = -128i8;
+    let c: i16 = 32_000i16;
+    let d: i16 = -32_000i16;
+    let e: i32 = 2_000_000_000i32;
+    let f: i64 = 9_000_000_000_000_000_000i64;
+    let g: i64 = -9_000_000_000_000_000_000i64;
+
+    // --- Unsigned integer types with suffixes ---
+    let h: u8 = 255u8;
+    let i: u8 = 0u8;
+    let j: u16 = 65_535u16;
+    let k: u32 = 4_000_000_000u32;
+    let l: u64 = 18_000_000_000_000_000_000u64;
+
+    // --- Hexadecimal literals ---
+    let hex1 = 0xFF;
+    let hex2 = 0xff;
+    let hex3 = 0xFF_u8;
+    let hex4 = 0xDEAD_BEEF_u32;
+    let hex5 = 0x0A_0B_0C;
+
+    // --- Octal literals ---
+    let oct1 = 0o77;
+    let oct2 = 0o755;
+    let oct3 = 0o12_34;
+
+    // --- Binary literals ---
+    let bin1 = 0b1010;
+    let bin2 = 0b1010_i64;
+    let bin3 = 0b1111_0000_u8;
+    let bin4 = 0b0000_0001;
+
+    // --- Explicit type annotations constraining unsuffixed literals ---
+    let typed_u64: u64 = 42;
+    let typed_i8: i8 = 100;
+    let typed_u16: u16 = 500;
+
+    // --- Integer arithmetic (same-type operands, no implicit widening) ---
+    let sum: i32 = 10 + 20;
+    let diff: i32 = 50 - 30;
+    let prod: i32 = 6 * 7;
+    let quot: i32 = 100 / 3;
+    let rem: i32 = 10 % 3;
+
+    // --- Unary negation on signed types ---
+    let neg_i32 = -42;
+    let neg_i64 = -1i64;
+
+    // --- Mixed usage in expressions (all same type) ---
+    let combined: u32 = 0xFF_u32 + 1u32;
+    let shifted: i32 = 1 << 10;
+}

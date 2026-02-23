@@ -1,0 +1,16 @@
+[workspace]
+resolver = "3"
+members = [
+    "tools/meta",
+    "nudl-core",
+    "nudl-ast",
+    "nudl-bc",
+    "nudl-vm",
+    "nudl-backend-arm64",
+    "nudl-packer-macho",
+    "nudl-packer-elf",
+    "nudl-cli",
+    "nudl-lsp",
+]
+
+default-members = ["nudl-cli", "nudl-lsp"]

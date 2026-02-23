@@ -1,0 +1,134 @@
+// Test: Quote and splice — quote { }, ${expr}, ${for}, ${if} splicing
+//
+// The `quote` expression produces AST fragments for code generation.
+// Inside a quote block, ${} splices in comptime values, ${for} repeats
+// fragments, and ${if} conditionally includes fragments.
+
+// --- Basic quote with value splice ---
+comptime {
+    let name = "ANSWER";
+    let value = 42;
+    quote {
+        fn get_answer() -> i32 {
+            ${value}
+        }
+    }
+}
+
+// --- Quote with for-splice generating struct fields ---
+comptime {
+    let field_names = ["r", "g", "b", "a"];
+    quote {
+        struct Color {
+            ${for name in field_names {
+                quote { ${name}: u8, }
+            }}
+        }
+    }
+}
+
+// --- Quote with if-splice for conditional generation ---
+comptime fn make_struct_with_optional_field(name: string, include_z: bool) {
+    quote {
+        struct ${name} {
+            x: f64,
+            y: f64,
+            ${if include_z {
+                quote { z: f64, }
+            }}
+        }
+    }
+}
+
+comptime {
+    make_struct_with_optional_field("Point2D", include_z: false);
+    make_struct_with_optional_field("Point3D", include_z: true);
+}
+
+// --- Quote generating an impl block ---
+comptime {
+    let fields = ["x", "y", "z"];
+    quote {
+        impl Point3D {
+            fn sum(self) -> f64 {
+                ${for (i, name) in fields.enumerate() {
+                    if i == 0 {
+                        quote { self.${name} }
+                    } else {
+                        quote { + self.${name} }
+                    }
+                }}
+            }
+        }
+    }
+}
+
+// --- Quote with for-splice generating multiple functions ---
+comptime {
+    let operations = [
+        ("double", 2),
+        ("triple", 3),
+        ("quadruple", 4),
+    ];
+    for (name, factor) in operations {
+        quote {
+            fn ${name}(x: i32) -> i32 {
+                x * ${factor}
+            }
+        }
+    }
+}
+
+// --- Quote generating enum variants ---
+comptime {
+    let days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+    quote {
+        enum Day {
+            ${for day in days {
+                quote { ${day}, }
+            }}
+        }
+    }
+}
+
+fn main() {
+    // --- Basic value splice ---
+    assert(get_answer() == 42, "get_answer should return 42");
+
+    // --- For-splice generated struct ---
+    let c = Color { r: 255, g: 128, b: 0, a: 255 };
+    assert(c.r == 255, "Color.r should be 255");
+    assert(c.g == 128, "Color.g should be 128");
+    assert(c.b == 0, "Color.b should be 0");
+    assert(c.a == 255, "Color.a should be 255");
+
+    // --- If-splice: 2D struct (no z) ---
+    let p2 = Point2D { x: 1.0, y: 2.0 };
+    assert(p2.x == 1.0, "Point2D.x should be 1.0");
+    assert(p2.y == 2.0, "Point2D.y should be 2.0");
+    // p2.z;  // ERROR: Point2D has no z field
+
+    // --- If-splice: 3D struct (with z) ---
+    let p3 = Point3D { x: 1.0, y: 2.0, z: 3.0 };
+    assert(p3.x == 1.0, "Point3D.x should be 1.0");
+    assert(p3.y == 2.0, "Point3D.y should be 2.0");
+    assert(p3.z == 3.0, "Point3D.z should be 3.0");
+
+    // --- Generated impl ---
+    let total = p3.sum();
+    assert(total == 6.0, "sum of 1+2+3 should be 6.0");
+
+    // --- For-splice generated functions ---
+    assert(double(5) == 10, "double(5) should be 10");
+    assert(triple(5) == 15, "triple(5) should be 15");
+    assert(quadruple(5) == 20, "quadruple(5) should be 20");
+
+    // --- Generated enum ---
+    let today = Day::Wednesday;
+    match today {
+        Day::Wednesday => { /* expected */ },
+        _ => assert(false, "should be Wednesday"),
+    }
+
+    println("quote_splice: all assertions passed");
+}

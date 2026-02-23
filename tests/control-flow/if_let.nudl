@@ -1,0 +1,139 @@
+// Test: if-let pattern matching.
+//       if let Some(v) = expr { ... } with optional else branch.
+//       Does not require exhaustiveness.
+
+fn find_first_even(numbers: i32[]) -> Option<i32> {
+    for n in numbers {
+        if n % 2 == 0 {
+            return Some(n);
+        }
+    }
+    None
+}
+
+fn get_value(key: string) -> Option<string> {
+    if key == "name" {
+        Some("Alice")
+    } else if key == "age" {
+        Some("30")
+    } else {
+        None
+    }
+}
+
+fn divide(a: f64, b: f64) -> Result<f64, string> {
+    if b == 0.0 {
+        Err("division by zero")
+    } else {
+        Ok(a / b)
+    }
+}
+
+enum Shape {
+    Circle(f64),
+    Rectangle { width: f64, height: f64 },
+    Point,
+}
+
+fn main() {
+    // Basic if-let with Option: Some case
+    let value: Option<i32> = Some(42);
+    if let Some(v) = value {
+        println(f"Got value: {v}");
+    }
+
+    // if-let with Option: None case (body not executed)
+    let empty: Option<i32> = None;
+    if let Some(v) = empty {
+        println(f"This should not print: {v}");
+    }
+
+    // if-let with else branch
+    let maybe = Some("hello");
+    if let Some(s) = maybe {
+        println(f"Found: {s}");
+    } else {
+        println("Not found");
+    }
+
+    // if-let with None and else branch
+    let nothing: Option<string> = None;
+    if let Some(s) = nothing {
+        println(f"Found: {s}");
+    } else {
+        println("Nothing found, as expected");
+    }
+
+    // if-let with function returning Option
+    let numbers = [1, 3, 5, 4, 7];
+    if let Some(even) = find_first_even(numbers) {
+        println(f"First even: {even}");
+    } else {
+        println("No even numbers found");
+    }
+
+    let odds = [1, 3, 5, 7, 9];
+    if let Some(even) = find_first_even(odds) {
+        println(f"First even: {even}");
+    } else {
+        println("No even numbers in odds list");
+    }
+
+    // if-let with key lookup
+    if let Some(name) = get_value("name") {
+        println(f"Name is: {name}");
+    }
+
+    if let Some(missing) = get_value("email") {
+        println(f"Email: {missing}");
+    } else {
+        println("Email not found");
+    }
+
+    // if-let with Result
+    let result = divide(10.0, b: 3.0);
+    if let Ok(quotient) = result {
+        println(f"10 / 3 = {quotient}");
+    }
+
+    let bad_result = divide(10.0, b: 0.0);
+    if let Err(msg) = bad_result {
+        println(f"Error: {msg}");
+    }
+
+    // if-let with enum variant
+    let shape = Shape::Circle(5.0);
+    if let Shape::Circle(radius) = shape {
+        println(f"Circle with radius {radius}");
+    } else {
+        println("Not a circle");
+    }
+
+    let rect = Shape::Rectangle { width: 10.0, height: 5.0 };
+    if let Shape::Rectangle { width, height } = rect {
+        println(f"Rectangle: {width} x {height}");
+    }
+
+    // if-let does not match: falls to else
+    if let Shape::Point = rect {
+        println("It's a point");
+    } else {
+        println("Not a point");
+    }
+
+    // Nested if-let
+    let outer: Option<Option<i32>> = Some(Some(99));
+    if let Some(inner) = outer {
+        if let Some(val) = inner {
+            println(f"Nested value: {val}");
+        }
+    }
+
+    // if-let in a loop context
+    let items: Option<i32>[] = [Some(1), None, Some(3), None, Some(5)];
+    for item in items {
+        if let Some(v) = item {
+            println(f"Item: {v}");
+        }
+    }
+}

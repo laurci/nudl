@@ -1,0 +1,63 @@
+// Chat Room — actor-based chat system
+// Features: actors, implicit async (all external actor calls return Future), .await
+
+import room::{ChatRoom, Message};
+
+async fn simulate_chat(room: ChatRoom) {
+    // Users join the room — actor calls are implicitly async
+    room.join("alice").await;
+    room.join("bob").await;
+    room.join("charlie").await;
+
+    println(f"Room '{room.room_name().await}' has {room.member_count().await} members");
+    println(f"Members: {room.members_list().await}");
+
+    // Send messages
+    room.send_message("alice", content: "Hello everyone!").await;
+    room.send_message("bob", content: "Hey Alice! How are you?").await;
+    room.send_message("alice", content: "Doing great, working on nudl examples.").await;
+    room.send_message("charlie", content: "Sounds fun! Can I help?").await;
+    room.send_message("bob", content: "The more the merrier!").await;
+
+    // Try sending from non-member
+    match room.send_message("dave", content: "Can I join?").await {
+        Ok(()) => println("dave sent a message"),
+        Err(e) => println(f"Error: {e}"),
+    }
+
+    // Show recent messages
+    println(f"\nRecent messages (last 5):");
+    let recent = room.recent_messages(5).await;
+    for msg in recent {
+        println(f"  {msg.to_string()}");
+    }
+
+    // Charlie leaves
+    room.leave("charlie").await;
+    println(f"\nAfter charlie leaves: {room.member_count().await} members");
+
+    // Show all messages including system messages
+    println(f"\nAll messages ({room.message_count().await} total):");
+    let all = room.recent_messages(100).await;
+    for msg in all {
+        println(f"  {msg.to_string()}");
+    }
+}
+
+async fn main() {
+    let room = ChatRoom::new("general");
+    simulate_chat(room).await;
+
+    // Create a second room to show multiple actors
+    let dev_room = ChatRoom::new("dev-team");
+    dev_room.join("alice").await;
+    dev_room.join("bob").await;
+    dev_room.send_message("alice", content: "Let's discuss the new feature").await;
+    dev_room.send_message("bob", content: "Ready when you are").await;
+
+    println(f"\n--- {dev_room.room_name().await} ---");
+    let msgs = dev_room.recent_messages(10).await;
+    for msg in msgs {
+        println(f"  {msg.to_string()}");
+    }
+}

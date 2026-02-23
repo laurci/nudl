@@ -1,0 +1,114 @@
+// Test: Dynamic arrays — T[]
+// Covers: literal construction [1,2,3], type syntax T[], push, indexing,
+//         reference semantics (shared storage), spread syntax
+
+fn main() {
+    // --- Literal construction ---
+    let numbers: i32[] = [1, 2, 3];
+    let strings: string[] = ["hello", "world"];
+    let booleans: bool[] = [true, false, true];
+
+    // --- Type inference from literal ---
+    let inferred = [1, 2, 3];
+    let inferred_str = ["a", "b", "c"];
+
+    // --- Empty array with type annotation ---
+    let empty: i32[] = [];
+
+    // --- Mutable array with push ---
+    let mut items: i32[] = [1, 2, 3];
+    items.push(4);
+    items.push(5);
+
+    // --- Indexing ---
+    let arr = [10, 20, 30, 40, 50];
+    let first = arr[0];
+    let second = arr[1];
+    let last = arr[4];
+
+    // --- Mutable indexing ---
+    let mut mutable = [1, 2, 3];
+    mutable[0] = 100;
+    mutable[2] = 300;
+
+    // --- Reference semantics: assignment shares storage ---
+    let mut original: i32[] = [1, 2, 3];
+    let alias = original;
+    // alias and original share the same underlying array (refcount++)
+
+    // --- Nested arrays ---
+    let matrix: i32[][] = [[1, 2], [3, 4], [5, 6]];
+    let row = matrix[0];
+    let element = matrix[1][0];
+
+    // --- Array of tuples ---
+    let pairs: (i32, string)[] = [(1, "one"), (2, "two"), (3, "three")];
+
+    // --- Spread syntax ---
+    let base = [1, 2, 3];
+    let extended = [...base, 4, 5, 6];
+    let combined = [...base, ...base];
+
+    // --- Array in for loop ---
+    let values = [10, 20, 30];
+    for v in values {
+        let doubled = v * 2;
+    }
+
+    // --- Array with trailing comma ---
+    let trailing = [
+        1,
+        2,
+        3,
+    ];
+
+    // --- Single element array ---
+    let single = [42];
+    let single_val = single[0];
+
+    // --- Dynamic array of floats ---
+    let floats: f64[] = [1.0, 2.5, 3.14];
+
+    // --- Iterator extension methods ---
+    // Note: .iter() is assumed as a stdlib method on T[] returning Iterator<T>
+    let data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+    // .iter().map() — transform each element
+    let doubled: i32[] = data.iter().map(|x| x * 2).collect();
+
+    // .iter().filter() — keep elements matching predicate
+    let evens: i32[] = data.iter().filter(|x| x % 2 == 0).collect();
+
+    // .iter().fold() — reduce to a single value
+    let sum = data.iter().fold(0, |acc, x| acc + x);
+
+    // .iter().any() — true if any element matches
+    let has_five = data.iter().any(|x| x == 5);
+
+    // .iter().all() — true if all elements match
+    let all_positive = data.iter().all(|x| x > 0);
+
+    // .iter().count() — number of elements
+    let total_count = data.iter().count();
+
+    // .iter().take() — first N elements
+    let first_three: i32[] = data.iter().take(3).collect();
+
+    // .iter().skip() — skip first N elements
+    let after_seven: i32[] = data.iter().skip(7).collect();
+
+    // .iter().zip() — pair up two iterators
+    let names = ["one", "two", "three"];
+    let nums = [1, 2, 3];
+    let pairs: (string, i32)[] = names.iter().zip(nums.iter()).collect();
+
+    // .iter().enumerate() — index + value pairs
+    let indexed: (u64, i32)[] = data.iter().enumerate().collect();
+
+    // Chained iterator pipeline
+    let result: i32[] = data.iter()
+        .filter(|x| x > 3)
+        .map(|x| x * 10)
+        .take(4)
+        .collect();
+}

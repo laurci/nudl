@@ -1,0 +1,124 @@
+// Test: Trailing lambda syntax.
+//       - Implicit `it` for single-parameter lambdas
+//       - `a, b -> expr` for multi-parameter lambdas
+//       - Zero-parameter trailing lambdas
+//       - Empty parens omission when no other arguments
+
+// Helper functions that accept function-typed last parameter
+
+fn map(items: i32[], transform: (i32) -> i32) -> i32[] {
+    let mut result: i32[] = [];
+    for item in items {
+        result.push(transform(item));
+    }
+    result
+}
+
+fn filter(items: i32[], predicate: (i32) -> bool) -> i32[] {
+    let mut result: i32[] = [];
+    for item in items {
+        if predicate(item) {
+            result.push(item);
+        }
+    }
+    result
+}
+
+fn fold(items: i32[], initial: i32, reducer: (i32, i32) -> i32) -> i32 {
+    let mut acc = initial;
+    for item in items {
+        acc = reducer(acc, item);
+    }
+    acc
+}
+
+fn with_retry(max_attempts: i32, action: () -> bool) -> bool {
+    for _ in 0..max_attempts {
+        if action() {
+            return true;
+        }
+    }
+    false
+}
+
+fn run(action: () -> ()) {
+    action();
+}
+
+fn run_and_return(action: () -> i32) -> i32 {
+    action()
+}
+
+fn apply_twice(value: i32, transform: (i32) -> i32) -> i32 {
+    transform(transform(value))
+}
+
+fn zip_combine(xs: i32[], ys: i32[], combine: (i32, i32) -> i32) -> i32[] {
+    let mut result: i32[] = [];
+    let len = if xs.len() < ys.len() { xs.len() } else { ys.len() };
+    for i in 0..len {
+        result.push(combine(xs[i], ys[i]));
+    }
+    result
+}
+
+fn main() {
+    let numbers = [1, 2, 3, 4, 5];
+
+    // Single-parameter trailing lambda with implicit `it`
+    let doubled = map(numbers) { it * 2 };
+    println(f"doubled = {doubled}");
+
+    // Single-parameter trailing lambda: filter
+    let evens = filter(numbers) { it % 2 == 0 };
+    println(f"evens = {evens}");
+
+    // Multi-parameter trailing lambda with `a, b -> expr`
+    let sum = fold(numbers, initial: 0) { acc, item -> acc + item };
+    println(f"sum = {sum}");
+
+    let product = fold(numbers, initial: 1) { acc, item -> acc * item };
+    println(f"product = {product}");
+
+    // Zero-parameter trailing lambda, no other args: omit empty parens
+    run { println("hello from trailing lambda"); }
+
+    // Zero-parameter trailing lambda with other args
+    let mut attempt = 0;
+    let success = with_retry(3) {
+        attempt += 1;
+        attempt >= 2
+    };
+    println(f"success after retries = {success}");
+
+    // Zero-parameter trailing lambda returning a value, no other args
+    let value = run_and_return { 42 };
+    println(f"value = {value}");
+
+    // Trailing lambda with one other positional arg
+    let result = apply_twice(3) { it + 10 };
+    println(f"apply_twice(3, +10) = {result}");
+
+    // Multi-param trailing lambda: zip_combine
+    let xs = [1, 2, 3];
+    let ys = [10, 20, 30];
+    let sums = zip_combine(xs, ys: ys) { a, b -> a + b };
+    println(f"zip sums = {sums}");
+
+    let products = zip_combine(xs, ys: ys) { a, b -> a * b };
+    println(f"zip products = {products}");
+
+    // Trailing lambda with block body (multiple statements)
+    let processed = map(numbers) {
+        let squared = it * it;
+        squared + 1
+    };
+    println(f"processed = {processed}");
+
+    // Chaining with pipe operator and trailing lambdas
+    let final_result = numbers
+        |> filter { it > 2 }
+        |> map { it * 10 }
+        |> fold(initial: 0) { acc, v -> acc + v };
+    println(f"chained result = {final_result}");
+}

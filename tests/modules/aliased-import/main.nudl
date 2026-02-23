@@ -1,0 +1,35 @@
+// Test: Aliased import — import with `as` to rename
+//
+// Verifies that `import module::Item as Alias;` brings the item into scope
+// under the alias name only. The original name is NOT bound.
+
+import math::Vector3 as Vec3;
+
+fn main() {
+    // Use the alias to construct and use the type
+    let v1 = Vec3::new(1.0, y: 0.0, z: 0.0);
+    assert(v1.x == 1.0, "Vec3 x should be 1.0");
+    assert(v1.y == 0.0, "Vec3 y should be 0.0");
+
+    let v2 = Vec3 { x: 0.0, y: 1.0, z: 0.0 };
+    assert(v2.y == 1.0, "Vec3 y should be 1.0");
+
+    // Method calls work through the alias
+    let v3 = v1.add(v2);
+    assert(v3.x == 1.0, "sum x should be 1.0");
+    assert(v3.y == 1.0, "sum y should be 1.0");
+    assert(v3.z == 0.0, "sum z should be 0.0");
+
+    // The original name `Vector3` is NOT available
+    // let v = Vector3::new(0.0, 0.0, 0.0);  // ERROR: Vector3 not in scope
+
+    // Alias works in type annotations
+    let vectors: Vec3[] = [
+        Vec3::new(1.0, y: 0.0, z: 0.0),
+        Vec3::new(0.0, y: 1.0, z: 0.0),
+        Vec3::new(0.0, y: 0.0, z: 1.0),
+    ];
+    assert(vectors.len() == 3, "should have 3 vectors");
+
+    println("aliased-import: all assertions passed");
+}

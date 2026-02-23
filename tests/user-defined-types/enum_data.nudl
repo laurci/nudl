@@ -1,0 +1,158 @@
+// Test: Enum data variants — Circle(f64), variant as constructor function
+
+// Enum with data variants (each variant carries typed payload)
+enum Shape {
+    Circle(f64),
+    Square(f64),
+    Triangle(f64, f64, f64),
+}
+
+// Enum mixing unit and data variants
+enum Token {
+    Number(i64),
+    Text(string),
+    Plus,
+    Minus,
+    Eof,
+}
+
+// Enum with a single data variant
+enum Wrapper {
+    Value(i32),
+}
+
+// Enum with reference-type payloads
+enum Message {
+    Text(string),
+    Numbers(i32[]),
+    Pair(string, i32),
+}
+
+fn area(shape: Shape) -> f64 {
+    match shape {
+        Shape::Circle(r) => 3.14159 * r * r,
+        Shape::Square(s) => s * s,
+        Shape::Triangle(a, b, c) => {
+            // Heron's formula
+            let s = (a + b + c) / 2.0;
+            let sq = s * (s - a) * (s - b) * (s - c);
+            // simplified: just return the semi-perimeter for test purposes
+            s
+        },
+    }
+}
+
+fn describe_token(tok: Token) -> string {
+    match tok {
+        Token::Number(n) => f"number({n})",
+        Token::Text(s) => f"text(\"{s}\")",
+        Token::Plus => "plus",
+        Token::Minus => "minus",
+        Token::Eof => "eof",
+    }
+}
+
+fn main() {
+    // --- Construction of data variants ---
+    let circle = Shape::Circle(5.0);
+    let square = Shape::Square(4.0);
+    let triangle = Shape::Triangle(3.0, 4.0, 5.0);
+
+    // --- Pattern matching to extract data ---
+    match circle {
+        Shape::Circle(r) => println(f"Circle with radius {r}"),
+        _ => println("Not a circle"),
+    }
+
+    match square {
+        Shape::Square(side) => println(f"Square with side {side}"),
+        _ => println("Not a square"),
+    }
+
+    match triangle {
+        Shape::Triangle(a, b, c) => println(f"Triangle with sides {a}, {b}, {c}"),
+        _ => println("Not a triangle"),
+    }
+
+    // --- Using area function ---
+    println(f"Circle area: {area(circle)}");
+    println(f"Square area: {area(square)}");
+
+    // --- Data variant as a constructor function ---
+    // Shape::Circle has type (f64) -> Shape — can be used as a first-class function
+    let make_shape: (f64) -> Shape = Shape::Circle;
+    let from_fn = make_shape(5.0);
+    match from_fn {
+        Shape::Circle(r) => println(f"  from function: circle r={r}"),
+        _ => {},
+    }
+
+    // Using variant constructor in higher-order functions
+    let radii: f64[] = [1.0, 2.0, 3.0, 4.0, 5.0];
+    let circles: Shape[] = radii.iter().map(Shape::Circle).collect();
+    for c in circles {
+        match c {
+            Shape::Circle(r) => println(f"  circle r={r}, area={area(c)}"),
+            _ => {},
+        }
+    }
+
+    // --- Token enum with mixed variants ---
+    let tokens: Token[] = [
+        Token::Number(42),
+        Token::Plus,
+        Token::Number(8),
+        Token::Eof,
+    ];
+    for tok in tokens {
+        println(f"  token: {describe_token(tok)}");
+    }
+
+    // --- Wrapper with single data variant ---
+    let w = Wrapper::Value(100);
+    match w {
+        Wrapper::Value(v) => println(f"Wrapped value: {v}"),
+    }
+
+    // --- Message enum with reference-type payloads ---
+    let msgs: Message[] = [
+        Message::Text("hello"),
+        Message::Numbers([1, 2, 3]),
+        Message::Pair("count", 10),
+    ];
+    for msg in msgs {
+        match msg {
+            Message::Text(s) => println(f"  text: {s}"),
+            Message::Numbers(nums) => println(f"  numbers: {nums.len()} items"),
+            Message::Pair(key, val) => println(f"  pair: {key}={val}"),
+        }
+    }
+
+    // --- Guards on data variant patterns ---
+    let shapes: Shape[] = [
+        Shape::Circle(1.0),
+        Shape::Circle(100.0),
+        Shape::Square(5.0),
+        Shape::Square(0.5),
+    ];
+    for s in shapes {
+        let desc = match s {
+            Shape::Circle(r) if r > 50.0 => "large circle",
+            Shape::Circle(r) => "small circle",
+            Shape::Square(side) if side > 3.0 => "large square",
+            Shape::Square(side) => "small square",
+            _ => "other",
+        };
+        println(f"  {desc}");
+    }
+
+    // --- Nested data variant matching ---
+    let opt_shape: Option<Shape> = Some(Shape::Circle(7.0));
+    match opt_shape {
+        Some(Shape::Circle(r)) => println(f"Optional circle with r={r}"),
+        Some(_) => println("Some other shape"),
+        None => println("No shape"),
+    }
+
+    println("All data enum tests passed");
+}

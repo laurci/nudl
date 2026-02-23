@@ -1,0 +1,88 @@
+// Test: Weak references — let weak, upgrade() -> Option, deallocation
+// Covers: weak binding syntax, upgrade semantics, cycle breaking,
+//         weak references in struct fields
+
+struct Node {
+    value: i32,
+    children: Node[],
+}
+
+struct TreeNode {
+    value: i32,
+    parent: Option<weak TreeNode>,
+    children: TreeNode[],
+}
+
+fn main() {
+    // --- Basic weak reference ---
+    let strong = Node { value: 42, children: [] };
+    let weak r = strong;
+
+    // --- Upgrade a weak reference ---
+    match r.upgrade() {
+        Some(node) => println(f"Value: {node.value}"),
+        None => println("Object has been deallocated"),
+    }
+
+    // --- Weak reference survives while strong reference exists ---
+    let s1 = Node { value: 100, children: [] };
+    let weak w1 = s1;
+    // s1 is still alive, so upgrade succeeds
+    if let Some(n) = w1.upgrade() {
+        let val = n.value;
+    }
+
+    // --- Multiple weak references to same object ---
+    let shared = Node { value: 7, children: [] };
+    let weak w_a = shared;
+    let weak w_b = shared;
+    let weak w_c = shared;
+
+    // All upgrades should succeed while shared is alive
+    match w_a.upgrade() {
+        Some(n) => println(f"w_a: {n.value}"),
+        None => println("w_a: gone"),
+    }
+
+    // --- Weak references in a tree structure (breaking cycles) ---
+    let mut root = TreeNode {
+        value: 1,
+        parent: None,
+        children: [],
+    };
+
+    let weak wr = root;
+    let child = TreeNode {
+        value: 2,
+        parent: Some(wr),
+        children: [],
+    };
+
+    root.children.push(child);
+
+    // --- Accessing parent through weak reference ---
+    let first_child = root.children[0];
+    match first_child.parent {
+        Some(weak_parent) => {
+            match weak_parent.upgrade() {
+                Some(parent) => println(f"Parent value: {parent.value}"),
+                None => println("Parent deallocated"),
+            }
+        },
+        None => println("No parent"),
+    }
+
+    // --- Weak reference does not prevent deallocation ---
+    let weak dangling = {
+        let temporary = Node { value: 999, children: [] };
+        let weak w = temporary;
+        w
+        // temporary goes out of scope here, strong count -> 0
+    };
+
+    // Upgrade should return None since the object was deallocated
+    match dangling.upgrade() {
+        Some(n) => println(f"Still alive: {n.value}"),
+        None => println("Correctly deallocated"),
+    }
+}

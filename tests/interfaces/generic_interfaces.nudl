@@ -1,0 +1,234 @@
+// Test: Generic interfaces — interface Iterator<T>, implementing for custom types
+
+// Generic interface with a single type parameter
+interface Iterator<T> {
+    fn next(mut self) -> Option<T>;
+}
+
+// Generic interface with multiple type parameters
+interface Converter<From, To> {
+    fn convert(self, value: From) -> To;
+}
+
+// Generic interface with a default method
+interface Container<T> {
+    fn get(self, index: i32) -> Option<T>;
+    fn len(self) -> i32;
+
+    fn is_empty(self) -> bool {
+        self.len() == 0
+    }
+}
+
+// --- Custom types implementing generic interfaces ---
+
+// A range iterator
+struct RangeIter {
+    current: i32,
+    end: i32,
+}
+
+impl RangeIter {
+    fn new(start: i32, end: i32) -> RangeIter {
+        RangeIter { current: start, end }
+    }
+}
+
+impl Iterator<i32> for RangeIter {
+    fn next(mut self) -> Option<i32> {
+        if self.current < self.end {
+            let val = self.current;
+            self.current += 1;
+            Some(val)
+        } else {
+            None
+        }
+    }
+}
+
+// An iterator over array elements
+struct ArrayIter {
+    items: string[],
+    index: i32,
+}
+
+impl ArrayIter {
+    fn new(items: string[]) -> ArrayIter {
+        ArrayIter { items, index: 0 }
+    }
+}
+
+impl Iterator<string> for ArrayIter {
+    fn next(mut self) -> Option<string> {
+        if self.index < self.items.len() as i32 {
+            let item = self.items[self.index];
+            self.index += 1;
+            Some(item)
+        } else {
+            None
+        }
+    }
+}
+
+// A fibonacci iterator
+struct FibIter {
+    a: i64,
+    b: i64,
+    count: i32,
+    max: i32,
+}
+
+impl FibIter {
+    fn new(max: i32) -> FibIter {
+        FibIter { a: 0, b: 1, count: 0, max }
+    }
+}
+
+impl Iterator<i64> for FibIter {
+    fn next(mut self) -> Option<i64> {
+        if self.count >= self.max {
+            return None;
+        }
+        let value = self.a;
+        let temp = self.a + self.b;
+        self.a = self.b;
+        self.b = temp;
+        self.count += 1;
+        Some(value)
+    }
+}
+
+// --- Converter implementations ---
+
+struct IntToString;
+
+impl Converter<i32, string> for IntToString {
+    fn convert(self, value: i32) -> string {
+        f"{value}"
+    }
+}
+
+struct CelsiusToFahrenheit;
+
+impl Converter<f64, f64> for CelsiusToFahrenheit {
+    fn convert(self, value: f64) -> f64 {
+        value * 9.0 / 5.0 + 32.0
+    }
+}
+
+// --- Container implementation ---
+
+struct IntBuffer {
+    data: i32[],
+}
+
+impl IntBuffer {
+    fn new() -> IntBuffer {
+        IntBuffer { data: [] }
+    }
+
+    fn push(mut self, value: i32) {
+        self.data.push(value);
+    }
+}
+
+impl Container<i32> for IntBuffer {
+    fn get(self, index: i32) -> Option<i32> {
+        if index >= 0 && index < self.data.len() as i32 {
+            Some(self.data[index])
+        } else {
+            None
+        }
+    }
+
+    fn len(self) -> i32 {
+        self.data.len() as i32
+    }
+    // is_empty() uses the default implementation
+}
+
+// --- Functions using generic interface bounds ---
+
+fn collect_all<T>(mut iter: impl Iterator<T>) -> T[] {
+    let mut result: T[] = [];
+    while let Some(item) = iter.next() {
+        result.push(item);
+    }
+    result
+}
+
+fn count_items<T>(mut iter: impl Iterator<T>) -> i32 {
+    let mut count = 0;
+    while let Some(_) = iter.next() {
+        count += 1;
+    }
+    count
+}
+
+fn main() {
+    // --- RangeIter implementing Iterator<i32> ---
+    let mut range = RangeIter::new(0, 5);
+    println("Range 0..5:");
+    while let Some(n) = range.next() {
+        println(f"  {n}");
+    }
+
+    // --- ArrayIter implementing Iterator<string> ---
+    let mut arr_iter = ArrayIter::new(["alpha", "beta", "gamma"]);
+    println("Array items:");
+    while let Some(s) = arr_iter.next() {
+        println(f"  {s}");
+    }
+
+    // --- FibIter implementing Iterator<i64> ---
+    let mut fib = FibIter::new(8);
+    println("Fibonacci (first 8):");
+    while let Some(n) = fib.next() {
+        println(f"  {n}");
+    }
+
+    // --- collect_all with different iterators ---
+    let range_items = collect_all(RangeIter::new(10, 15));
+    println(f"Collected range: {range_items.len()} items");
+
+    let fib_items = collect_all(FibIter::new(6));
+    println(f"Collected fib: {fib_items.len()} items");
+
+    // --- count_items ---
+    let n = count_items(RangeIter::new(0, 100));
+    println(f"Count of 0..100: {n}");
+
+    // --- Converter<i32, string> ---
+    let conv = IntToString;
+    let s = conv.convert(42);
+    println(f"42 as string: \"{s}\"");
+
+    // --- Converter<f64, f64> ---
+    let temp_conv = CelsiusToFahrenheit;
+    let f = temp_conv.convert(100.0);
+    println(f"100C in F: {f}");
+    let f2 = temp_conv.convert(0.0);
+    println(f"0C in F: {f2}");
+
+    // --- Container<i32> ---
+    let mut buf = IntBuffer::new();
+    println(f"Empty buffer, is_empty: {buf.is_empty()}");   // true (default method)
+
+    buf.push(10);
+    buf.push(20);
+    buf.push(30);
+    println(f"Buffer length: {buf.len()}");
+    println(f"Buffer is_empty: {buf.is_empty()}");          // false
+
+    match buf.get(1) {
+        Some(v) => println(f"buf[1] = {v}"),               // 20
+        None => println("out of bounds"),
+    }
+
+    match buf.get(99) {
+        Some(v) => println(f"buf[99] = {v}"),
+        None => println("buf[99] out of bounds"),           // this branch
+    }
+
+    println("All generic interface tests passed");
+}

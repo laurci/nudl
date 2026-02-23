@@ -1,0 +1,63 @@
+// Test: Character type — char
+// Covers: single character literals, escape sequences, unicode escapes,
+//         char is 4 bytes (Unicode scalar value)
+
+fn main() {
+    // --- Basic character literals ---
+    let a = 'a';
+    let z = 'Z';
+    let digit = '9';
+    let space = ' ';
+
+    // --- Explicit type annotation ---
+    let typed: char = 'x';
+
+    // --- Escape sequences ---
+    let newline = '\n';
+    let tab = '\t';
+    let carriage = '\r';
+    let backslash = '\\';
+    let single_quote = '\'';
+    let double_quote = '\"';
+    let null_char = '\0';
+
+    // --- Hex escape (\xNN) ---
+    let hex_a = '\x41';
+    let hex_space = '\x20';
+    let hex_tilde = '\x7E';
+
+    // --- Unicode escape (\u{...}) ---
+    let alpha = '\u{03B1}';
+    let omega = '\u{03A9}';
+    let smiley = '\u{1F600}';
+    let snowman = '\u{2603}';
+    let heart = '\u{2764}';
+    let null_u = '\u{0000}';
+    let max_bmp = '\u{FFFF}';
+    let emoji = '\u{1F4A9}';
+
+    // --- Char in match ---
+    let ch = 'b';
+    let kind = match ch {
+        'a'..='z' => "lowercase",
+        'A'..='Z' => "uppercase",
+        '0'..='9' => "digit",
+        _ => "other",
+    };
+
+    // --- Char comparison ---
+    let is_lower = 'a' < 'z';
+    let is_equal = 'x' == 'x';
+    let is_not = 'a' != 'b';
+
+    // --- Char in conditions ---
+    let letter = 'G';
+    if letter == 'G' {
+        let found = true;
+    }
+
+    // --- Char stored in tuple ---
+    let pair = ('H', 'i');
+    let first = pair.0;
+    let second = pair.1;
+}

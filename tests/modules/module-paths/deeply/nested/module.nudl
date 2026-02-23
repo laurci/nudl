@@ -1,0 +1,25 @@
+// Module: deeply::nested::module
+// Provides items at a deeply nested module path for import testing.
+
+pub struct DeepItem {
+    pub value: i32,
+    pub label: string,
+}
+
+impl DeepItem {
+    pub fn new(value: i32, label: string) -> DeepItem {
+        DeepItem { value, label }
+    }
+
+    pub fn describe(self) -> string {
+        f"DeepItem({self.value}, {self.label})"
+    }
+}
+
+pub fn deep_function() -> string {
+    "called from deeply::nested::module"
+}
+
+pub fn deep_add(a: i32, b: i32) -> i32 {
+    a + b
+}

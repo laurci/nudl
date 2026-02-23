@@ -1,0 +1,79 @@
+// Test: Generic enums — enum Result<T, E>, enum with type parameters
+
+// Custom generic enum
+enum Either<L, R> {
+    Left(L),
+    Right(R),
+}
+
+// Generic enum with struct variant
+enum Tree<T> {
+    Leaf(T),
+    Branch { left: Tree<T>, right: Tree<T> },
+}
+
+// Single type parameter enum
+enum Container<T> {
+    Empty,
+    Single(T),
+    Multiple(T[]),
+}
+
+impl<L: Printable, R: Printable> Either<L, R> {
+    fn is_left(self) -> bool {
+        match self {
+            Either::Left(_) => true,
+            Either::Right(_) => false,
+        }
+    }
+
+    fn describe(self) -> string {
+        match self {
+            Either::Left(l) => f"Left({l.to_string()})",
+            Either::Right(r) => f"Right({r.to_string()})",
+        }
+    }
+}
+
+impl<T: Printable> Container<T> {
+    fn count(self) -> i32 {
+        match self {
+            Container::Empty => 0,
+            Container::Single(_) => 1,
+            Container::Multiple(items) => items.len() as i32,
+        }
+    }
+}
+
+fn main() {
+    // Using built-in Result<T, E>
+    let ok: Result<i32, string> = Ok(42);
+    let err: Result<i32, string> = Err("oops");
+
+    // Using built-in Option<T>
+    let some: Option<f64> = Some(3.14);
+    let none: Option<f64> = None;
+
+    // Custom generic enums
+    let left: Either<i32, string> = Either::Left(42);
+    let right: Either<i32, string> = Either::Right("hello");
+
+    // Enum with different concrete types
+    let str_either: Either<string, i32> = Either::Left("text");
+
+    // Container enum
+    let empty: Container<i32> = Container::Empty;
+    let single = Container::Single(42);
+    let multi = Container::Multiple([1, 2, 3]);
+
+    println(f"left: {left.describe()}");
+    println(f"right: {right.describe()}");
+    println(f"empty count: {empty.count()}");
+    println(f"multi count: {multi.count()}");
+
+    // Pattern matching on generic enums
+    match ok {
+        Ok(v) => println(f"Ok: {v}"),
+        Err(e) => println(f"Err: {e}"),
+    }
+}

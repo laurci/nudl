@@ -1,0 +1,80 @@
+// Test: Comptime functions — comptime fn, only callable in comptime context
+//
+// A comptime function can only be called in a comptime context. It has full
+// access to type reflection and code generation via quote.
+
+// --- Simple comptime function returning a value ---
+comptime fn factorial(n: u64) -> u64 {
+    if n <= 1 {
+        1
+    } else {
+        n * factorial(n - 1)
+    }
+}
+
+// --- Comptime function that generates code ---
+comptime fn make_constant(name: string, value: i32) {
+    quote {
+        fn ${name}() -> i32 {
+            ${value}
+        }
+    }
+}
+
+// --- Comptime function generating a struct ---
+comptime fn make_pair_struct(name: string, t1: type, t2: type) {
+    quote {
+        struct ${name} {
+            first: ${t1},
+            second: ${t2},
+        }
+    }
+}
+
+// --- Comptime function with array operations ---
+comptime fn sum_array(arr: i32[]) -> i32 {
+    let mut total = 0;
+    for val in arr {
+        total = total + val;
+    }
+    total
+}
+
+// --- Generate items using comptime functions ---
+comptime {
+    make_constant("get_magic", value: 42);
+    make_constant("get_zero", value: 0);
+    make_pair_struct("IntPair", t1: i32, t2: i32);
+    make_pair_struct("StringInt", t1: string, t2: i32);
+}
+
+fn main() {
+    // --- Use comptime function result as constant ---
+    let fact5 = comptime { factorial(5) };
+    assert(fact5 == 120, "5! should be 120");
+
+    let fact10 = comptime { factorial(10) };
+    assert(fact10 == 3628800, "10! should be 3628800");
+
+    // --- Use generated constant functions ---
+    assert(get_magic() == 42, "get_magic should return 42");
+    assert(get_zero() == 0, "get_zero should return 0");
+
+    // --- Use generated structs ---
+    let ip = IntPair { first: 10, second: 20 };
+    assert(ip.first == 10, "IntPair.first should be 10");
+    assert(ip.second == 20, "IntPair.second should be 20");
+
+    let si = StringInt { first: "hello", second: 42 };
+    assert(si.first == "hello", "StringInt.first should be 'hello'");
+    assert(si.second == 42, "StringInt.second should be 42");
+
+    // --- Comptime function with array ---
+    let total = comptime { sum_array([1, 2, 3, 4, 5]) };
+    assert(total == 15, "sum of 1..5 should be 15");
+
+    // --- Comptime function cannot be called at runtime ---
+    // factorial(5);  // ERROR: comptime fn called in runtime context
+
+    println("comptime_function: all assertions passed");
+}

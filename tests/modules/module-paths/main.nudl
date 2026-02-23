@@ -1,0 +1,44 @@
+// Test: Module paths — deeply nested imports
+//
+// Verifies that modules can be nested multiple levels deep and that items
+// can be imported from deeply nested paths using :: separators.
+
+import deeply::deeply_function;
+import deeply::nested::nested_helper;
+import deeply::nested::module::{DeepItem, deep_function, deep_add};
+
+fn main() {
+    // --- Import from first level ---
+    let result1 = deeply_function();
+    assert(result1 == "called from deeply", "deeply_function should work");
+
+    // --- Import from second level ---
+    let result2 = nested_helper();
+    assert(result2 == "called from deeply::nested", "nested_helper should work");
+
+    // --- Import from third level (deepest) ---
+    let result3 = deep_function();
+    assert(result3 == "called from deeply::nested::module", "deep_function should work");
+
+    let sum = deep_add(10, 20);
+    assert(sum == 30, "deep_add(10, 20) should be 30");
+
+    // --- Struct from deepest module ---
+    let item = DeepItem::new(42, label: "deep");
+    assert(item.value == 42, "DeepItem value should be 42");
+    assert(item.label == "deep", "DeepItem label should be 'deep'");
+
+    let desc = item.describe();
+    assert(desc == "DeepItem(42, deep)", "describe should format correctly");
+
+    // --- Use deeply nested types in collections ---
+    let items: DeepItem[] = [
+        DeepItem::new(1, label: "first"),
+        DeepItem::new(2, label: "second"),
+        DeepItem::new(3, label: "third"),
+    ];
+    assert(items.len() == 3, "should have 3 deep items");
+    assert(items[2].value == 3, "third item value should be 3");
+
+    println("module-paths: all assertions passed");
+}

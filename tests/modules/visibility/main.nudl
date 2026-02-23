@@ -1,0 +1,67 @@
+// Test: Visibility — pub vs private access
+//
+// Verifies that:
+// - `pub` items are accessible from importing modules
+// - Private items are NOT accessible
+// - Struct fields have independent visibility
+// - All enum variants of a pub enum are public
+
+import lib::{Config, Status, create_default_config, Describable, DEFAULT_PORT, MAX_CONNECTIONS};
+
+fn main() {
+    // --- Public struct with public constructor ---
+    let cfg = Config::new("example.com", port: 443, secret_key: "my-secret");
+    assert(cfg.host == "example.com", "public field host accessible");
+    assert(cfg.port == 443, "public field port accessible");
+
+    // Private field is NOT directly accessible:
+    // cfg.secret_key;  // ERROR: field `secret_key` is private
+
+    // But public methods can access private fields internally
+    assert(cfg.has_secret() == true, "has_secret should return true");
+
+    // Private method is NOT accessible:
+    // cfg.internal_validate();  // ERROR: method is private
+
+    // --- Public function ---
+    let default_cfg = create_default_config();
+    assert(default_cfg.host == "localhost", "default host should be localhost");
+    assert(default_cfg.port == 8080, "default port should be 8080");
+
+    // --- Private function not importable ---
+    // generate_key();  // ERROR: not in scope (private)
+
+    // --- Public enum: all variants accessible ---
+    let s1 = Status::Active;
+    let s2 = Status::Inactive;
+    let s3 = Status::Pending("waiting for approval");
+
+    match s1 {
+        Status::Active => { /* expected */ },
+        _ => assert(false, "s1 should be Active"),
+    }
+
+    match s3 {
+        Status::Pending(msg) => assert(msg == "waiting for approval", "pending message"),
+        _ => assert(false, "s3 should be Pending"),
+    }
+
+    // --- Public constants accessible ---
+    assert(DEFAULT_PORT == 8080, "pub const DEFAULT_PORT accessible");
+    assert(MAX_CONNECTIONS == 1000, "pub const MAX_CONNECTIONS accessible");
+
+    // --- Private constant not importable ---
+    // INTERNAL_TIMEOUT;  // ERROR: not in scope (private)
+
+    // --- Public constant usable in expressions ---
+    let custom_port = DEFAULT_PORT + 1;
+    assert(custom_port == 8081, "can use pub const in expressions");
+
+    // --- Private struct not importable ---
+    // InternalState { counter: 0 };  // ERROR: InternalState not in scope
+
+    // --- Cannot construct pub struct with private fields from outside ---
+    // Config { host: "x", port: 80, secret_key: "y" };  // ERROR: secret_key is private
+
+    println("visibility: all assertions passed");
+}

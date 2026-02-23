@@ -1,0 +1,93 @@
+// Test: Mutability — let vs let mut, aliased mutation through shared refs
+//
+// Mutability is a property of bindings, not types. `let` creates an immutable
+// binding; `let mut` creates a mutable one. Reference types share allocation
+// via ARC, so aliased mutation is visible through all mutable bindings.
+
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+struct Counter {
+    value: i32,
+}
+
+impl Counter {
+    fn get(self) -> i32 { self.value }
+    fn increment(mut self) { self.value = self.value + 1; }
+}
+
+fn main() {
+    // --- Immutable binding cannot be reassigned ---
+    let x: i32 = 42;
+    // x = 99;  // ERROR: x is not mut
+    assert(x == 42, "immutable binding should hold its value");
+
+    // --- Mutable binding can be reassigned ---
+    let mut y: i32 = 42;
+    y = 99;
+    assert(y == 99, "mutable binding should accept reassignment");
+
+    // --- Immutable struct binding: fields cannot be mutated ---
+    let p = Point { x: 1.0, y: 2.0 };
+    // p.x = 5.0;  // ERROR: p is not mut
+    assert(p.x == 1.0, "immutable struct field unchanged");
+
+    // --- Mutable struct binding: fields can be mutated ---
+    let mut q = Point { x: 1.0, y: 2.0 };
+    q.x = 5.0;
+    q.y = 10.0;
+    assert(q.x == 5.0, "mutable struct field can be changed");
+    assert(q.y == 10.0, "mutable struct field can be changed");
+
+    // --- Aliased mutation through shared references ---
+    let mut a = Point { x: 1.0, y: 2.0 };
+    let mut b = a; // b aliases a (shared ARC allocation)
+    b.x = 5.0;
+    assert(a.x == 5.0, "a.x should reflect mutation through b (aliased)");
+    assert(b.x == 5.0, "b.x should be 5.0");
+
+    a.y = 99.0;
+    assert(b.y == 99.0, "b.y should reflect mutation through a");
+
+    // --- Aliased mutation with dynamic arrays ---
+    let mut arr1: i32[] = [1, 2, 3];
+    let mut arr2 = arr1; // shared
+    arr2.push(4);
+    assert(arr1.len() == 4, "arr1 should see element pushed via arr2");
+    assert(arr1[3] == 4, "arr1 should see the value pushed via arr2");
+
+    // --- Immutable binding to shared ref: cannot mutate through it ---
+    let mut source = Point { x: 0.0, y: 0.0 };
+    let alias = source; // immutable binding, but same allocation
+    // alias.x = 5.0;  // ERROR: alias is not mut
+    source.x = 5.0;    // OK: source is mut
+    assert(alias.x == 5.0, "alias sees mutation through source (shared alloc)");
+
+    // --- Method receivers: self vs mut self ---
+    let counter = Counter { value: 0 };
+    let val = counter.get(); // OK: get takes immutable self
+    assert(val == 0, "get on immutable counter works");
+    // counter.increment();  // ERROR: counter is not mut
+
+    let mut mut_counter = Counter { value: 0 };
+    mut_counter.increment(); // OK: mut_counter is mut, increment takes mut self
+    mut_counter.increment();
+    assert(mut_counter.get() == 2, "counter should be 2 after two increments");
+
+    // --- Mutable binding in loop ---
+    let mut sum = 0;
+    for i in 1..=5 {
+        sum = sum + i;
+    }
+    assert(sum == 15, "sum of 1..=5 should be 15");
+
+    // --- Nested mutable fields ---
+    let mut outer = Point { x: 0.0, y: 0.0 };
+    let mut inner = outer;
+    inner.x = 42.0;
+    assert(outer.x == 42.0, "nested alias mutation visible");
+
+    println("mutability: all assertions passed");
+}

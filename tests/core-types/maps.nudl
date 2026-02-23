@@ -1,0 +1,63 @@
+// Test: Map type — Map<K, V>
+// Covers: Map::new(), insert, get (returns Option), index access,
+//         iteration, reference semantics
+
+fn main() {
+    // --- Construction with Map::new() ---
+    let mut scores: Map<string, i32> = Map::new();
+
+    // --- Insert ---
+    scores.insert("alice", 100);
+    scores.insert("bob", 85);
+    scores.insert("charlie", 92);
+
+    // --- Get returns Option<V> ---
+    let alice_score = scores.get("alice");
+    let unknown = scores.get("unknown");
+
+    // --- Match on get result ---
+    match scores.get("bob") {
+        Some(score) => println(f"Bob's score: {score}"),
+        None => println("Bob not found"),
+    }
+
+    // --- Index access (operator []) ---
+    let mut config: Map<string, string> = Map::new();
+    config["host"] = "localhost";
+    config["port"] = "8080";
+    let host = config["host"];
+
+    // --- Map<i32, string> ---
+    let mut id_names: Map<i32, string> = Map::new();
+    id_names.insert(1, "one");
+    id_names.insert(2, "two");
+    id_names.insert(3, "three");
+
+    // --- Iteration over map ---
+    for (key, value) in scores {
+        println(f"{key}: {value}");
+    }
+
+    // --- Reference semantics: assignment shares ---
+    let mut original: Map<string, i32> = Map::new();
+    original.insert("key", 42);
+    let alias = original;
+    // alias and original share the same map
+
+    // --- Overwriting existing key ---
+    let mut m: Map<string, i32> = Map::new();
+    m.insert("x", 1);
+    m.insert("x", 2);
+
+    // --- Map with complex value types ---
+    let mut nested: Map<string, i32[]> = Map::new();
+    nested.insert("primes", [2, 3, 5, 7, 11]);
+    nested.insert("evens", [2, 4, 6, 8, 10]);
+
+    // --- Empty map check pattern ---
+    let empty: Map<string, i32> = Map::new();
+    match empty.get("any") {
+        Some(v) => println(f"found: {v}"),
+        None => println("empty as expected"),
+    }
+}

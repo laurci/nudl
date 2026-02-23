@@ -1,0 +1,120 @@
+// Test: AST inspection — ast_of(item), reading function/struct AST
+//
+// The ast_of() function provides read-only access to the AST of existing
+// items. AST nodes can be inspected and used to drive code generation, but
+// cannot be mutated.
+
+struct Person {
+    name: string,
+    age: u32,
+}
+
+fn sample_function(x: i32, y: i32) -> i32 {
+    let sum = x + y;
+    sum * 2
+}
+
+fn simple_add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+// --- Inspect function AST and generate a wrapper ---
+comptime fn make_logged_wrapper(original_fn: fn) {
+    let info = ast_of(original_fn);
+    let name = info.name;
+    let wrapper_name = f"logged_{name}";
+    let params = info.params;
+    let ret_type = info.return_type;
+
+    quote {
+        fn ${wrapper_name}(${for (i, p) in params.enumerate() {
+            let pname = p.name;
+            let ptype = p.param_type;
+            if i > 0 {
+                quote { , ${pname}: ${ptype} }
+            } else {
+                quote { ${pname}: ${ptype} }
+            }
+        }}) -> ${ret_type} {
+            println(f"Calling ${name}");
+            let result = ${name}(${for (i, p) in params.enumerate() {
+                let pname = p.name;
+                if i > 0 {
+                    quote { , ${pname} }
+                } else {
+                    quote { ${pname} }
+                }
+            }});
+            println(f"Result: {result}");
+            result
+        }
+    }
+}
+
+// --- Inspect struct AST ---
+comptime {
+    let person_ast = ast_of(Person);
+    // Verify we can read struct information
+    let struct_name = person_ast.name;
+    let field_count = person_ast.fields.len();
+
+    // Generate a summary function based on AST inspection
+    quote {
+        fn person_info() -> string {
+            f"struct ${struct_name} has ${field_count} fields"
+        }
+    }
+}
+
+// --- Inspect function AST for parameter info ---
+comptime {
+    let fn_ast = ast_of(sample_function);
+    let fn_name = fn_ast.name;
+    let param_count = fn_ast.params.len();
+    let ret = type_name(fn_ast.return_type);
+
+    quote {
+        fn sample_function_info() -> string {
+            f"fn ${fn_name} has ${param_count} params, returns ${ret}"
+        }
+    }
+}
+
+// --- Check AST statement kinds ---
+comptime {
+    let fn_ast = ast_of(sample_function);
+    let body = fn_ast.body;
+    let stmt_count = body.statements.len();
+    let first_kind = body.statements[0].kind;
+
+    quote {
+        fn get_stmt_info() -> (i32, string) {
+            (${stmt_count}, ${first_kind})
+        }
+    }
+}
+
+fn main() {
+    // --- Struct AST inspection ---
+    let info = person_info();
+    assert(info == "struct Person has 2 fields", "person_info should describe Person");
+
+    // --- Function AST inspection ---
+    let fn_info = sample_function_info();
+    assert(fn_info == "fn sample_function has 2 params, returns i32",
+           "should describe sample_function");
+
+    // --- Statement kind inspection ---
+    let (count, kind) = get_stmt_info();
+    assert(count == 2, "sample_function should have 2 statements");
+    assert(kind == "let_binding", "first statement should be a let binding");
+
+    // --- Original functions still work ---
+    let result = sample_function(3, y: 4);
+    assert(result == 14, "sample_function(3, 4) should be 14");
+
+    let add_result = simple_add(10, b: 20);
+    assert(add_result == 30, "simple_add(10, 20) should be 30");
+
+    println("ast_inspection: all assertions passed");
+}

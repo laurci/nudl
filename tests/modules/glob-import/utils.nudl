@@ -1,0 +1,24 @@
+// Module: utils
+// Provides utility functions for glob import testing.
+
+pub fn helper1() -> string {
+    "helper1 called"
+}
+
+pub fn helper2() -> string {
+    "helper2 called"
+}
+
+pub fn format_name(first: string, last: string) -> string {
+    f"{first} {last}"
+}
+
+pub struct Pair {
+    pub a: i32,
+    pub b: i32,
+}
+
+// Private function — should NOT be visible via glob import
+fn secret() -> string {
+    "this is secret"
+}

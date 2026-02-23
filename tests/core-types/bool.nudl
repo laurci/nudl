@@ -1,0 +1,70 @@
+// Test: Boolean type — true, false
+// Covers: literal values, logical operators (&&, ||, !),
+//         short-circuit evaluation, booleans in conditions
+
+fn main() {
+    // --- Boolean literals ---
+    let t = true;
+    let f = false;
+
+    // --- Explicit type annotation ---
+    let explicit: bool = true;
+
+    // --- Logical NOT ---
+    let not_true = !true;
+    let not_false = !false;
+    let double_neg = !!true;
+
+    // --- Logical AND (short-circuit) ---
+    let and_tt = true && true;
+    let and_tf = true && false;
+    let and_ft = false && true;
+    let and_ff = false && false;
+
+    // --- Logical OR (short-circuit) ---
+    let or_tt = true || true;
+    let or_tf = true || false;
+    let or_ft = false || true;
+    let or_ff = false || false;
+
+    // --- Combination of logical operators ---
+    let complex1 = true && false || true;
+    let complex2 = (true || false) && (false || true);
+    let complex3 = !(true && false);
+    let complex4 = !true || !false;
+
+    // --- Boolean in if condition ---
+    let flag = true;
+    if flag {
+        let x = 1;
+    }
+
+    // --- Boolean as expression result ---
+    let is_positive = 42 > 0;
+    let is_zero = 0 == 0;
+    let not_equal = 1 != 2;
+
+    // --- Short-circuit evaluation demonstration ---
+    // In `false && expr`, expr should not be evaluated
+    let mut counter = 0;
+    let short_and = false && {
+        counter += 1;
+        true
+    };
+
+    // In `true || expr`, expr should not be evaluated
+    let short_or = true || {
+        counter += 1;
+        false
+    };
+
+    // --- Boolean in match ---
+    let msg = match flag {
+        true => "yes",
+        false => "no",
+    };
+
+    // --- Boolean comparison ---
+    let same = true == true;
+    let diff = true != false;
+}

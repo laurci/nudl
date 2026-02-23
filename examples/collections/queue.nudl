@@ -1,0 +1,55 @@
+// Queue — generic FIFO collection
+// Features: generic structs, Option, methods, bounds
+
+pub struct Queue<T> {
+    items: T[],
+}
+
+impl<T> Queue<T> {
+    pub fn new() -> Queue<T> {
+        Queue { items: [] }
+    }
+
+    pub fn enqueue(mut self, value: T) {
+        self.items.push(value);
+    }
+
+    pub fn dequeue(mut self) -> Option<T> {
+        if self.items.len() == 0 {
+            None
+        } else {
+            Some(self.items.remove(0))
+        }
+    }
+
+    pub fn front(self) -> Option<T> {
+        if self.items.len() == 0 {
+            None
+        } else {
+            Some(self.items[0])
+        }
+    }
+
+    pub fn len(self) -> u64 {
+        self.items.len()
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.items.len() == 0
+    }
+
+    pub fn clear(mut self) {
+        self.items = [];
+    }
+}
+
+impl<T: Printable> Printable for Queue<T> {
+    fn to_string(self) -> string {
+        let mut result = "Queue[";
+        for (i, item) in self.items.enumerate() {
+            if i > 0 { result = f"{result}, "; }
+            result = f"{result}{item.to_string()}";
+        }
+        f"{result}]"
+    }
+}

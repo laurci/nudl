@@ -1,0 +1,88 @@
+// Test: Type cast — `as` between numeric types
+// Covers: integer-to-integer, float-to-float, integer-to-float, float-to-integer,
+//         truncation behavior, sign extension, widening
+
+fn main() {
+    // --- Integer widening (no data loss) ---
+    let i8_val: i8 = 42i8;
+    let i16_from_i8 = i8_val as i16;
+    let i32_from_i8 = i8_val as i32;
+    let i64_from_i8 = i8_val as i64;
+
+    let u8_val: u8 = 200u8;
+    let u16_from_u8 = u8_val as u16;
+    let u32_from_u8 = u8_val as u32;
+    let u64_from_u8 = u8_val as u64;
+
+    // --- Integer truncation (potential data loss) ---
+    let big: i32 = 256;
+    let truncated_u8 = big as u8;
+    // 256 truncated to u8 wraps to 0
+
+    let large: i64 = 100_000;
+    let truncated_i16 = large as i16;
+
+    let max_u32: u32 = 4_000_000_000u32;
+    let truncated_i32 = max_u32 as i32;
+
+    // --- Signed to unsigned ---
+    let negative: i32 = -1;
+    let as_unsigned = negative as u32;
+
+    let neg_i8: i8 = -128i8;
+    let as_u8 = neg_i8 as u8;
+
+    // --- Unsigned to signed ---
+    let big_unsigned: u8 = 255u8;
+    let as_signed = big_unsigned as i8;
+
+    // --- Float widening ---
+    let f32_val: f32 = 3.14f32;
+    let f64_from_f32 = f32_val as f64;
+
+    // --- Float narrowing ---
+    let f64_val: f64 = 3.14159265358979;
+    let f32_from_f64 = f64_val as f32;
+
+    // --- Integer to float ---
+    let int_val: i32 = 42;
+    let as_f64 = int_val as f64;
+    let as_f32 = int_val as f32;
+
+    let big_int: i64 = 1_000_000_000;
+    let big_float = big_int as f64;
+
+    // --- Float to integer (truncation toward zero) ---
+    let pi = 3.14;
+    let pi_int = pi as i32;
+
+    let neg_pi = -3.14;
+    let neg_pi_int = neg_pi as i32;
+
+    let big_float: f64 = 1e10;
+    let big_int_from_float = big_float as i64;
+
+    // --- Cast in expressions ---
+    let a: i32 = 10;
+    let b: i32 = 3;
+    let ratio = a as f64 / b as f64;
+
+    // --- Cast with suffixed literals ---
+    let from_literal = 256i32 as u8;
+
+    // --- Chained casts ---
+    let chain = 42i8 as i32 as f64 as i64;
+
+    // --- Cast precedence (as has precedence 12, above multiplicative) ---
+    let prec = 10 as f64 * 2.0;
+    // Parsed as: (10 as f64) * 2.0
+
+    // --- Cast of u8 to i32 and back ---
+    let byte: u8 = 0xFF_u8;
+    let widened = byte as i32;
+    let narrowed = widened as u8;
+
+    // --- Common pattern: mixing integer sizes via cast ---
+    let index: u64 = 5;
+    let offset: i32 = index as i32;
+}

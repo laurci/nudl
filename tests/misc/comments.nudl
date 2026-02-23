@@ -1,0 +1,50 @@
+// Test: Comments — //, /* */, /* /* nested */ */
+
+// This is a line comment
+// Line comments extend to the end of the line
+
+/* This is a block comment */
+
+/* Block comments can
+   span multiple lines */
+
+/* Block comments /* can be /* deeply */ nested */ without issues */
+
+fn /* comments can appear */ main(/* even here */) {
+    // Comments in function body
+    let x = 42; // trailing comment
+
+    /* Multi-line comment
+       in function body */
+    let y = 10;
+
+    // Nested block comments are a feature of nudl
+    /* outer /* inner */ still outer */
+
+    // Comments don't affect code
+    let sum = x /* first operand */ + /* operator */ y /* second operand */;
+    println(f"sum = {sum}");
+
+    // Comments at the end of statements
+    let a = 1; // first
+    let b = 2; // second
+    let c = 3; // third
+
+    /* Block comment between statements */
+
+    let result = a + b + c;
+    println(f"result = {result}");
+
+    // Deeply nested block comments
+    /* level 1
+       /* level 2
+          /* level 3 */
+       back to level 2 */
+    back to level 1 */
+
+    // Comment containing code-like text
+    // let not_code = "this is just a comment";
+    /* fn not_a_function() {} */
+
+    println("Comments test complete");
+}

@@ -1,0 +1,74 @@
+// Test: Tuple types
+// Covers: construction, .0/.1 access, single-element (trailing comma),
+//         unit type as zero-element tuple, tuple destructuring, nested tuples
+
+fn returns_pair() -> (i32, string) {
+    (42, "hello")
+}
+
+fn main() {
+    // --- Basic tuple construction ---
+    let pair = (1, 2);
+    let triple = (1, "hello", true);
+    let mixed = (3.14, 'a', 42, "world");
+
+    // --- Element access by numeric index ---
+    let first = pair.0;
+    let second = pair.1;
+    let t_first = triple.0;
+    let t_second = triple.1;
+    let t_third = triple.2;
+
+    // --- Explicit type annotation ---
+    let typed: (i32, f64) = (10, 3.14);
+    let typed_triple: (bool, char, string) = (true, 'x', "hi");
+
+    // --- Single-element tuple (trailing comma required) ---
+    let single: (i32,) = (42,);
+    let single_val = single.0;
+
+    // --- Unit type is the zero-element tuple ---
+    let unit: () = ();
+
+    // --- Nested tuples ---
+    let nested = ((1, 2), (3, 4));
+    let inner = nested.0;
+    let deep = nested.0.0;
+    let deep2 = nested.1.1;
+
+    // --- Tuple with mixed value/reference types ---
+    let mixed_types = (42, "hello");
+    let int_part = mixed_types.0;
+    let str_part = mixed_types.1;
+
+    // --- Tuple from function return ---
+    let result = returns_pair();
+    let val = result.0;
+    let msg = result.1;
+
+    // --- Tuple destructuring in let ---
+    let (a, b) = (10, 20);
+    let (x, y, z) = (1, "two", 3.0);
+
+    // --- Tuple destructuring with wildcard ---
+    let (first_only, _) = (100, 200);
+    let (_, second_only) = (100, 200);
+
+    // --- Tuple in match ---
+    let point = (0, 5);
+    let desc = match point {
+        (0, 0) => "origin",
+        (x, 0) => f"on x-axis at {x}",
+        (0, y) => f"on y-axis at {y}",
+        (x, y) => f"at ({x}, {y})",
+    };
+
+    // --- Tuple comparison ---
+    let same = (1, 2) == (1, 2);
+    let diff = (1, 2) != (3, 4);
+
+    // --- Tuple as value type (copy semantics) ---
+    let original = (10, 20);
+    let mut copy = original;
+    // copy is independent of original for value-type tuples
+}

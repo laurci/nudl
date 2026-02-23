@@ -1,0 +1,78 @@
+// Test: String type — string
+// Covers: string literals, escape sequences (\n, \t, \\, \", \0, \xNN, \u{NNNN}),
+//         string is a reference type (heap-allocated, ARC'd), immutable content
+
+fn main() {
+    // --- Basic string literals ---
+    let empty = "";
+    let hello = "hello, world";
+    let single = "a";
+
+    // --- Explicit type annotation ---
+    let typed: string = "typed string";
+
+    // --- Escape sequences ---
+    let with_newline = "line one\nline two";
+    let with_tab = "col1\tcol2";
+    let with_cr = "before\rafter";
+    let with_backslash = "path\\to\\file";
+    let with_quote = "she said \"hello\"";
+    let with_null = "null byte: \0";
+
+    // --- Hex escape (\xNN) ---
+    let hex_a = "\x41";
+    let hex_hello = "\x48\x65\x6C\x6C\x6F";
+    let hex_space = "before\x20after";
+
+    // --- Unicode escape (\u{...}) ---
+    let unicode_alpha = "alpha: \u{03B1}";
+    let unicode_omega = "omega: \u{03A9}";
+    let unicode_smiley = "\u{1F600}";
+    let unicode_multi = "\u{0048}\u{0069}";
+
+    // --- Combined escapes in one string ---
+    let mixed = "tab:\there\nnewline\0null\\backslash\"quote";
+
+    // --- Multi-word strings ---
+    let sentence = "The quick brown fox jumps over the lazy dog.";
+    let numbers = "1 2 3 4 5";
+
+    // --- String is a reference type: assignment shares the allocation ---
+    let original = "shared";
+    let alias = original;
+
+    // --- String in let binding ---
+    let mut mutable_binding = "initial";
+    mutable_binding = "reassigned";
+
+    // --- String comparison ---
+    let eq = "abc" == "abc";
+    let neq = "abc" != "def";
+    let lt = "abc" < "def";
+    let gt = "xyz" > "abc";
+
+    // --- String in match ---
+    let greeting = "hello";
+    let response = match greeting {
+        "hello" => "hi there",
+        "goodbye" => "see you",
+        _ => "unknown",
+    };
+
+    // --- Empty string ---
+    let is_empty = "" == "";
+
+    // --- String with only escapes ---
+    let only_escapes = "\n\t\r\0\\\"";
+
+    // --- String .chars() iteration ---
+    // .chars() returns an iterator over the Unicode scalar values (char) of the string
+    for ch in "hello".chars() {
+        let is_char: char = ch;
+    }
+
+    // .chars() on string with multibyte characters
+    for ch in "\u{1F600}\u{1F601}".chars() {
+        let is_char: char = ch;
+    }
+}

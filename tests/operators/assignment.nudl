@@ -1,0 +1,104 @@
+// Test: Assignment operators — =, +=, -=, *=, /=, %=
+// Covers: simple assignment, compound assignment as syntactic sugar,
+//         assignment expressions have type (), mutable binding required
+
+fn main() {
+    // --- Simple assignment ---
+    let mut x = 0;
+    x = 42;
+    x = 100;
+
+    // --- Add-assign (+=) ---
+    let mut a = 10;
+    a += 5;
+    a += 1;
+
+    // --- Subtract-assign (-=) ---
+    let mut b = 100;
+    b -= 30;
+    b -= 5;
+
+    // --- Multiply-assign (*=) ---
+    let mut c = 3;
+    c *= 4;
+    c *= 2;
+
+    // --- Divide-assign (/=) ---
+    let mut d = 100;
+    d /= 5;
+    d /= 2;
+
+    // --- Remainder-assign (%=) ---
+    let mut e = 17;
+    e %= 5;
+    e %= 3;
+
+    // --- Compound assignment on floats ---
+    let mut f = 1.0;
+    f += 0.5;
+    f -= 0.25;
+    f *= 2.0;
+    f /= 3.0;
+    f %= 1.0;
+
+    // --- Compound assignment on different integer types ---
+    let mut u8_val: u8 = 10;
+    u8_val += 5u8;
+    u8_val -= 3u8;
+
+    let mut i64_val: i64 = 1000;
+    i64_val *= 2i64;
+    i64_val /= 5i64;
+
+    // --- Assignment expressions have type () ---
+    let mut v = 0;
+    let unit_result = {
+        v = 42;
+        // The assignment expression yields ()
+    };
+
+    // --- Chained compound assignments (sequential) ---
+    let mut n = 1;
+    n += 1;
+    n *= 3;
+    n -= 2;
+    n /= 1;
+    n %= 10;
+
+    // --- Assignment to fields ---
+    struct Point { x: f64, y: f64 }
+    let mut p = Point { x: 1.0, y: 2.0 };
+    p.x = 10.0;
+    p.y = 20.0;
+
+    // --- Assignment to array elements ---
+    let mut arr: i32[] = [1, 2, 3];
+    arr[0] = 100;
+    arr[1] = 200;
+    arr[2] = 300;
+
+    // --- Assignment to map entries ---
+    let mut m: Map<string, i32> = Map::new();
+    m["key"] = 42;
+    m["key"] = 84;
+
+    // --- Compound assignment in loops ---
+    let mut sum = 0;
+    for i in 0..10 {
+        sum += i;
+    }
+
+    let mut product = 1;
+    let mut i = 1;
+    while i <= 5 {
+        product *= i;
+        i += 1;
+    }
+
+    // --- Right-associativity of assignment ---
+    let mut x1 = 0;
+    let mut x2 = 0;
+    // Not chained in same expression (nudl assigns one at a time)
+    x1 = 42;
+    x2 = x1;
+}

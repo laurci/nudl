@@ -1,0 +1,178 @@
+// Test: Methods via impl blocks.
+//       - self (immutable receiver)
+//       - mut self (mutable receiver)
+//       - Static methods (no self parameter)
+//       - Multiple impl blocks for the same type
+
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+impl Point {
+    // Static method (constructor) - no self parameter
+    fn new(x: f64, y: f64) -> Point {
+        Point { x, y }
+    }
+
+    // Static method: origin
+    fn origin() -> Point {
+        Point { x: 0.0, y: 0.0 }
+    }
+
+    // Immutable method: reads self
+    fn magnitude(self) -> f64 {
+        (self.x * self.x + self.y * self.y).sqrt()
+    }
+
+    // Immutable method: returns a new value based on self
+    fn distance_to(self, other: Point) -> f64 {
+        let dx = self.x - other.x;
+        let dy = self.y - other.y;
+        (dx * dx + dy * dy).sqrt()
+    }
+
+    // Immutable method: returns string representation
+    fn to_string(self) -> string {
+        f"({self.x}, {self.y})"
+    }
+}
+
+// Second impl block for the same type (allowed in same module)
+impl Point {
+    // Mutable method: modifies self in place
+    fn translate(mut self, dx: f64, dy: f64) {
+        self.x = self.x + dx;
+        self.y = self.y + dy;
+    }
+
+    // Mutable method: scale both coordinates
+    fn scale(mut self, factor: f64) {
+        self.x = self.x * factor;
+        self.y = self.y * factor;
+    }
+
+    // Method returning self type for information
+    fn negated(self) -> Point {
+        Point { x: -self.x, y: -self.y }
+    }
+}
+
+struct Counter {
+    value: i32,
+    step: i32,
+}
+
+impl Counter {
+    fn new(step: i32 = 1) -> Counter {
+        Counter { value: 0, step }
+    }
+
+    fn current(self) -> i32 {
+        self.value
+    }
+
+    fn increment(mut self) {
+        self.value = self.value + self.step;
+    }
+
+    fn decrement(mut self) {
+        self.value = self.value - self.step;
+    }
+
+    fn reset(mut self) {
+        self.value = 0;
+    }
+}
+
+struct Rectangle {
+    width: f64,
+    height: f64,
+}
+
+impl Rectangle {
+    fn new(width: f64, height: f64) -> Rectangle {
+        Rectangle { width, height }
+    }
+
+    fn area(self) -> f64 {
+        self.width * self.height
+    }
+
+    fn perimeter(self) -> f64 {
+        2.0 * (self.width + self.height)
+    }
+
+    fn is_square(self) -> bool {
+        self.width == self.height
+    }
+
+    // Mutable method
+    fn double_size(mut self) {
+        self.width = self.width * 2.0;
+        self.height = self.height * 2.0;
+    }
+
+    // Static method
+    fn square(side: f64) -> Rectangle {
+        Rectangle { width: side, height: side }
+    }
+}
+
+fn main() {
+    // Static method calls
+    let p1 = Point::new(3.0, y: 4.0);
+    let p2 = Point::origin();
+    println(f"p1 = {p1.to_string()}");
+    println(f"p2 = {p2.to_string()}");
+
+    // Immutable method calls
+    let mag = p1.magnitude();
+    println(f"p1.magnitude() = {mag}");
+
+    let dist = p1.distance_to(p2);
+    println(f"p1.distance_to(origin) = {dist}");
+
+    // Mutable method calls
+    let mut p3 = Point::new(1.0, y: 2.0);
+    println(f"p3 before translate = {p3.to_string()}");
+    p3.translate(10.0, dy: 20.0);
+    println(f"p3 after translate = {p3.to_string()}");
+
+    p3.scale(2.0);
+    println(f"p3 after scale(2) = {p3.to_string()}");
+
+    // Method returning new value
+    let p4 = p1.negated();
+    println(f"p1.negated() = {p4.to_string()}");
+
+    // Counter with methods
+    let mut c = Counter::new();
+    println(f"counter = {c.current()}");
+    c.increment();
+    c.increment();
+    c.increment();
+    println(f"counter after 3 increments = {c.current()}");
+    c.decrement();
+    println(f"counter after decrement = {c.current()}");
+    c.reset();
+    println(f"counter after reset = {c.current()}");
+
+    // Counter with custom step
+    let mut c2 = Counter::new(step: 5);
+    c2.increment();
+    c2.increment();
+    println(f"counter(step=5) after 2 increments = {c2.current()}");
+
+    // Rectangle
+    let mut rect = Rectangle::new(10.0, height: 5.0);
+    println(f"area = {rect.area()}, perimeter = {rect.perimeter()}");
+    println(f"is_square = {rect.is_square()}");
+
+    rect.double_size();
+    println(f"after double: area = {rect.area()}");
+
+    // Static method creating a square
+    let sq = Rectangle::square(7.0);
+    println(f"square is_square = {sq.is_square()}, area = {sq.area()}");
+}

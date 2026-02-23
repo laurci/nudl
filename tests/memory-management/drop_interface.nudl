@@ -1,0 +1,122 @@
+// Test: Drop interface — custom cleanup via Drop, reverse declaration order
+//
+// The Drop interface provides custom cleanup logic. drop() is called
+// automatically when a reference type's strong count reaches zero or a value
+// type with Drop goes out of scope. Within a scope, values are dropped in
+// reverse declaration order.
+
+struct DropLog {
+    order: string[],
+}
+
+impl DropLog {
+    fn new() -> DropLog {
+        DropLog { order: [] }
+    }
+}
+
+struct Logger {
+    name: string,
+    log: DropLog,
+}
+
+impl Drop for Logger {
+    fn drop(mut self) {
+        self.log.order.push(self.name);
+    }
+}
+
+struct FileHandle {
+    path: string,
+    fd: i32,
+    log: DropLog,
+}
+
+impl Drop for FileHandle {
+    fn drop(mut self) {
+        self.log.order.push(f"close:{self.path}");
+    }
+}
+
+struct Parent {
+    name: string,
+    child: Logger,
+    log: DropLog,
+}
+
+impl Drop for Parent {
+    fn drop(mut self) {
+        self.log.order.push(f"parent:{self.name}");
+        // child's drop will be called automatically after Parent's drop
+    }
+}
+
+fn main() {
+    // --- Reverse declaration order ---
+    let log1 = DropLog::new();
+    {
+        let a = Logger { name: "first", log: log1 };
+        let b = Logger { name: "second", log: log1 };
+        let c = Logger { name: "third", log: log1 };
+        // Dropped in reverse order: c, b, a
+    }
+    assert(log1.order.len() == 3, "three items should be dropped");
+    assert(log1.order[0] == "third", "third declared should drop first");
+    assert(log1.order[1] == "second", "second declared should drop second");
+    assert(log1.order[2] == "first", "first declared should drop last");
+
+    // --- Drop for resource cleanup ---
+    let log2 = DropLog::new();
+    {
+        let f1 = FileHandle { path: "a.txt", fd: 1, log: log2 };
+        let f2 = FileHandle { path: "b.txt", fd: 2, log: log2 };
+        // f2 dropped first, then f1
+    }
+    assert(log2.order[0] == "close:b.txt", "b.txt should close first");
+    assert(log2.order[1] == "close:a.txt", "a.txt should close second");
+
+    // --- Drop not called when refcount > 0 ---
+    let log3 = DropLog::new();
+    {
+        let outer = {
+            let inner = Logger { name: "shared", log: log3 };
+            inner  // block expression returns this value
+        };
+        // inner went out of scope inside the block, but outer holds a ref, refcount -> 1, drop NOT called
+        assert(log3.order.len() == 0, "drop should not be called while outer holds ref");
+        // outer goes out of scope at end of this block, refcount -> 0, drop called
+    }
+    assert(log3.order.len() == 1, "shared should now be dropped");
+
+    // --- Nested struct drop ---
+    let log4 = DropLog::new();
+    {
+        let p = Parent {
+            name: "root",
+            child: Logger { name: "leaf", log: log4 },
+            log: log4,
+        };
+        // When p is dropped: Parent's drop runs, then child's drop runs
+    }
+    assert(log4.order.len() == 2, "parent and child should both be dropped");
+    assert(log4.order[0] == "parent:root", "parent drop should run first");
+    assert(log4.order[1] == "leaf", "child drop should run after parent");
+
+    // --- Drop in conditional branches ---
+    let log5 = DropLog::new();
+    let condition = true;
+    {
+        let always = Logger { name: "always", log: log5 };
+        if condition {
+            let conditional = Logger { name: "conditional", log: log5 };
+            // conditional dropped at end of if block
+        }
+        assert(log5.order.len() == 1, "conditional should be dropped");
+        assert(log5.order[0] == "conditional", "conditional dropped in if block");
+        // always dropped at end of outer block
+    }
+    assert(log5.order.len() == 2, "always should now be dropped");
+    assert(log5.order[1] == "always", "always dropped at scope exit");
+
+    println("drop_interface: all assertions passed");
+}

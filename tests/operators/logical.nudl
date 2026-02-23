@@ -1,0 +1,96 @@
+// Test: Logical operators — &&, ||, !, short-circuit evaluation
+// Covers: logical AND, logical OR, logical NOT, short-circuit behavior,
+//         operands must be bool, result is bool
+
+fn side_effect_true() -> bool {
+    println("evaluated true");
+    true
+}
+
+fn side_effect_false() -> bool {
+    println("evaluated false");
+    false
+}
+
+fn main() {
+    // --- Logical AND (&&) ---
+    let tt = true && true;
+    let tf = true && false;
+    let ft = false && true;
+    let ff = false && false;
+
+    // --- Logical OR (||) ---
+    let or_tt = true || true;
+    let or_tf = true || false;
+    let or_ft = false || true;
+    let or_ff = false || false;
+
+    // --- Logical NOT (!) ---
+    let not_t = !true;
+    let not_f = !false;
+    let double_not = !!true;
+    let triple_not = !!!false;
+
+    // --- Short-circuit AND: false && <expr> skips <expr> ---
+    // side_effect_true() should NOT be called here
+    let short_and = false && side_effect_true();
+
+    // --- Short-circuit AND: true && <expr> evaluates <expr> ---
+    let full_and = true && side_effect_false();
+
+    // --- Short-circuit OR: true || <expr> skips <expr> ---
+    // side_effect_false() should NOT be called here
+    let short_or = true || side_effect_false();
+
+    // --- Short-circuit OR: false || <expr> evaluates <expr> ---
+    let full_or = false || side_effect_true();
+
+    // --- Operator precedence: && binds tighter than || ---
+    // true || false && false  ==  true || (false && false)  ==  true
+    let prec1 = true || false && false;
+
+    // false && true || true  ==  (false && true) || true  ==  true
+    let prec2 = false && true || true;
+
+    // --- NOT binds tighter than AND/OR ---
+    // !false && true  ==  true && true  ==  true
+    let prec3 = !false && true;
+
+    // !true || false  ==  false || false  ==  false
+    let prec4 = !true || false;
+
+    // --- Grouping with parentheses ---
+    let grouped1 = !(true && false);
+    let grouped2 = !(true || false);
+    let grouped3 = (true || false) && (false || true);
+    let grouped4 = (true && false) || (true && true);
+
+    // --- Logical operators with comparison results ---
+    let x = 10;
+    let y = 20;
+    let both_positive = x > 0 && y > 0;
+    let either_zero = x == 0 || y == 0;
+    let neither_negative = !(x < 0) && !(y < 0);
+
+    // --- Complex boolean expressions ---
+    let a = true;
+    let b = false;
+    let c = true;
+    let complex = (a || b) && (b || c) && !(a && b && c);
+
+    // --- Logical operators in if condition ---
+    let age = 25;
+    let has_id = true;
+    if age >= 18 && has_id {
+        let allowed = true;
+    }
+
+    if age < 13 || age > 65 {
+        let discount = true;
+    }
+
+    // --- Chained logical operations ---
+    let chain_and = true && true && true && true;
+    let chain_or = false || false || false || true;
+    let chain_mixed = true && false || true && true;
+}

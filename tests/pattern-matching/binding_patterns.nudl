@@ -1,0 +1,109 @@
+// Test: Binding patterns — capture matched values to named variables.
+//       Bindings are available in the arm's guard and expression.
+
+fn main() {
+    // Simple binding: capture any value
+    let x = 42;
+    let desc = match x {
+        n => f"got {n}",
+    };
+    println(desc);
+
+    // Binding with guard to refine the match
+    let value = 75;
+    let category = match value {
+        n if n >= 90 => f"{n} is excellent",
+        n if n >= 70 => f"{n} is good",
+        n if n >= 50 => f"{n} is passing",
+        n => f"{n} is failing",
+    };
+    println(category);
+
+    // Binding inside enum pattern
+    let opt: Option<i32> = Some(100);
+    match opt {
+        Some(v) => println(f"Option contains: {v}"),
+        None => println("Option is empty"),
+    }
+
+    // Binding inside nested pattern
+    let nested: Option<Option<i32>> = Some(Some(42));
+    match nested {
+        Some(Some(inner)) => println(f"Deeply nested value: {inner}"),
+        Some(None) => println("Inner is None"),
+        None => println("Outer is None"),
+    }
+
+    // Binding in tuple patterns
+    let pair = (10, 20);
+    match pair {
+        (a, b) => println(f"Pair: a={a}, b={b}"),
+    }
+
+    // Multiple bindings with different arms
+    let n = 7;
+    let result = match n {
+        x if x < 0 => f"negative: {x}",
+        x if x == 0 => f"zero: {x}",
+        x if x <= 10 => f"small positive: {x}",
+        x => f"large positive: {x}",
+    };
+    println(result);
+
+    // Binding in Result pattern
+    let res: Result<i32, string> = Ok(200);
+    match res {
+        Ok(code) => println(f"Success with code: {code}"),
+        Err(msg) => println(f"Error: {msg}"),
+    }
+
+    let err_res: Result<i32, string> = Err("not found");
+    match err_res {
+        Ok(code) => println(f"Success: {code}"),
+        Err(msg) => println(f"Error message: {msg}"),
+    }
+
+    // Mutable binding in pattern
+    let items = [1, 2, 3];
+    match items.len() {
+        mut count => {
+            count += 10;
+            println(f"Modified count: {count}");
+        },
+    }
+
+    // Binding used in complex expression within arm
+    for i in 0..5 {
+        let label = match i {
+            n if n % 2 == 0 => {
+                let doubled = n * 2;
+                f"even {n} (doubled: {doubled})"
+            },
+            n => {
+                let tripled = n * 3;
+                f"odd {n} (tripled: {tripled})"
+            },
+        };
+        println(f"  {label}");
+    }
+
+    // Binding capturing struct-like data from enum
+    enum Message {
+        Quit,
+        Echo(string),
+        Move { x: i32, y: i32 },
+    }
+
+    let msg = Message::Echo("hello");
+    match msg {
+        Message::Quit => println("Quit message"),
+        Message::Echo(text) => println(f"Echo: {text}"),
+        Message::Move { x, y } => println(f"Move to ({x}, {y})"),
+    }
+
+    let move_msg = Message::Move { x: 10, y: 20 };
+    match move_msg {
+        Message::Move { x: dx, y: dy } => println(f"Moving by ({dx}, {dy})"),
+        _ => println("Not a move"),
+    }
+}

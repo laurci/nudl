@@ -1,0 +1,137 @@
+// Test: Aliased mutation — reference type sharing and its consequences
+// Covers: struct aliasing, array aliasing, mutation through function args,
+//         clone for independence, aliasing through struct fields,
+//         map aliasing, multiple aliases
+
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+#[derive(Clone)]
+struct Config {
+    host: string,
+    port: u16,
+    debug: bool,
+}
+
+struct Holder {
+    data: Point,
+}
+
+fn main() {
+    // --- Basic aliased mutation ---
+    let mut a = Point { x: 1.0, y: 2.0 };
+    let mut b = a;
+    b.x = 99.0;
+    assert(a.x == 99.0, "a sees mutation through b");
+    assert(b.x == 99.0, "b has the new value");
+    // They are literally the same object
+    a.y = 50.0;
+    assert(b.y == 50.0, "b sees mutation through a");
+
+    // --- Clone breaks the alias ---
+    let mut original = Point { x: 1.0, y: 2.0 };
+    let mut independent = original.clone();
+    independent.x = 999.0;
+    assert(original.x == 1.0, "clone produces independent copy");
+    assert(independent.x == 999.0, "cloned copy has new value");
+
+    // --- Three-way aliasing ---
+    let mut p1 = Point { x: 0.0, y: 0.0 };
+    let mut p2 = p1;
+    let mut p3 = p1;
+    p3.x = 42.0;
+    assert(p1.x == 42.0, "p1 sees p3's mutation");
+    assert(p2.x == 42.0, "p2 sees p3's mutation");
+
+    // --- Aliasing through function arguments ---
+    let mut point = Point { x: 5.0, y: 10.0 };
+    mutate_point(point);
+    assert(point.x == 0.0, "caller sees mutation from callee");
+    assert(point.y == 0.0, "caller sees mutation from callee");
+
+    // --- Clone before mutating to protect caller ---
+    let mut safe_point = Point { x: 5.0, y: 10.0 };
+    let result = safe_modify(safe_point);
+    assert(safe_point.x == 5.0, "caller's point is untouched");
+    assert(result.x == 100.0, "returned point has new value");
+
+    // --- Aliasing through struct fields ---
+    let mut data = Point { x: 1.0, y: 2.0 };
+    let holder = Holder { data };
+    // holder.data and data are the SAME Point
+    data.x = 77.0;
+    assert(holder.data.x == 77.0, "struct field aliases the original");
+
+    // --- Dynamic array aliasing ---
+    let mut arr1: i32[] = [10, 20, 30];
+    let mut arr2 = arr1;
+    arr2.push(40);
+    assert(arr1.len() == 4, "arr1 sees element pushed through arr2");
+    assert(arr1[3] == 40, "arr1 sees the new element value");
+
+    arr1[0] = 999;
+    assert(arr2[0] == 999, "arr2 sees element mutated through arr1");
+
+    // --- Array clone for independence ---
+    let mut orig_arr: i32[] = [1, 2, 3];
+    let mut copy_arr = orig_arr.clone();
+    copy_arr.push(4);
+    assert(orig_arr.len() == 3, "cloned array is independent");
+    assert(copy_arr.len() == 4, "cloned array has its own elements");
+
+    // --- Map aliasing ---
+    let mut map1: Map<string, i32> = Map::new();
+    map1.insert("a", 1);
+    let mut map2 = map1;
+    map2.insert("b", 2);
+    assert(map1.contains_key("b"), "map1 sees key inserted through map2");
+    assert(map1.get("b") == Some(2), "map1 sees value inserted through map2");
+
+    // --- Config aliasing — practical shared config pattern ---
+    let mut config = Config { host: "localhost", port: 8080, debug: false };
+    let mut logger_config = config; // intentional sharing
+    config.debug = true;
+    assert(logger_config.debug == true, "shared config propagates changes");
+
+    // --- Config clone — when you want a snapshot ---
+    let base = Config { host: "localhost", port: 8080, debug: false };
+    let mut production = base.clone();
+    production.host = "prod.example.com";
+    production.port = 443;
+    assert(base.host == "localhost", "base config unchanged after clone");
+    assert(production.host == "prod.example.com", "production has its own host");
+
+    // --- Reassignment replaces the alias, does not mutate ---
+    let mut x = Point { x: 1.0, y: 2.0 };
+    let mut y = x;
+    // Reassigning y to a new Point breaks the alias
+    y = Point { x: 99.0, y: 99.0 };
+    assert(x.x == 1.0, "x unchanged after y is reassigned to new Point");
+    assert(y.x == 99.0, "y has the new Point");
+
+    // --- Aliased mutation through closure capture ---
+    let mut counter: i32[] = [0];
+    let increment = || { counter[0] = counter[0] + 1; };
+    increment();
+    increment();
+    increment();
+    assert(counter[0] == 3, "closure captures and mutates the shared array");
+
+    println("aliased_mutation: all assertions passed");
+}
+
+fn mutate_point(mut p: Point) {
+    // This modifies the caller's Point — they share the same allocation
+    p.x = 0.0;
+    p.y = 0.0;
+}
+
+fn safe_modify(p: Point) -> Point {
+    // Clone first so the caller's Point is not affected
+    let mut copy = p.clone();
+    copy.x = 100.0;
+    copy.y = 100.0;
+    copy
+}

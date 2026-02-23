@@ -1,0 +1,83 @@
+// Iterator Pipeline — custom iterator with chaining and pipe operator
+// Features: Iterator<T> interface, method chaining, |> pipe operator
+
+import iter::{RangeIter, MapIter, FilterIter, TakeIter, ChainIter, collect, fold_iter};
+
+fn map_iter<T, U>(source: dyn Iterator<T>, transform: (T) -> U) -> MapIter<T, U> {
+    MapIter { source, transform }
+}
+
+fn filter_iter<T>(source: dyn Iterator<T>, predicate: (T) -> bool) -> FilterIter<T> {
+    FilterIter { source, predicate }
+}
+
+fn take_iter<T>(source: dyn Iterator<T>, count: u64) -> TakeIter<T> {
+    TakeIter { source, remaining: count }
+}
+
+fn main() {
+    // Basic range iteration
+    println("Range 1..10:");
+    let range = RangeIter::new(1, 10);
+    let values = collect(range);
+    println(f"  {values}");
+
+    // Range with step
+    println("\nRange 0..20 step 3:");
+    let stepped = RangeIter::with_step(0, end: 20, step: 3);
+    println(f"  {collect(stepped)}");
+
+    // Chained iterators: filter + map + take
+    println("\nPipeline: squares of even numbers from 1..20, take first 5:");
+    let pipeline = RangeIter::new(1, 20);
+    let evens = filter_iter(pipeline) { it % 2 == 0 };
+    let squares = map_iter(evens) { it * it };
+    let first_five = take_iter(squares, count: 5);
+    println(f"  {collect(first_five)}");
+
+    // Using pipe operator with iterators
+    println("\nPipe operator: sum of cubes of odd numbers 1..10:");
+    let sum = RangeIter::new(1, 10)
+        |> filter_iter { it % 2 != 0 }
+        |> map_iter { it * it * it }
+        |> collect
+        |> fold(initial: 0i64) { acc, v -> acc + v };
+    println(f"  {sum}");
+
+    // Chain two ranges
+    println("\nChained ranges:");
+    let first = RangeIter::new(1, 4);
+    let second = RangeIter::new(10, 14);
+    let chained = ChainIter::new(first, second);
+    println(f"  {collect(chained)}");
+
+    // Fold: product of range
+    println("\nProduct of 1..=5:");
+    let range = RangeIter::new(1, 6);
+    let product = fold_iter(range, initial: 1i64) { acc, v -> acc * v };
+    println(f"  {product}");
+
+    // Fibonacci iterator
+    println("\nFirst 10 Fibonacci numbers:");
+    let mut fibs: i64[] = [];
+    let mut a: i64 = 0;
+    let mut b: i64 = 1;
+    for _ in 0..10 {
+        fibs.push(a);
+        let temp = b;
+        b = a + b;
+        a = temp;
+    }
+    println(f"  {fibs}");
+
+    // Transform: string lengths
+    println("\nWord lengths:");
+    let words = ["hello", "world", "nudl", "programming"];
+    let mut lengths: (string, u64)[] = [];
+    for word in words {
+        lengths.push((word, word.len()));
+    }
+    for (word, len) in lengths {
+        println(f"  '{word}' => {len} chars");
+    }
+}

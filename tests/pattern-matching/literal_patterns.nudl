@@ -1,0 +1,123 @@
+// Test: Literal patterns in match expressions.
+//       Match on int, char, string, and bool literal values.
+
+fn describe_number(n: i32) -> string {
+    match n {
+        0 => "zero",
+        1 => "one",
+        2 => "two",
+        3 => "three",
+        42 => "the answer",
+        100 => "one hundred",
+        -1 => "negative one",
+        _ => "something else",
+    }
+}
+
+fn classify_char(ch: char) -> string {
+    match ch {
+        'a' => "lowercase a",
+        'z' => "lowercase z",
+        'A' => "uppercase A",
+        '0' => "digit zero",
+        ' ' => "space",
+        '\n' => "newline",
+        '\t' => "tab",
+        _ => "other character",
+    }
+}
+
+fn check_bool(b: bool) -> string {
+    match b {
+        true => "yes",
+        false => "no",
+    }
+}
+
+fn main() {
+    // Integer literal patterns
+    println(f"0 -> {describe_number(0)}");
+    println(f"1 -> {describe_number(1)}");
+    println(f"42 -> {describe_number(42)}");
+    println(f"100 -> {describe_number(100)}");
+    println(f"-1 -> {describe_number(-1)}");
+    println(f"7 -> {describe_number(7)}");
+
+    // Match on integer directly in main
+    let code = 200;
+    let status = match code {
+        200 => "OK",
+        201 => "Created",
+        204 => "No Content",
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        403 => "Forbidden",
+        404 => "Not Found",
+        500 => "Internal Server Error",
+        _ => "Unknown",
+    };
+    println(f"HTTP {code}: {status}");
+
+    // Char literal patterns
+    println(f"'a' -> {classify_char('a')}");
+    println(f"'z' -> {classify_char('z')}");
+    println(f"'A' -> {classify_char('A')}");
+    println(f"'0' -> {classify_char('0')}");
+    println(f"' ' -> {classify_char(' ')}");
+    println(f"'x' -> {classify_char('x')}");
+
+    // Bool literal patterns (exhaustive without wildcard)
+    println(f"true -> {check_bool(true)}");
+    println(f"false -> {check_bool(false)}");
+
+    // String literal patterns
+    let command = "quit";
+    let action = match command {
+        "help" => "showing help",
+        "quit" => "exiting program",
+        "version" => "v0.1.0",
+        "status" => "all systems go",
+        _ => "unknown command",
+    };
+    println(f"Command '{command}': {action}");
+
+    // Match with multiple string patterns
+    let day = "Monday";
+    let kind = match day {
+        "Saturday" => "weekend",
+        "Sunday" => "weekend",
+        "Monday" => "weekday",
+        "Tuesday" => "weekday",
+        "Wednesday" => "weekday",
+        "Thursday" => "weekday",
+        "Friday" => "weekday",
+        _ => "unknown",
+    };
+    println(f"{day} is a {kind}");
+
+    // Nested match with literals
+    let x = 5;
+    let y = 10;
+    let x_desc = match x {
+        0 => "zero",
+        _ => "nonzero",
+    };
+    let y_desc = match y {
+        10 => "ten",
+        _ => "not ten",
+    };
+    println(f"x is {x_desc}, y is {y_desc}");
+
+    // Match on literal in a loop
+    for i in 0..5 {
+        let label = match i {
+            0 => "first",
+            1 => "second",
+            2 => "third",
+            3 => "fourth",
+            4 => "fifth",
+            _ => "unknown",
+        };
+        println(f"  {i}: {label}");
+    }
+}

@@ -1,0 +1,72 @@
+// Test: Spread operator — [...arr1, elem, ...arr2] and struct spread
+
+struct Config {
+    host: string,
+    port: u16,
+    tls: bool,
+    timeout: u64,
+}
+
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+fn main() {
+    // === Array spread ===
+
+    // Spread into new array
+    let first = [1, 2, 3];
+    let second = [4, 5, 6];
+    let combined = [...first, ...second];
+    println(f"combined: {combined}");  // [1, 2, 3, 4, 5, 6]
+
+    // Spread with individual elements
+    let with_middle = [...first, 99, ...second];
+    println(f"with_middle: {with_middle}");  // [1, 2, 3, 99, 4, 5, 6]
+
+    // Spread at beginning
+    let prepended = [0, ...first];
+    println(f"prepended: {prepended}");  // [0, 1, 2, 3]
+
+    // Spread at end
+    let appended = [...first, 4];
+    println(f"appended: {appended}");  // [1, 2, 3, 4]
+
+    // Multiple spreads
+    let a = [1];
+    let b = [2];
+    let c = [3];
+    let all = [...a, ...b, ...c];
+    println(f"all: {all}");  // [1, 2, 3]
+
+    // Empty array spread
+    let empty: i32[] = [];
+    let still_works = [...empty, 1, ...empty];
+    println(f"still_works: {still_works}");  // [1]
+
+    // === Struct spread ===
+
+    // Basic struct spread — must appear first
+    let base = Config { host: "localhost", port: 8080, tls: false, timeout: 30000 };
+    let prod = Config { ...base, host: "prod.example.com", tls: true };
+    println(f"prod host: {prod.host}, port: {prod.port}, tls: {prod.tls}");
+
+    // Override single field
+    let custom_port = Config { ...base, port: 443 };
+    println(f"custom port: {custom_port.port}");
+
+    // Override all fields (spread is just defaults)
+    let full_override = Config {
+        ...base,
+        host: "new.com",
+        port: 9090,
+        tls: true,
+        timeout: 5000,
+    };
+
+    // Point spread
+    let origin = Point { x: 0.0, y: 0.0 };
+    let shifted = Point { ...origin, x: 5.0 };
+    println(f"shifted: ({shifted.x}, {shifted.y})");
+}

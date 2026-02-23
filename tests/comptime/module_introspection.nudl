@@ -1,0 +1,159 @@
+// Test: Module introspection — module_types(), module_functions()
+//
+// Comptime code can iterate over all types, functions, and interfaces in
+// the current module. This enables patterns like auto-registration and
+// bulk code generation.
+
+struct User {
+    name: string,
+    email: string,
+}
+
+struct Product {
+    title: string,
+    price: f64,
+}
+
+struct Order {
+    id: i32,
+    total: f64,
+}
+
+fn helper_a() -> i32 { 1 }
+fn helper_b() -> i32 { 2 }
+fn helper_c() -> i32 { 3 }
+
+interface Printable {
+    fn to_string(self) -> string;
+}
+
+interface Serializable {
+    fn serialize(self) -> string;
+}
+
+// --- Use module_types() to count types in this module ---
+comptime {
+    let types = module_types();
+    let count = types.len();
+    quote {
+        fn get_type_count() -> i32 {
+            ${count as i32}
+        }
+    }
+}
+
+// --- Use module_functions() to list function names ---
+comptime {
+    let fns = module_functions();
+    let mut names: string[] = [];
+    for f in fns {
+        names.push(f.name);
+    }
+    let name_list = names.join(", ");
+    quote {
+        fn get_function_names() -> string {
+            ${name_list}
+        }
+    }
+}
+
+// --- Use module_interfaces() to count interfaces ---
+comptime {
+    let ifaces = module_interfaces();
+    let count = ifaces.len();
+    quote {
+        fn get_interface_count() -> i32 {
+            ${count as i32}
+        }
+    }
+}
+
+// --- Generate a registry of all types ---
+comptime {
+    let types = module_types();
+    let mut entries: string[] = [];
+    for T in types {
+        let name = type_name(T);
+        let field_count = type_fields(T).len();
+        entries.push(f"{name}({field_count})");
+    }
+    let registry = entries.join(", ");
+    quote {
+        fn type_registry() -> string {
+            ${registry}
+        }
+    }
+}
+
+// --- Generate to_string for all module types ---
+comptime {
+    let types = module_types();
+    for T in types {
+        let name = type_name(T);
+        let fields = type_fields(T);
+        quote {
+            impl Printable for ${T} {
+                fn to_string(self) -> string {
+                    let mut result = f"${name}(";
+                    ${for (i, field) in fields.enumerate() {
+                        let fname = field.name;
+                        quote {
+                            ${if i > 0 { quote { result = f"{result}, "; } }}
+                            result = f"{result}${fname}={self.${fname}}";
+                        }
+                    }}
+                    f"{result})"
+                }
+            }
+        }
+    }
+}
+
+// --- Use imported_types() to see explicitly imported types ---
+// (In a module that imports types, imported_types() returns them)
+comptime {
+    let imported = imported_types();
+    let count = imported.len();
+    quote {
+        fn get_imported_type_count() -> i32 {
+            ${count as i32}
+        }
+    }
+}
+
+fn main() {
+    // --- Type count ---
+    let tc = get_type_count();
+    assert(tc == 3, "should have 3 struct types: User, Product, Order");
+
+    // --- Function names include our helpers ---
+    let names = get_function_names();
+    assert(names.len() > 0, "should have some function names");
+
+    // --- Interface count ---
+    let ic = get_interface_count();
+    assert(ic == 2, "should have 2 interfaces: Printable, Serializable");
+
+    // --- Type registry ---
+    let reg = type_registry();
+    assert(reg.len() > 0, "registry should not be empty");
+
+    // --- Generated Printable impls ---
+    let user = User { name: "Alice", email: "alice@example.com" };
+    let user_str = user.to_string();
+    assert(user_str.len() > 0, "User.to_string should produce output");
+
+    let product = Product { title: "Widget", price: 9.99 };
+    let product_str = product.to_string();
+    assert(product_str.len() > 0, "Product.to_string should produce output");
+
+    let order = Order { id: 1, total: 29.99 };
+    let order_str = order.to_string();
+    assert(order_str.len() > 0, "Order.to_string should produce output");
+
+    // --- Imported types count (no imports in this file, so should be 0) ---
+    let itc = get_imported_type_count();
+    assert(itc == 0, "no types imported in this module");
+
+    println("module_introspection: all assertions passed");
+}

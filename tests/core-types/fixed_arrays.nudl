@@ -1,0 +1,60 @@
+// Test: Fixed-size arrays — [T; N]
+// Covers: explicit construction, repeat syntax [expr; N], stack allocation,
+//         value type (copy on assignment), indexing
+
+fn main() {
+    // --- Explicit construction ---
+    let arr: [i32; 3] = [1, 2, 3];
+    let floats: [f64; 4] = [1.0, 2.0, 3.0, 4.0];
+
+    // --- Repeat syntax ---
+    let zeros: [i32; 10] = [0; 10];
+    let ones: [f64; 5] = [1.0; 5];
+    let bools: [bool; 3] = [true; 3];
+
+    // --- Indexing ---
+    let first = arr[0];
+    let second = arr[1];
+    let last = arr[2];
+
+    // --- Mutable fixed-size array ---
+    let mut mutable: [i32; 3] = [10, 20, 30];
+    mutable[0] = 100;
+    mutable[1] = 200;
+    mutable[2] = 300;
+
+    // --- Value type: assignment copies ---
+    let original: [i32; 3] = [1, 2, 3];
+    let mut copy = original;
+    copy[0] = 999;
+    // original[0] is still 1 (independent copy)
+
+    // --- Nested fixed-size arrays ---
+    let grid: [[i32; 3]; 3] = [[0; 3]; 3];
+    let element = grid[0][0];
+
+    // --- Fixed array with explicit repeat of a nested array ---
+    let matrix: [[i32; 2]; 3] = [[1, 2], [3, 4], [5, 6]];
+    let row = matrix[1];
+    let val = matrix[2][1];
+
+    // --- Single element array ---
+    let single: [i32; 1] = [42];
+
+    // --- Large repeat ---
+    let large: [u8; 100] = [0; 100];
+
+    // --- Fixed array in for loop ---
+    let items: [i32; 4] = [10, 20, 30, 40];
+    for item in items {
+        let doubled = item * 2;
+    }
+
+    // --- Fixed array of chars ---
+    let chars: [char; 3] = ['a', 'b', 'c'];
+
+    // --- Comparison ---
+    let a: [i32; 3] = [1, 2, 3];
+    let b: [i32; 3] = [1, 2, 3];
+    let eq = a == b;
+}

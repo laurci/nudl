@@ -1,0 +1,67 @@
+// Test: ARC sharing — reference type assignment shares allocation and increments refcount
+//
+// Structs are reference types in nudl. Assigning a struct to another binding
+// does NOT copy the data; instead it increments the reference count and both
+// bindings alias the same heap allocation. Mutating through one binding is
+// visible through the other.
+
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+struct Container {
+    label: string,
+    items: i32[],
+}
+
+fn main() {
+    // --- Basic struct sharing ---
+    let mut a = Point { x: 1.0, y: 2.0 };
+    let mut b = a; // refcount is now 2; a and b alias the same Point
+
+    // Mutation through b is visible through a
+    b.x = 99.0;
+    assert(a.x == 99.0, "a.x should reflect mutation through b");
+    assert(b.x == 99.0, "b.x should be 99.0");
+
+    // Both still share the same y
+    assert(a.y == 2.0, "a.y should still be 2.0");
+    assert(b.y == 2.0, "b.y should still be 2.0");
+
+    // --- Dynamic array sharing ---
+    let mut arr1: i32[] = [10, 20, 30];
+    let mut arr2 = arr1; // shared allocation, refcount 2
+
+    arr2.push(40);
+    // Both see the pushed element because they share storage
+    assert(arr1.len() == 4, "arr1 should see pushed element");
+    assert(arr2.len() == 4, "arr2 should also have length 4");
+    assert(arr1[3] == 40, "arr1[3] should be 40");
+
+    // --- String sharing ---
+    // Strings are reference types; assignment shares (refcount++)
+    let s1: string = "hello";
+    let s2 = s1; // refcount 2, same underlying bytes
+    assert(s1 == s2, "s1 and s2 should be equal");
+
+    // --- Nested struct sharing ---
+    let mut c1 = Container { label: "test", items: [1, 2, 3] };
+    let mut c2 = c1; // shares both the Container and its inner items array
+
+    c2.items.push(4);
+    assert(c1.items.len() == 4, "c1.items should reflect push through c2");
+
+    // --- Sharing through function arguments ---
+    // Reference types are retained for the duration of a call
+    let mut p = Point { x: 0.0, y: 0.0 };
+    modify_point(p);
+    assert(p.x == 42.0, "p.x should be modified by function call");
+
+    println("arc_sharing: all assertions passed");
+}
+
+fn modify_point(mut p: Point) {
+    // p is a shared reference to the same allocation (refcount incremented)
+    p.x = 42.0;
+}

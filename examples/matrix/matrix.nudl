@@ -1,0 +1,116 @@
+// matrix.nudl — Fixed-size matrix operations
+// Features: [f64; N], operator overloading (Add, Mul), comptime params, methods
+
+// 2x2 matrix stored as flat fixed-size array
+struct Matrix2 {
+    data: [f64; 4],  // row-major: [m00, m01, m10, m11]
+}
+
+impl Matrix2 {
+    fn new(m00: f64, m01: f64, m10: f64, m11: f64) -> Matrix2 {
+        Matrix2 { data: [m00, m01, m10, m11] }
+    }
+
+    fn identity() -> Matrix2 {
+        Matrix2::new(1.0, m01: 0.0, m10: 0.0, m11: 0.0)
+    }
+
+    fn zero() -> Matrix2 {
+        Matrix2 { data: [0.0; 4] }
+    }
+
+    fn at(self, row: i32, col: i32) -> f64 {
+        self.data[row * 2 + col]
+    }
+
+    fn determinant(self) -> f64 {
+        self.data[0] * self.data[3] - self.data[1] * self.data[2]
+    }
+
+    fn transpose(self) -> Matrix2 {
+        Matrix2::new(
+            self.data[0],
+            m01: self.data[2],
+            m10: self.data[1],
+            m11: self.data[3],
+        )
+    }
+
+    fn scale(self, factor: f64) -> Matrix2 {
+        Matrix2 {
+            data: [
+                self.data[0] * factor,
+                self.data[1] * factor,
+                self.data[2] * factor,
+                self.data[3] * factor,
+            ],
+        }
+    }
+}
+
+// Operator overloading: Matrix + Matrix
+impl Add<Matrix2, Matrix2> for Matrix2 {
+    fn add(self, rhs: Matrix2) -> Matrix2 {
+        Matrix2 {
+            data: [
+                self.data[0] + rhs.data[0],
+                self.data[1] + rhs.data[1],
+                self.data[2] + rhs.data[2],
+                self.data[3] + rhs.data[3],
+            ],
+        }
+    }
+}
+
+// Operator overloading: Matrix * Matrix
+impl Mul<Matrix2, Matrix2> for Matrix2 {
+    fn mul(self, rhs: Matrix2) -> Matrix2 {
+        Matrix2::new(
+            self.data[0] * rhs.data[0] + self.data[1] * rhs.data[2],
+            m01: self.data[0] * rhs.data[1] + self.data[1] * rhs.data[3],
+            m10: self.data[2] * rhs.data[0] + self.data[3] * rhs.data[2],
+            m11: self.data[2] * rhs.data[1] + self.data[3] * rhs.data[3],
+        )
+    }
+}
+
+impl Eq for Matrix2 {
+    fn eq(self, other: Self) -> bool {
+        self.data[0] == other.data[0] &&
+        self.data[1] == other.data[1] &&
+        self.data[2] == other.data[2] &&
+        self.data[3] == other.data[3]
+    }
+}
+
+impl Printable for Matrix2 {
+    fn to_string(self) -> string {
+        f"[{self.data[0]}, {self.data[1]}]\n[{self.data[2]}, {self.data[3]}]"
+    }
+}
+
+// Vector2 for matrix-vector multiplication
+pub struct Vec2 {
+    x: f64,
+    y: f64,
+}
+
+impl Vec2 {
+    fn new(x: f64, y: f64) -> Vec2 {
+        Vec2 { x, y }
+    }
+}
+
+impl Printable for Vec2 {
+    fn to_string(self) -> string {
+        f"({self.x}, {self.y})"
+    }
+}
+
+// Matrix * Vector
+pub fn mat_vec_mul(m: Matrix2, v: Vec2) -> Vec2 {
+    Vec2 {
+        x: m.data[0] * v.x + m.data[1] * v.y,
+        y: m.data[2] * v.x + m.data[3] * v.y,
+    }
+}

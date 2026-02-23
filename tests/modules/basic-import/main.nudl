@@ -1,0 +1,23 @@
+// Test: Basic import — import a single item from a module
+//
+// Verifies that `import module::item;` brings a single public function
+// into scope and it can be called normally.
+
+import math::add;
+
+fn main() {
+    // Use the imported function directly by name
+    let result = add(3, 4);
+    assert(result == 7, "add(3, 4) should be 7");
+
+    let result2 = add(-10, 25);
+    assert(result2 == 15, "add(-10, 25) should be 15");
+
+    let result3 = add(0, 0);
+    assert(result3 == 0, "add(0, 0) should be 0");
+
+    // multiply is NOT imported, so it is not accessible
+    // multiply(2, 3);  // ERROR: multiply is not in scope
+
+    println("basic-import: all assertions passed");
+}

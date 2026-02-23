@@ -1,0 +1,148 @@
+// Test: Basic match expressions on ints, enums, and exhaustiveness.
+
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+enum Coin {
+    Penny,
+    Nickel,
+    Dime,
+    Quarter,
+}
+
+enum Weekday {
+    Monday,
+    Tuesday,
+    Wednesday,
+    Thursday,
+    Friday,
+    Saturday,
+    Sunday,
+}
+
+fn coin_value(coin: Coin) -> i32 {
+    match coin {
+        Coin::Penny => 1,
+        Coin::Nickel => 5,
+        Coin::Dime => 10,
+        Coin::Quarter => 25,
+    }
+}
+
+fn is_weekend(day: Weekday) -> bool {
+    match day {
+        Weekday::Saturday => true,
+        Weekday::Sunday => true,
+        _ => false,
+    }
+}
+
+fn day_name(day: Weekday) -> string {
+    match day {
+        Weekday::Monday => "Monday",
+        Weekday::Tuesday => "Tuesday",
+        Weekday::Wednesday => "Wednesday",
+        Weekday::Thursday => "Thursday",
+        Weekday::Friday => "Friday",
+        Weekday::Saturday => "Saturday",
+        Weekday::Sunday => "Sunday",
+    }
+}
+
+fn main() {
+    // Match on integer literals
+    let x = 3;
+    let name = match x {
+        0 => "zero",
+        1 => "one",
+        2 => "two",
+        3 => "three",
+        _ => "other",
+    };
+    println(f"{x} is {name}");
+
+    // Match as expression producing a value
+    let code = 404;
+    let status = match code {
+        200 => "OK",
+        301 => "Moved Permanently",
+        404 => "Not Found",
+        500 => "Internal Server Error",
+        _ => "Unknown",
+    };
+    println(f"HTTP {code}: {status}");
+
+    // Match on enum variants (exhaustive)
+    let color = Color::Green;
+    let hex = match color {
+        Color::Red => "#FF0000",
+        Color::Green => "#00FF00",
+        Color::Blue => "#0000FF",
+    };
+    println(f"Color hex: {hex}");
+
+    // Match on enum with function
+    let penny = Coin::Penny;
+    let nickel = Coin::Nickel;
+    let dime = Coin::Dime;
+    let quarter = Coin::Quarter;
+    println(f"Penny = {coin_value(penny)} cents");
+    println(f"Nickel = {coin_value(nickel)} cents");
+    println(f"Dime = {coin_value(dime)} cents");
+    println(f"Quarter = {coin_value(quarter)} cents");
+
+    // Match with wildcard for remaining variants
+    let day = Weekday::Saturday;
+    println(f"{day_name(day)} is weekend: {is_weekend(day)}");
+
+    let weekday = Weekday::Wednesday;
+    println(f"{day_name(weekday)} is weekend: {is_weekend(weekday)}");
+
+    // Match on boolean
+    let flag = true;
+    let label = match flag {
+        true => "yes",
+        false => "no",
+    };
+    println(f"flag = {label}");
+
+    // Match with block bodies
+    let n = 42;
+    let description = match n {
+        0 => {
+            let msg = "nothing";
+            msg
+        },
+        1 => "unity",
+        _ => {
+            let msg = f"number {n}";
+            msg
+        },
+    };
+    println(f"description: {description}");
+
+    // Match on negative numbers
+    let temp = -5;
+    let state = match temp {
+        0 => "freezing point",
+        _ => {
+            if temp > 0 {
+                "above zero"
+            } else {
+                "below zero"
+            }
+        },
+    };
+    println(f"{temp} degrees: {state}");
+
+    // All weekdays exhaustive match
+    for day in [Weekday::Monday, Weekday::Tuesday, Weekday::Wednesday,
+                Weekday::Thursday, Weekday::Friday, Weekday::Saturday,
+                Weekday::Sunday] {
+        let kind = if is_weekend(day) { "weekend" } else { "weekday" };
+        println(f"{day_name(day)} is a {kind}");
+    }
+}

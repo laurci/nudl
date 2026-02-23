@@ -1,0 +1,128 @@
+// Test: Guard clauses in match arms — `pattern if condition => expr`.
+//       Guards provide additional boolean conditions beyond structural matching.
+//       Variables bound by the pattern are available in the guard.
+//       Arms with guards are not considered exhaustive for their pattern.
+
+fn main() {
+    // Basic guard on binding pattern
+    let x = 42;
+    let desc = match x {
+        n if n < 0 => f"{n} is negative",
+        n if n == 0 => f"{n} is zero",
+        n if n > 100 => f"{n} is large",
+        n => f"{n} is a small positive",
+    };
+    println(desc);
+
+    // Guard with multiple conditions
+    let value = 75;
+    let range = match value {
+        n if n > 0 && n < 100 => "in range (1-99)",
+        n if n == 0 => "zero",
+        n if n >= 100 => "100 or more",
+        _ => "negative",
+    };
+    println(f"{value}: {range}");
+
+    // Guard on tuple patterns
+    let point = (3, 4);
+    let quadrant = match point {
+        (0, 0) => "origin",
+        (x, y) if x > 0 && y > 0 => f"quadrant I ({x}, {y})",
+        (x, y) if x < 0 && y > 0 => f"quadrant II ({x}, {y})",
+        (x, y) if x < 0 && y < 0 => f"quadrant III ({x}, {y})",
+        (x, y) if x > 0 && y < 0 => f"quadrant IV ({x}, {y})",
+        (x, 0) => f"on x-axis at {x}",
+        (0, y) => f"on y-axis at {y}",
+        _ => "unknown",
+    };
+    println(f"Point: {quadrant}");
+
+    // Guard on enum patterns
+    enum Shape {
+        Circle(f64),
+        Rectangle(f64, f64),
+    }
+
+    let shape = Shape::Circle(15.0);
+    let desc = match shape {
+        Shape::Circle(r) if r > 10.0 => f"large circle (r={r})",
+        Shape::Circle(r) if r > 5.0 => f"medium circle (r={r})",
+        Shape::Circle(r) => f"small circle (r={r})",
+        Shape::Rectangle(w, h) if w == h => f"square ({w}x{h})",
+        Shape::Rectangle(w, h) if w > h => f"wide rectangle ({w}x{h})",
+        Shape::Rectangle(w, h) => f"tall rectangle ({w}x{h})",
+    };
+    println(desc);
+
+    // Guard on Option
+    let opt: Option<i32> = Some(42);
+    let msg = match opt {
+        Some(v) if v > 100 => f"large value: {v}",
+        Some(v) if v > 0 => f"positive value: {v}",
+        Some(v) if v == 0 => "zero",
+        Some(v) => f"negative value: {v}",
+        None => "no value",
+    };
+    println(msg);
+
+    // Guard using external variable
+    let threshold = 50;
+    let data = [10, 30, 50, 70, 90];
+    for item in data {
+        let label = match item {
+            n if n >= threshold => f"{n} (above threshold)",
+            n => f"{n} (below threshold)",
+        };
+        println(f"  {label}");
+    }
+
+    // Guard with string comparison
+    let name = "Alice";
+    let greeting = match name {
+        s if s.len() > 10 => f"Hello, {s} (what a long name!)",
+        s if s.starts_with("A") => f"Hello, {s} (A-name!)",
+        s => f"Hello, {s}",
+    };
+    println(greeting);
+
+    // Guard on wildcard pattern
+    let n = 7;
+    let parity = match n {
+        _ if n % 2 == 0 => "even",
+        _ => "odd",
+    };
+    println(f"{n} is {parity}");
+
+    // Guard with logical OR in condition
+    let code = 301;
+    let status = match code {
+        c if c == 200 || c == 201 => "success",
+        c if c >= 300 && c < 400 => f"redirect ({c})",
+        c if c >= 400 && c < 500 => f"client error ({c})",
+        c if c >= 500 => f"server error ({c})",
+        c => f"other ({c})",
+    };
+    println(f"HTTP {code}: {status}");
+
+    // Guard on nested patterns
+    let data: Option<(i32, i32)> = Some((3, 7));
+    let result = match data {
+        Some((x, y)) if x + y > 10 => f"sum > 10: ({x}, {y})",
+        Some((x, y)) if x == y => f"equal: ({x}, {y})",
+        Some((x, y)) => f"other: ({x}, {y})",
+        None => "nothing",
+    };
+    println(result);
+
+    // Multiple guarded arms with same pattern structure
+    for i in 0..12 {
+        let fizzbuzz = match i {
+            n if n % 15 == 0 => "FizzBuzz",
+            n if n % 3 == 0 => "Fizz",
+            n if n % 5 == 0 => "Buzz",
+            n => f"{n}",
+        };
+        println(f"  {i}: {fizzbuzz}");
+    }
+}

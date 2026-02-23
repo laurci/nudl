@@ -1,0 +1,100 @@
+// Chat Room module — actor-based chat system
+// Features: actors, implicit async, pub visibility
+
+pub struct Message {
+    pub sender: string,
+    pub content: string,
+    pub timestamp: u64,
+}
+
+impl Printable for Message {
+    fn to_string(self) -> string {
+        f"[{self.timestamp}] {self.sender}: {self.content}"
+    }
+}
+
+pub actor ChatRoom {
+    name: string,
+    messages: Message[],
+    members: string[],
+    next_timestamp: u64,
+
+    pub fn new(name: string) -> ChatRoom {
+        ChatRoom {
+            name,
+            messages: [],
+            members: [],
+            next_timestamp: 1,
+        }
+    }
+
+    pub fn join(mut self, username: string) -> bool {
+        if self.members.contains(username) {
+            return false;
+        }
+        self.members.push(username);
+        self.broadcast_system(f"{username} has joined the room");
+        true
+    }
+
+    pub fn leave(mut self, username: string) -> bool {
+        for (i, member) in self.members.enumerate() {
+            if member == username {
+                self.members.remove(i);
+                self.broadcast_system(f"{username} has left the room");
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn send_message(mut self, sender: string, content: string) -> Result<(), string> {
+        if !self.members.contains(sender) {
+            return Err(f"'{sender}' is not a member of '{self.name}'");
+        }
+        let msg = Message {
+            sender,
+            content,
+            timestamp: self.next_timestamp,
+        };
+        self.messages.push(msg);
+        self.next_timestamp += 1;
+        Ok(())
+    }
+
+    fn broadcast_system(mut self, content: string) {
+        let msg = Message {
+            sender: "system",
+            content,
+            timestamp: self.next_timestamp,
+        };
+        self.messages.push(msg);
+        self.next_timestamp += 1;
+    }
+
+    pub fn recent_messages(self, count: u64) -> Message[] {
+        let len = self.messages.len();
+        let start = if len > count { len - count } else { 0 };
+        let mut result: Message[] = [];
+        for i in start..len {
+            result.push(self.messages[i]);
+        }
+        result
+    }
+
+    pub fn member_count(self) -> u64 {
+        self.members.len()
+    }
+
+    pub fn room_name(self) -> string {
+        self.name
+    }
+
+    pub fn message_count(self) -> u64 {
+        self.messages.len()
+    }
+
+    pub fn members_list(self) -> string[] {
+        self.members
+    }
+}

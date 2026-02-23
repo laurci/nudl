@@ -1,0 +1,140 @@
+// Comptime Vector — compile-time generated Vec2/Vec3/Vec4 types
+// Features: comptime, quote/splice, type introspection, codegen
+
+comptime fn make_vector_type(comptime n: u32) {
+    let names = ["x", "y", "z", "w"];
+    let fields = names[0..n];
+    let type_name = f"Vec{n}";
+
+    // Generate the struct
+    quote {
+        struct ${type_name} {
+            ${for name in fields { quote { ${name}: f64, } }}
+        }
+    }
+}
+
+comptime fn make_vector_ops(comptime n: u32) {
+    let names = ["x", "y", "z", "w"];
+    let fields = names[0..n];
+    let type_name = f"Vec{n}";
+
+    // Generate constructor
+    quote {
+        impl ${type_name} {
+            fn new(${for (i, name) in fields.enumerate() {
+                quote { ${name}: f64, }
+            }}) -> ${type_name} {
+                ${type_name} { ${for name in fields { quote { ${name}, } }} }
+            }
+
+            fn zero() -> ${type_name} {
+                ${type_name} { ${for name in fields { quote { ${name}: 0.0, } }} }
+            }
+
+            fn dot(self, other: ${type_name}) -> f64 {
+                ${for (i, name) in fields.enumerate() {
+                    if i == 0 {
+                        quote { self.${name} * other.${name} }
+                    } else {
+                        quote { + self.${name} * other.${name} }
+                    }
+                }}
+            }
+
+            fn magnitude(self) -> f64 {
+                self.dot(self).sqrt()
+            }
+
+            fn scale(self, factor: f64) -> ${type_name} {
+                ${type_name} {
+                    ${for name in fields { quote {
+                        ${name}: self.${name} * factor,
+                    } }}
+                }
+            }
+        }
+    }
+}
+
+comptime fn make_vector_add(comptime n: u32) {
+    let names = ["x", "y", "z", "w"];
+    let fields = names[0..n];
+    let type_name = f"Vec{n}";
+
+    quote {
+        impl Add<${type_name}, ${type_name}> for ${type_name} {
+            fn add(self, rhs: ${type_name}) -> ${type_name} {
+                ${type_name} {
+                    ${for name in fields { quote {
+                        ${name}: self.${name} + rhs.${name},
+                    } }}
+                }
+            }
+        }
+
+        impl Sub<${type_name}, ${type_name}> for ${type_name} {
+            fn sub(self, rhs: ${type_name}) -> ${type_name} {
+                ${type_name} {
+                    ${for name in fields { quote {
+                        ${name}: self.${name} - rhs.${name},
+                    } }}
+                }
+            }
+        }
+
+        impl Printable for ${type_name} {
+            fn to_string(self) -> string {
+                let mut parts = "(";
+                ${for (i, name) in fields.enumerate() { quote {
+                    ${if i > 0 { quote { parts = f"{parts}, "; } }}
+                    parts = f"{parts}{self.${name}}";
+                } }}
+                f"{parts})"
+            }
+        }
+    }
+}
+
+// Generate Vec2, Vec3, Vec4
+comptime {
+    make_vector_type(2);
+    make_vector_type(3);
+    make_vector_type(4);
+    make_vector_ops(2);
+    make_vector_ops(3);
+    make_vector_ops(4);
+    make_vector_add(2);
+    make_vector_add(3);
+    make_vector_add(4);
+}
+
+fn main() {
+    // Vec2
+    let a2 = Vec2::new(3.0, 4.0);
+    let b2 = Vec2::new(1.0, 2.0);
+    let c2 = a2 + b2;
+    println(f"Vec2: {a2.to_string()} + {b2.to_string()} = {c2.to_string()}");
+    println(f"  dot: {a2.dot(b2)}");
+    println(f"  magnitude: {a2.magnitude()}");
+
+    // Vec3
+    let a3 = Vec3::new(1.0, 2.0, 3.0);
+    let b3 = Vec3::new(4.0, 5.0, 6.0);
+    let c3 = a3 + b3;
+    println(f"\nVec3: {a3.to_string()} + {b3.to_string()} = {c3.to_string()}");
+    println(f"  dot: {a3.dot(b3)}");
+    println(f"  scaled x2: {a3.scale(2.0).to_string()}");
+
+    // Vec4
+    let a4 = Vec4::new(1.0, 0.0, 0.0, 0.0);
+    let b4 = Vec4::new(0.0, 1.0, 0.0, 0.0);
+    let c4 = a4 + b4;
+    println(f"\nVec4: {a4.to_string()} + {b4.to_string()} = {c4.to_string()}");
+    println(f"  magnitude: {a4.magnitude()}");
+
+    // Zero vector
+    let zero = Vec3::zero();
+    println(f"\nZero Vec3: {zero.to_string()}");
+    println(f"  magnitude: {zero.magnitude()}");
+}

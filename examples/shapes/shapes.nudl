@@ -1,0 +1,95 @@
+// Shapes module — shape types with interfaces and operator overloading
+// Features: enums, interfaces, dyn dispatch, operator overloading, pub visibility
+
+pub interface Area {
+    fn area(self) -> f64;
+}
+
+pub interface Perimeter {
+    fn perimeter(self) -> f64;
+}
+
+pub struct Vec2 {
+    pub x: f64,
+    pub y: f64,
+}
+
+impl Vec2 {
+    pub fn new(x: f64, y: f64) -> Vec2 {
+        Vec2 { x, y }
+    }
+
+    pub fn distance(self, other: Vec2) -> f64 {
+        let dx = self.x - other.x;
+        let dy = self.y - other.y;
+        (dx * dx + dy * dy).sqrt()
+    }
+}
+
+impl Add<Vec2, Vec2> for Vec2 {
+    fn add(self, rhs: Vec2) -> Vec2 {
+        Vec2 { x: self.x + rhs.x, y: self.y + rhs.y }
+    }
+}
+
+impl Sub<Vec2, Vec2> for Vec2 {
+    fn sub(self, rhs: Vec2) -> Vec2 {
+        Vec2 { x: self.x - rhs.x, y: self.y - rhs.y }
+    }
+}
+
+impl Printable for Vec2 {
+    fn to_string(self) -> string {
+        f"({self.x}, {self.y})"
+    }
+}
+
+pub enum Shape {
+    Circle { center: Vec2, radius: f64 },
+    Rectangle { origin: Vec2, width: f64, height: f64 },
+    Triangle { a: Vec2, b: Vec2, c: Vec2 },
+    Point(Vec2),
+}
+
+impl Area for Shape {
+    fn area(self) -> f64 {
+        match self {
+            Shape::Circle { radius, .. } => 3.14159265358979 * radius * radius,
+            Shape::Rectangle { width, height, .. } => width * height,
+            Shape::Triangle { a, b, c } => {
+                // Shoelace formula
+                let v = (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y)) / 2.0;
+                if v < 0.0 { -v } else { v }
+            },
+            Shape::Point(_) => 0.0,
+        }
+    }
+}
+
+impl Perimeter for Shape {
+    fn perimeter(self) -> f64 {
+        match self {
+            Shape::Circle { radius, .. } => 2.0 * 3.14159265358979 * radius,
+            Shape::Rectangle { width, height, .. } => 2.0 * (width + height),
+            Shape::Triangle { a, b, c } => {
+                a.distance(b) + b.distance(c) + c.distance(a)
+            },
+            Shape::Point(_) => 0.0,
+        }
+    }
+}
+
+impl Printable for Shape {
+    fn to_string(self) -> string {
+        match self {
+            Shape::Circle { center, radius } =>
+                f"Circle(center={center.to_string()}, r={radius})",
+            Shape::Rectangle { origin, width, height } =>
+                f"Rect(origin={origin.to_string()}, {width}x{height})",
+            Shape::Triangle { a, b, c } =>
+                f"Triangle({a.to_string()}, {b.to_string()}, {c.to_string()})",
+            Shape::Point(p) =>
+                f"Point({p.to_string()})",
+        }
+    }
+}

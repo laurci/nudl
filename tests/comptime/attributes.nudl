@@ -1,0 +1,151 @@
+// Test: Attributes — #[key = "value"], attributes() in comptime
+//
+// Attributes attach metadata to items. They are accessible via the
+// attributes() and field_attributes() comptime functions. Attribute values
+// must be comptime literals.
+
+#[table = "users", version = 2]
+struct User {
+    #[column = "user_name", primary_key]
+    name: string,
+
+    #[column = "user_age"]
+    age: u32,
+
+    #[column = "user_email", indexed]
+    email: string,
+}
+
+#[serializable]
+struct Config {
+    host: string,
+    port: u16,
+}
+
+#[deprecated = "use connect_v2 instead"]
+fn old_connect() -> string {
+    "connected (old)"
+}
+
+#[inline]
+fn fast_add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+// Multiple attribute lists are merged
+#[feature_a]
+#[feature_b = "enabled"]
+struct MultiAttr {
+    value: i32,
+}
+
+// --- Read attributes at comptime and generate SQL ---
+comptime {
+    let user_attrs = attributes(User);
+    let table_name = user_attrs.get("table");     // "users"
+    let version = user_attrs.get("version");       // 2
+
+    let fields = type_fields(User);
+    let mut columns: string[] = [];
+    let mut primary: string = "";
+
+    for field in fields {
+        let fattrs = field_attributes(User, field.name);
+        let col = fattrs.get("column");
+        columns.push(col);
+        if fattrs.has("primary_key") {
+            primary = col;
+        }
+    }
+
+    let cols = columns.join(", ");
+
+    quote {
+        fn user_table_info() -> string {
+            f"table=${table_name}, version=${version}, columns=[${cols}], pk=${primary}"
+        }
+    }
+}
+
+// --- Read attributes for serialization decision ---
+comptime {
+    let config_attrs = attributes(Config);
+    let is_serializable = config_attrs.has("serializable");
+
+    quote {
+        fn config_is_serializable() -> bool {
+            ${is_serializable}
+        }
+    }
+}
+
+// --- Read function attributes ---
+comptime {
+    let fn_attrs = attributes(old_connect);
+    let deprecation_msg = fn_attrs.get("deprecated");
+
+    quote {
+        fn get_deprecation_warning() -> string {
+            ${deprecation_msg}
+        }
+    }
+}
+
+// --- Read merged attributes ---
+comptime {
+    let ma_attrs = attributes(MultiAttr);
+    let has_a = ma_attrs.has("feature_a");
+    let b_value = ma_attrs.get("feature_b");
+
+    quote {
+        fn multi_attr_info() -> (bool, string) {
+            (${has_a}, ${b_value})
+        }
+    }
+}
+
+// --- Check indexed fields ---
+comptime {
+    let fields = type_fields(User);
+    let mut indexed_fields: string[] = [];
+    for field in fields {
+        let fattrs = field_attributes(User, field.name);
+        if fattrs.has("indexed") {
+            indexed_fields.push(field.name);
+        }
+    }
+    let indexed_list = indexed_fields.join(", ");
+
+    quote {
+        fn indexed_user_fields() -> string {
+            ${indexed_list}
+        }
+    }
+}
+
+fn main() {
+    // --- Table info from attributes ---
+    let info = user_table_info();
+    assert(info.len() > 0, "user_table_info should produce output");
+
+    // --- Serializable check ---
+    assert(config_is_serializable() == true, "Config should be serializable");
+
+    // --- Deprecation warning ---
+    let warning = get_deprecation_warning();
+    assert(warning == "use connect_v2 instead", "deprecation message should match");
+
+    // --- Merged attributes ---
+    let (has_a, b_val) = multi_attr_info();
+    assert(has_a == true, "feature_a should be present");
+    assert(b_val == "enabled", "feature_b should be 'enabled'");
+
+    // --- Indexed fields ---
+    let indexed = indexed_user_fields();
+    assert(indexed == "email", "only email should be indexed");
+
+    // --- Inline function still works ---
+    assert(fast_add(3, b: 4) == 7, "fast_add should work");
+
+    println("attributes: all assertions passed");
+}

@@ -1,0 +1,60 @@
+// Test: Postfix await — expr.await chaining at precedence 14
+
+async fn fetch(url: string) -> string {
+    f"response from {url}"
+}
+
+async fn parse_json(data: string) -> Map<string, string> {
+    let mut result: Map<string, string> = Map::new();
+    result.insert("data", data);
+    result
+}
+
+struct HttpClient {
+    base_url: string,
+}
+
+impl HttpClient {
+    fn new(base_url: string) -> HttpClient {
+        HttpClient { base_url }
+    }
+
+    async fn get(self, path: string) -> string {
+        f"GET {self.base_url}{path}"
+    }
+
+    async fn post(self, path: string, body: string) -> string {
+        f"POST {self.base_url}{path}: {body}"
+    }
+}
+
+async fn main() {
+    // Basic postfix await
+    let data = fetch("https://api.example.com").await;
+    println(data);
+
+    // Chained postfix await — high precedence allows mid-expression chaining
+    let json = parse_json(fetch("https://api.example.com").await).await;
+
+    // Method call then await
+    let client = HttpClient::new("https://api.example.com");
+    let response = client.get("/users").await;
+    println(response);
+
+    // Multiple awaits in sequence
+    let r1 = client.get("/first").await;
+    let r2 = client.post("/second", body: r1).await;
+    println(r2);
+
+    // Postfix await with ? (both at precedence 14)
+    let safe_result = fetch_maybe("https://example.com").await;
+    match safe_result {
+        Ok(data) => println(f"got: {data}"),
+        Err(e) => println(f"error: {e}"),
+    }
+}
+
+async fn fetch_maybe(url: string) -> Result<string, string> {
+    let data = fetch(url).await;
+    Ok(data)
+}

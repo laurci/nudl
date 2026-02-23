@@ -1,0 +1,135 @@
+// Test: Nested patterns — patterns nested to arbitrary depth.
+//       Examples: Some((x, Some(y))), deep enum/tuple/struct nesting.
+
+enum Tree {
+    Leaf(i32),
+    Branch(Option<i32>, Option<i32>),
+}
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+enum Wrapper {
+    Single(Option<i32>),
+    Pair(Option<i32>, Option<i32>),
+    Named { value: Option<Point> },
+}
+
+fn main() {
+    // Nested Option patterns
+    let nested: Option<Option<i32>> = Some(Some(42));
+    let desc = match nested {
+        Some(Some(v)) => f"deeply nested: {v}",
+        Some(None) => "inner is None",
+        None => "outer is None",
+    };
+    println(desc);
+
+    // Option containing a tuple
+    let opt_pair: Option<(i32, i32)> = Some((10, 20));
+    match opt_pair {
+        Some((x, y)) => println(f"Pair: ({x}, {y})"),
+        None => println("No pair"),
+    }
+
+    // Triple-nested Option
+    let deep: Option<Option<Option<string>>> = Some(Some(Some("found")));
+    let result = match deep {
+        Some(Some(Some(s))) => f"triple nested: {s}",
+        Some(Some(None)) => "two levels deep, then None",
+        Some(None) => "one level deep, then None",
+        None => "outermost is None",
+    };
+    println(result);
+
+    // Option inside tuple
+    let data = (Some(1), Some(2));
+    match data {
+        (Some(a), Some(b)) => println(f"Both present: {a}, {b}"),
+        (Some(a), None) => println(f"Only first: {a}"),
+        (None, Some(b)) => println(f"Only second: {b}"),
+        (None, None) => println("Both absent"),
+    }
+
+    // Nested enum with Option children
+    let tree = Tree::Branch(Some(10), Some(20));
+    match tree {
+        Tree::Leaf(v) => println(f"Leaf: {v}"),
+        Tree::Branch(Some(l), Some(r)) => println(f"Branch with both: left={l}, right={r}"),
+        Tree::Branch(Some(l), None) => println(f"Branch with left only: {l}"),
+        Tree::Branch(None, Some(r)) => println(f"Branch with right only: {r}"),
+        Tree::Branch(None, None) => println("Empty branch"),
+    }
+
+    // Struct inside Option inside enum
+    let wrapped = Wrapper::Named { value: Some(Point { x: 5, y: 10 }) };
+    match wrapped {
+        Wrapper::Named { value: Some(Point { x, y }) } => {
+            println(f"Named with point ({x}, {y})");
+        },
+        Wrapper::Named { value: None } => println("Named with no point"),
+        Wrapper::Single(Some(v)) => println(f"Single: {v}"),
+        Wrapper::Single(None) => println("Single None"),
+        Wrapper::Pair(a, b) => println(f"Pair: ({a}, {b})"),
+    }
+
+    // Result containing Option
+    let result: Result<Option<i32>, string> = Ok(Some(100));
+    match result {
+        Ok(Some(v)) => println(f"Ok(Some({v}))"),
+        Ok(None) => println("Ok(None)"),
+        Err(e) => println(f"Err({e})"),
+    }
+
+    // Tuple of Options
+    let triple = (Some("a"), None, Some("c"));
+    match triple {
+        (Some(a), Some(b), Some(c)) => println(f"All: {a}, {b}, {c}"),
+        (Some(a), _, Some(c)) => println(f"First and third: {a}, {c}"),
+        (Some(a), _, _) => println(f"Only first: {a}"),
+        _ => println("Other combination"),
+    }
+
+    // Deeply nested with guards
+    let data: Option<(i32, Option<i32>)> = Some((5, Some(10)));
+    let desc = match data {
+        Some((x, Some(y))) if x + y > 20 => f"large sum: {x} + {y}",
+        Some((x, Some(y))) => f"pair: {x}, {y}",
+        Some((x, None)) => f"single: {x}",
+        None => "nothing",
+    };
+    println(desc);
+
+    // Nested patterns in if-let
+    let complex: Option<Result<i32, string>> = Some(Ok(42));
+    if let Some(Ok(value)) = complex {
+        println(f"Nested if-let: {value}");
+    }
+
+    // Array of nested options
+    let items: Option<(string, i32)>[] = [
+        Some(("alice", 1)),
+        None,
+        Some(("bob", 2)),
+        Some(("charlie", 3)),
+        None,
+    ];
+    for item in items {
+        match item {
+            Some((name, id)) => println(f"  {name} (id={id})"),
+            None => println("  <empty>"),
+        }
+    }
+
+    // Wrapper with Pair variant, nested Options
+    let pair_wrapper = Wrapper::Pair(Some(100), None);
+    match pair_wrapper {
+        Wrapper::Pair(Some(a), Some(b)) => println(f"Both: {a}, {b}"),
+        Wrapper::Pair(Some(a), None) => println(f"Only left: {a}"),
+        Wrapper::Pair(None, Some(b)) => println(f"Only right: {b}"),
+        Wrapper::Pair(None, None) => println("Both None"),
+        _ => println("Not a pair"),
+    }
+}

@@ -1,0 +1,110 @@
+// Test: Labeled loops with 'label: prefix.
+//       break 'label and continue 'label to target outer loops.
+//       Labels on for, while, and loop.
+
+fn main() {
+    // Labeled for loop with break 'outer
+    println("Labeled for with break 'outer:");
+    'outer: for i in 0..5 {
+        for j in 0..5 {
+            if i + j > 5 {
+                println(f"  Breaking outer at i={i}, j={j}");
+                break 'outer;
+            }
+            println(f"  ({i}, {j})");
+        }
+    }
+
+    // Labeled for loop with continue 'outer
+    println("Labeled for with continue 'outer:");
+    'outer: for i in 0..4 {
+        for j in 0..4 {
+            if j == 2 {
+                // Skip the rest of inner loop and go to next outer iteration
+                continue 'outer;
+            }
+            println(f"  ({i}, {j})");
+        }
+    }
+
+    // Labeled while loop
+    println("Labeled while loop:");
+    let mut x = 0;
+    'search: while x < 10 {
+        let mut y = 0;
+        while y < 10 {
+            if x * y == 42 {
+                println(f"  Found: x={x}, y={y}, product=42");
+                break 'search;
+            }
+            y += 1;
+        }
+        x += 1;
+    }
+
+    // Labeled loop (infinite)
+    println("Labeled loop:");
+    let mut i = 0;
+    let result = 'find: loop {
+        let mut j = 0;
+        loop {
+            if i * 10 + j == 37 {
+                break 'find (i, j);
+            }
+            j += 1;
+            if j >= 10 {
+                break;
+            }
+        }
+        i += 1;
+        if i >= 10 {
+            break 'find (-1, -1);
+        }
+    };
+    println(f"  Found at ({result.0}, {result.1})");
+
+    // Multiple labels on nested loops
+    println("Triple nested with labels:");
+    'level1: for a in 0..3 {
+        'level2: for b in 0..3 {
+            for c in 0..3 {
+                if a + b + c > 4 {
+                    continue 'level1;
+                }
+                if b > 1 && c > 1 {
+                    continue 'level2;
+                }
+                println(f"  ({a}, {b}, {c})");
+            }
+        }
+    }
+
+    // Labeled loop with break returning a value
+    let mut count = 0;
+    let found_value = 'main_loop: loop {
+        count += 1;
+        for i in 0..count {
+            if i * count > 20 {
+                break 'main_loop i * count;
+            }
+        }
+        if count > 100 {
+            break 'main_loop -1;
+        }
+    };
+    println(f"Found value: {found_value}");
+
+    // Continue 'outer in a while-for combination
+    println("While-for with continue 'outer:");
+    let mut row = 0;
+    'rows: while row < 3 {
+        for col in 0..5 {
+            if col == 3 {
+                row += 1;
+                continue 'rows;
+            }
+            println(f"  row={row}, col={col}");
+        }
+        row += 1;
+    }
+}

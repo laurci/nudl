@@ -1,0 +1,143 @@
+// Test: Enums with unit variants (no data attached to any variant)
+
+// Simple unit-variant enum
+enum Direction {
+    North,
+    South,
+    East,
+    West,
+}
+
+// Enum representing states
+enum TrafficLight {
+    Red,
+    Yellow,
+    Green,
+}
+
+// Enum with many variants
+enum Day {
+    Monday,
+    Tuesday,
+    Wednesday,
+    Thursday,
+    Friday,
+    Saturday,
+    Sunday,
+}
+
+fn direction_to_string(d: Direction) -> string {
+    match d {
+        Direction::North => "north",
+        Direction::South => "south",
+        Direction::East => "east",
+        Direction::West => "west",
+    }
+}
+
+fn is_weekend(day: Day) -> bool {
+    match day {
+        Day::Saturday | Day::Sunday => true,
+        _ => false,
+    }
+}
+
+fn next_light(light: TrafficLight) -> TrafficLight {
+    match light {
+        TrafficLight::Red => TrafficLight::Green,
+        TrafficLight::Green => TrafficLight::Yellow,
+        TrafficLight::Yellow => TrafficLight::Red,
+    }
+}
+
+fn opposite(d: Direction) -> Direction {
+    match d {
+        Direction::North => Direction::South,
+        Direction::South => Direction::North,
+        Direction::East => Direction::West,
+        Direction::West => Direction::East,
+    }
+}
+
+fn main() {
+    // --- Basic construction ---
+    let d = Direction::North;
+    let light = TrafficLight::Red;
+    let today = Day::Wednesday;
+
+    // --- Match on unit variants ---
+    println(f"Direction: {direction_to_string(d)}");
+
+    let action = match light {
+        TrafficLight::Red => "stop",
+        TrafficLight::Yellow => "caution",
+        TrafficLight::Green => "go",
+    };
+    println(f"Light says: {action}");
+
+    // --- Using or-patterns with unit variants ---
+    let is_wknd = is_weekend(today);
+    println(f"Wednesday is weekend: {is_wknd}");
+
+    let sat = is_weekend(Day::Saturday);
+    println(f"Saturday is weekend: {sat}");
+
+    // --- Cycling through states ---
+    let mut current = TrafficLight::Red;
+    println(f"Start: red");
+    current = next_light(current);
+    println(f"Next: green");
+    current = next_light(current);
+    println(f"Next: yellow");
+    current = next_light(current);
+    println(f"Next: red");
+
+    // --- Opposite direction ---
+    let dirs: Direction[] = [
+        Direction::North,
+        Direction::South,
+        Direction::East,
+        Direction::West,
+    ];
+    for dir in dirs {
+        let opp = opposite(dir);
+        println(f"  Opposite of {direction_to_string(dir)} is {direction_to_string(opp)}");
+    }
+
+    // --- Unit variants in collections ---
+    let week: Day[] = [
+        Day::Monday,
+        Day::Tuesday,
+        Day::Wednesday,
+        Day::Thursday,
+        Day::Friday,
+        Day::Saturday,
+        Day::Sunday,
+    ];
+
+    let mut weekdays = 0;
+    let mut weekends = 0;
+    for day in week {
+        if is_weekend(day) {
+            weekends += 1;
+        } else {
+            weekdays += 1;
+        }
+    }
+    println(f"Weekdays: {weekdays}, Weekends: {weekends}");
+
+    // --- Unit variants in if-let (though more useful with data variants) ---
+    let maybe_dir: Option<Direction> = Some(Direction::East);
+    if let Some(dir) = maybe_dir {
+        println(f"Got direction: {direction_to_string(dir)}");
+    }
+
+    // --- Unit variants in Result ---
+    let result: Result<Direction, string> = Ok(Direction::West);
+    match result {
+        Ok(dir) => println(f"Success: {direction_to_string(dir)}"),
+        Err(e) => println(f"Error: {e}"),
+    }
+
+    println("All unit enum tests passed");
+}

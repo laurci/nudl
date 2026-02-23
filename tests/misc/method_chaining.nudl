@@ -1,0 +1,78 @@
+// Test: Method chaining — obj.m1().m2().m3()
+
+struct Builder {
+    name: string,
+    port: u16,
+    tls: bool,
+    timeout: u64,
+}
+
+impl Builder {
+    fn new() -> Builder {
+        Builder { name: "default", port: 80, tls: false, timeout: 30000 }
+    }
+
+    fn name(self, name: string) -> Builder {
+        Builder { ...self, name }
+    }
+
+    fn port(self, port: u16) -> Builder {
+        Builder { ...self, port }
+    }
+
+    fn tls(self, enabled: bool) -> Builder {
+        Builder { ...self, tls: enabled }
+    }
+
+    fn timeout(self, ms: u64) -> Builder {
+        Builder { ...self, timeout: ms }
+    }
+
+    fn describe(self) -> string {
+        let scheme = if self.tls { "https" } else { "http" };
+        f"{scheme}://{self.name}:{self.port} (timeout: {self.timeout}ms)"
+    }
+}
+
+// Method chaining on dynamic arrays
+fn process_numbers(nums: i32[]) -> string {
+    nums
+        .iter()
+        .filter(|n| n > 0)
+        .map(|n| n * 2)
+        .collect()
+        .to_string()
+}
+
+fn main() {
+    // Builder pattern — long method chain
+    let config = Builder::new()
+        .name("example.com")
+        .port(443)
+        .tls(true)
+        .timeout(5000);
+    println(config.describe());
+
+    // Shorter chain
+    let simple = Builder::new().name("localhost").port(8080);
+    println(simple.describe());
+
+    // Chain with final transformation
+    let description = Builder::new()
+        .name("api.example.com")
+        .port(443)
+        .tls(true)
+        .describe();
+    println(description);
+
+    // String method chaining (to_string is from Printable)
+    let greeting = "Hello"
+        .to_string();
+    println(greeting);
+
+    // Method chain returning different types at each step
+    let numbers = [3, 1, 4, 1, 5, 9, 2, 6, 5];
+    let count = numbers
+        .len();
+    println(f"count: {count}");
+}

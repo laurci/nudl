@@ -1,0 +1,103 @@
+// Test: while loops with boolean conditions,
+//       while-let for pattern matching (e.g., while let Some(item) = iter.next()).
+
+fn main() {
+    // Basic while loop with a counter
+    let mut count = 0;
+    while count < 5 {
+        println(f"count = {count}");
+        count += 1;
+    }
+    println(f"Final count = {count}");
+
+    // While loop computing factorial
+    let mut n = 10;
+    let mut factorial: i64 = 1;
+    while n > 0 {
+        factorial = factorial * (n as i64);
+        n -= 1;
+    }
+    println(f"10! = {factorial}");
+
+    // While loop with complex condition
+    let mut x = 100;
+    while x > 1 {
+        if x % 2 == 0 {
+            x = x / 2;
+        } else {
+            x = x * 3 + 1;
+        }
+    }
+    println(f"Collatz reached 1, x = {x}");
+
+    // While loop with boolean flag
+    let mut done = false;
+    let mut iterations = 0;
+    while !done {
+        iterations += 1;
+        if iterations >= 10 {
+            done = true;
+        }
+    }
+    println(f"Completed after {iterations} iterations");
+
+    // While-let with Option: process items from an iterator
+    let items = [10, 20, 30, 40, 50];
+    let mut iter = items.iter();
+    let mut sum = 0;
+    while let Some(item) = iter.next() {
+        sum += item;
+    }
+    println(f"Sum via while-let = {sum}");
+
+    // While-let with a stack-like structure (popping elements)
+    let mut stack: i32[] = [1, 2, 3, 4, 5];
+    let mut popped: i32[] = [];
+    while let Some(top) = stack.pop() {
+        popped.push(top);
+    }
+    println(f"Popped in order: {popped}");
+
+    // While loop that modifies a string
+    let mut text = "hello";
+    let mut reversed = "";
+    let mut chars = text.chars().collect::<char[]>();
+    while let Some(ch) = chars.pop() {
+        reversed = f"{reversed}{ch}";
+    }
+    println(f"Reversed: {reversed}");
+
+    // Nested while loops
+    let mut i = 0;
+    let mut pairs: string[] = [];
+    while i < 3 {
+        let mut j = 0;
+        while j < 3 {
+            pairs.push(f"({i},{j})");
+            j += 1;
+        }
+        i += 1;
+    }
+    println(f"Pairs: {pairs}");
+
+    // While loop that never executes (condition false initially)
+    let mut never_ran = true;
+    while false {
+        never_ran = false;
+    }
+    println(f"Never ran loop body: {never_ran}");
+
+    // While-let with Result
+    let mut attempts: Result<i32, string>[] = [
+        Ok(1),
+        Ok(2),
+        Ok(3),
+        Err("stopped"),
+    ];
+    let mut results_iter = attempts.iter();
+    let mut ok_sum = 0;
+    while let Some(Ok(v)) = results_iter.next() {
+        ok_sum += v;
+    }
+    println(f"Sum of Ok values before first Err: {ok_sum}");
+}

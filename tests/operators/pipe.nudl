@@ -1,0 +1,119 @@
+// Test: Pipe operator — |> desugaring rules, chaining, named args, trailing lambdas
+// Covers: basic piping, chained pipes, pipe with named arguments,
+//         pipe with trailing lambdas, pipe with method calls
+
+fn double(x: i32) -> i32 {
+    x * 2
+}
+
+fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+fn format_num(n: i32, prefix: string) -> string {
+    f"{prefix}{n}"
+}
+
+fn filter(items: i32[], predicate: (i32) -> bool) -> i32[] {
+    let mut result: i32[] = [];
+    for item in items {
+        if predicate(item) {
+            result.push(item);
+        }
+    }
+    result
+}
+
+fn map(items: i32[], transform: (i32) -> i32) -> i32[] {
+    let mut result: i32[] = [];
+    for item in items {
+        result.push(transform(item));
+    }
+    result
+}
+
+fn fold(items: i32[], initial: i32, combine: (i32, i32) -> i32) -> i32 {
+    let mut acc = initial;
+    for item in items {
+        acc = combine(acc, item);
+    }
+    acc
+}
+
+fn send(data: string, method: string) -> string {
+    f"{method}: {data}"
+}
+
+fn main() {
+    // --- Basic pipe: x |> f desugars to f(x) ---
+    let result1 = 5 |> double;
+
+    // --- Pipe with additional args: x |> f(y) desugars to f(x, y) ---
+    let result2 = 5 |> add(3);
+
+    // --- Chained pipes (left associative) ---
+    let result3 = 5 |> double |> double;
+    // desugars to: double(double(5))
+
+    let result4 = 10 |> add(5) |> double;
+    // desugars to: double(add(10, 5))
+
+    // --- Named arguments stay named ---
+    let result5 = "data payload" |> send(method: "POST");
+    // desugars to: send("data payload", method: "POST")
+
+    // --- Pipe with named arg and shorthand ---
+    let method = "PUT";
+    let result6 = "payload" |> send(method);
+    // desugars to: send("payload", method: "PUT")
+
+    // --- Pipe with format_num ---
+    let result7 = 42 |> format_num(prefix: "Value: ");
+    // desugars to: format_num(42, prefix: "Value: ")
+
+    // --- Pipe with trailing lambda ---
+    let data: i32[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+    let evens = data |> filter { it % 2 == 0 };
+    // desugars to: filter(data) { it % 2 == 0 }
+
+    let doubled = data |> map { it * 2 };
+    // desugars to: map(data) { it * 2 }
+
+    // --- Chained pipes with trailing lambdas ---
+    let result8 = data
+        |> filter { it > 0 }
+        |> map { it * 2 }
+        |> fold(initial: 0) { acc, item -> acc + item };
+    // desugars to:
+    // fold(map(filter(data) { it > 0 }) { it * 2 }, initial: 0) { acc, item -> acc + item }
+
+    // --- Pipe into a different position using closure ---
+    let result9 = 42 |> |v| format_num(v, prefix: "Number: ");
+
+    // --- Multi-step pipeline ---
+    let processed = [1, 2, 3, 4, 5]
+        |> filter { it % 2 != 0 }
+        |> map { it * it }
+        |> fold(initial: 0) { acc, item -> acc + item };
+
+    // --- Pipe with method call: x |> obj.method desugars to obj.method(x) ---
+    struct Formatter {
+        prefix: string,
+    }
+
+    impl Formatter {
+        fn format(self, value: i32) -> string {
+            f"{self.prefix}{value}"
+        }
+    }
+
+    let fmt = Formatter { prefix: ">> " };
+    let result10 = 42 |> fmt.format;
+    // desugars to: fmt.format(42)
+
+    // --- Pipe precedence (lower than range, higher than assignment) ---
+    let mut piped = 0;
+    piped = 5 |> double;
+    // Parsed as: piped = (5 |> double)
+}

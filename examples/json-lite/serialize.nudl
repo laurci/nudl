@@ -1,0 +1,77 @@
+// JSON Serialization module — convert JsonValue to/from strings
+// Features: recursive pattern matching, string building, Printable interface
+
+import value::JsonValue;
+
+pub fn serialize(value: JsonValue) -> string {
+    match value {
+        JsonValue::Null => "null",
+        JsonValue::Bool(b) => if b { "true" } else { "false" },
+        JsonValue::Number(n) => f"{n}",
+        JsonValue::Str(s) => f"\"{escape_string(s)}\"",
+        JsonValue::Array(items) => {
+            let mut parts: string[] = [];
+            for item in items {
+                parts.push(serialize(item));
+            }
+            f"[{parts.join(\", \")}]"
+        },
+        JsonValue::Object(map) => {
+            let mut parts: string[] = [];
+            for (key, val) in map {
+                parts.push(f"\"{escape_string(key)}\": {serialize(val)}");
+            }
+            f"{{{parts.join(\", \")}}}"
+        },
+    }
+}
+
+pub fn pretty_print(value: JsonValue, indent: u64) -> string {
+    let pad = make_indent(indent);
+    let inner_pad = make_indent(indent + 1);
+
+    match value {
+        JsonValue::Null => "null",
+        JsonValue::Bool(b) => if b { "true" } else { "false" },
+        JsonValue::Number(n) => f"{n}",
+        JsonValue::Str(s) => f"\"{escape_string(s)}\"",
+        JsonValue::Array(items) => {
+            if items.len() == 0 { return "[]"; }
+            let mut parts: string[] = [];
+            for item in items {
+                parts.push(f"{inner_pad}{pretty_print(item, indent: indent + 1)}");
+            }
+            f"[\n{parts.join(\",\n\")}\n{pad}]"
+        },
+        JsonValue::Object(map) => {
+            if map.len() == 0 { return "{}"; }
+            let mut parts: string[] = [];
+            for (key, val) in map {
+                let val_str = pretty_print(val, indent: indent + 1);
+                parts.push(f"{inner_pad}\"{escape_string(key)}\": {val_str}");
+            }
+            f"{{\n{parts.join(\",\n\")}\n{pad}}}"
+        },
+    }
+}
+
+fn escape_string(s: string) -> string {
+    s.replace("\\", "\\\\")
+     .replace("\"", "\\\"")
+     .replace("\n", "\\n")
+     .replace("\t", "\\t")
+}
+
+fn make_indent(level: u64) -> string {
+    let mut result = "";
+    for _ in 0..level {
+        result = f"{result}  ";
+    }
+    result
+}
+
+impl Printable for JsonValue {
+    fn to_string(self) -> string {
+        serialize(self)
+    }
+}

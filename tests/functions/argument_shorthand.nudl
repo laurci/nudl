@@ -1,0 +1,76 @@
+// Test: Argument shorthand — when a variable at the call site has the same
+//       name as a named parameter, the caller may write just the variable name
+//       instead of `name: name`.
+
+fn create_point(x: f64, y: f64) -> string {
+    f"Point({x}, {y})"
+}
+
+fn send_request(url: string, method: string, body: string) -> string {
+    f"{method} {url} body={body}"
+}
+
+fn make_config(host: string, port: u16, tls: bool = false) -> string {
+    f"{host}:{port} tls={tls}"
+}
+
+fn build_user(name: string, age: i32, email: string, active: bool = true) -> string {
+    f"User(name={name}, age={age}, email={email}, active={active})"
+}
+
+struct Color {
+    r: u8,
+    g: u8,
+    b: u8,
+}
+
+fn mix_colors(r: u8, g: u8, b: u8) -> Color {
+    Color { r, g, b }
+}
+
+fn main() {
+    // Basic shorthand: variable names match parameter names
+    let y = 2.0;
+    let p1 = create_point(1.0, y);
+    // Equivalent to: create_point(1.0, y: 2.0)
+    println(p1);
+
+    // Multiple shorthand arguments
+    let method = "POST";
+    let body = "hello world";
+    let r1 = send_request("https://api.example.com", method, body);
+    // Equivalent to: send_request("https://api.example.com", method: "POST", body: "hello world")
+    println(r1);
+
+    // Mix of shorthand and explicit named args
+    let port: u16 = 443;
+    let c1 = make_config("example.com", port, tls: true);
+    println(c1);
+
+    // All named params using shorthand
+    let host = "localhost";
+    let tls = false;
+    let port2: u16 = 8080;
+    let c2 = make_config(host, port: port2, tls);
+    println(c2);
+
+    // Shorthand with multiple params
+    let name = "Alice";
+    let age = 30;
+    let email = "alice@example.com";
+    let u1 = build_user(name, age, email);
+    println(u1);
+
+    // Shorthand does not apply to the first (positional) parameter
+    // The first param is always positional, so shorthand is for subsequent params
+    let url = "https://example.com";
+    let r2 = send_request(url, method, body);
+    println(r2);
+
+    // Shorthand with struct field constructor (same concept)
+    let r: u8 = 255;
+    let g: u8 = 128;
+    let b: u8 = 0;
+    let color = mix_colors(r, g, b);
+    println(f"Color({color.r}, {color.g}, {color.b})");
+}

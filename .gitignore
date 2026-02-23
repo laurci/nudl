@@ -1,0 +1,13 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+target/
+dist/
+*.vsix
+
+# AI tools caches and settings
+.claude
+
+# OS files
+.DS_Store

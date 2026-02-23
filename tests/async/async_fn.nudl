@@ -1,0 +1,52 @@
+// Test: Async functions — async fn declaration, returns Future<T>
+
+// Basic async function — return type is Future<string> effectively
+async fn greet(name: string) -> string {
+    f"Hello, {name}!"
+}
+
+// Async function returning unit
+async fn do_work() {
+    println("Working...");
+}
+
+// Async function with Result return
+async fn fetch_data(url: string) -> Result<string, string> {
+    if url.len() == 0 {
+        return Err("empty url");
+    }
+    Ok(f"data from {url}")
+}
+
+// Async function calling other async functions
+async fn process(name: string) -> string {
+    let greeting = greet(name).await;
+    greeting
+}
+
+// Async fn with multiple params
+async fn combine(a: string, b: string, separator: string = ", ") -> string {
+    let part_a = process(a).await;
+    let part_b = process(b).await;
+    f"{part_a}{separator}{part_b}"
+}
+
+async fn main() {
+    // Calling async fn returns a Future, must .await to get value
+    let message = greet("world").await;
+    println(message);
+
+    // Async fn returning unit
+    do_work().await;
+
+    // Async fn with Result
+    let result = fetch_data("https://example.com").await;
+    match result {
+        Ok(data) => println(f"Got: {data}"),
+        Err(e) => println(f"Error: {e}"),
+    }
+
+    // Chained async calls
+    let combined = combine("Alice", b: "Bob").await;
+    println(combined);
+}

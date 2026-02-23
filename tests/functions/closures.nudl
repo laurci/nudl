@@ -1,0 +1,86 @@
+// Test: Closure syntax, capture semantics (by ARC reference),
+//       single-expression and block closures, typed and untyped params.
+
+fn main() {
+    // Basic closure with type annotations
+    let add = |a: i32, b: i32| -> i32 { a + b };
+    println(f"add(3, 4) = {add(3, 4)}");
+
+    // Closure with inferred types (single expression body)
+    let double = |n| n * 2;
+    println(f"double(5) = {double(5)}");
+
+    // Closure with block body
+    let clamp = |value: i32, min: i32, max: i32| -> i32 {
+        if value < min {
+            min
+        } else if value > max {
+            max
+        } else {
+            value
+        }
+    };
+    println(f"clamp(15, 0, 10) = {clamp(15, 0, 10)}");
+    println(f"clamp(-5, 0, 10) = {clamp(-5, 0, 10)}");
+    println(f"clamp(5, 0, 10) = {clamp(5, 0, 10)}");
+
+    // Capture by ARC reference: closure shares variable with enclosing scope
+    let mut counter = 0;
+    let increment = || {
+        counter += 1;
+    };
+    increment();
+    increment();
+    increment();
+    println(f"counter after 3 increments = {counter}");
+
+    // Capture of immutable variable
+    let multiplier = 10;
+    let scale = |x| x * multiplier;
+    println(f"scale(7) = {scale(7)}");
+
+    // Multiple captures
+    let base = 100;
+    let mut offset = 0;
+    let compute = |x: i32| -> i32 {
+        offset += 1;
+        base + x + offset
+    };
+    println(f"compute(5) = {compute(5)}");
+    println(f"compute(5) = {compute(5)}");
+    println(f"offset = {offset}");
+
+    // Closure returning closure (higher-order)
+    let make_adder = |n: i32| -> (i32) -> i32 {
+        |x| x + n
+    };
+    let add5 = make_adder(5);
+    let add10 = make_adder(10);
+    println(f"add5(3) = {add5(3)}");
+    println(f"add10(3) = {add10(3)}");
+
+    // Zero-parameter closure
+    let greet = || "hello, world";
+    println(greet());
+
+    // Closure assigned to typed variable
+    let op: (i32, i32) -> i32 = |a, b| a + b;
+    println(f"op(10, 20) = {op(10, 20)}");
+
+    // Closure used in a loop
+    let mut values: i32[] = [];
+    let mut push_val = |v: i32| {
+        values.push(v);
+    };
+    for i in 0..5 {
+        push_val(i * i);
+    }
+    println(f"values = {values}");
+
+    // Closure capturing a string (reference type)
+    let prefix = "item";
+    let label = |n: i32| -> string {
+        f"{prefix}_{n}"
+    };
+    println(f"label(3) = {label(3)}");
+}

@@ -1,0 +1,103 @@
+// Test: Optional parameters (param?: Type).
+//       An optional param `name?: Type` has type Option<Type> in the body.
+//       If omitted by the caller, it defaults to None.
+//       Ordering: required -> default -> optional.
+
+// Function with one optional parameter
+fn greet(name: string, title?: string) -> string {
+    match title {
+        Some(t) => f"{t} {name}",
+        None => name,
+    }
+}
+
+// Function with multiple optional parameters
+fn connect(host: string, port?: u16, timeout?: u64) -> string {
+    let actual_port = match port {
+        Some(p) => p,
+        None => 80,
+    };
+    let actual_timeout = match timeout {
+        Some(t) => t,
+        None => 30000,
+    };
+    f"{host}:{actual_port} (timeout: {actual_timeout})"
+}
+
+// Mixing required, default, and optional parameters (ordering rule)
+fn build_query(table: string, limit: i32 = 100, offset?: i32, filter?: string) -> string {
+    let mut query = f"SELECT * FROM {table} LIMIT {limit}";
+    if let Some(o) = offset {
+        query = f"{query} OFFSET {o}";
+    }
+    if let Some(f) = filter {
+        query = f"{query} WHERE {f}";
+    }
+    query
+}
+
+// Optional parameter used with if-let
+fn describe(value: i32, label?: string) -> string {
+    if let Some(l) = label {
+        f"{l}: {value}"
+    } else {
+        f"value: {value}"
+    }
+}
+
+// Function that passes optional through
+fn maybe_double(x?: i32) -> Option<i32> {
+    match x {
+        Some(v) => Some(v * 2),
+        None => None,
+    }
+}
+
+fn main() {
+    // Call with optional provided
+    let g1 = greet("Smith", title: "Dr.");
+    println(g1);
+
+    // Call with optional omitted
+    let g2 = greet("Alice");
+    println(g2);
+
+    // Multiple optionals: none provided
+    let c1 = connect("localhost");
+    println(c1);
+
+    // Multiple optionals: some provided
+    let c2 = connect("example.com", port: 443);
+    println(c2);
+
+    // Multiple optionals: all provided
+    let c3 = connect("example.com", port: 443, timeout: 5000);
+    println(c3);
+
+    // Mixing required, default, and optional
+    let q1 = build_query("users");
+    println(q1);
+
+    let q2 = build_query("users", limit: 50, offset: 10);
+    println(q2);
+
+    let q3 = build_query("users", limit: 25, filter: "active = true");
+    println(q3);
+
+    let q4 = build_query("users", limit: 10, offset: 20, filter: "role = 'admin'");
+    println(q4);
+
+    // Optional with if-let
+    let d1 = describe(42, label: "answer");
+    println(d1);
+
+    let d2 = describe(42);
+    println(d2);
+
+    // Optional parameter passed as Option value
+    let doubled = maybe_double(x: 21);
+    println(f"maybe_double(21) = {doubled}");
+
+    let nothing = maybe_double();
+    println(f"maybe_double() = {nothing}");
+}

@@ -1,0 +1,27 @@
+// Test: Grouped import — import multiple items from a module with braces
+//
+// Verifies that `import module::{item1, item2};` brings multiple items into
+// scope simultaneously. Items not in the group are not accessible.
+
+import math::{add, subtract};
+
+fn main() {
+    // Both imported functions should work
+    let sum = add(10, 5);
+    assert(sum == 15, "add(10, 5) should be 15");
+
+    let diff = subtract(10, 5);
+    assert(diff == 5, "subtract(10, 5) should be 5");
+
+    // Combine them
+    let result = add(subtract(20, 8), 3);
+    assert(result == 15, "add(subtract(20, 8), 3) should be 15");
+
+    // multiply was NOT included in the grouped import
+    // multiply(2, 3);  // ERROR: multiply not in scope
+
+    // internal_helper is private, never importable
+    // internal_helper(5);  // ERROR: not accessible
+
+    println("grouped-import: all assertions passed");
+}

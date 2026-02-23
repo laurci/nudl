@@ -1,0 +1,124 @@
+// Test: Result<T, E> type — Ok(v), Err(e), matching, and method usage
+// Result is a built-in enum: enum Result<T, E> { Ok(T), Err(E) }
+
+// A function that can succeed or fail
+fn divide(a: f64, b: f64) -> Result<f64, string> {
+    if b == 0.0 {
+        Err("division by zero")
+    } else {
+        Ok(a / b)
+    }
+}
+
+// A function that always succeeds
+fn safe_add(a: i32, b: i32) -> Result<i32, string> {
+    Ok(a + b)
+}
+
+// A function that always fails
+fn always_fails() -> Result<i32, string> {
+    Err("this always fails")
+}
+
+// Returning different error types
+fn parse_positive(input: string) -> Result<u32, string> {
+    let value = parse::<i32>(input)?;
+    if value < 0 {
+        Err("value must be positive")
+    } else {
+        Ok(value as u32)
+    }
+}
+
+// Nested Result matching
+fn classify_division(a: f64, b: f64) -> string {
+    match divide(a, b) {
+        Ok(value) if value > 100.0 => "large result",
+        Ok(value) if value > 0.0 => "positive result",
+        Ok(value) if value == 0.0 => "zero",
+        Ok(value) => "negative result",
+        Err(msg) => f"error: {msg}",
+    }
+}
+
+fn main() {
+    // --- Basic Ok and Err construction ---
+    let ok_val: Result<i32, string> = Ok(42);
+    let err_val: Result<i32, string> = Err("something went wrong");
+
+    // --- Pattern matching on Result ---
+    let msg1 = match ok_val {
+        Ok(v) => f"got value: {v}",
+        Err(e) => f"got error: {e}",
+    };
+    // msg1 == "got value: 42"
+
+    let msg2 = match err_val {
+        Ok(v) => f"got value: {v}",
+        Err(e) => f"got error: {e}",
+    };
+    // msg2 == "got error: something went wrong"
+
+    // --- Using Result-returning functions ---
+    let result1 = divide(10.0, 3.0);
+    match result1 {
+        Ok(v) => println(f"10 / 3 = {v}"),
+        Err(e) => println(f"Error: {e}"),
+    }
+
+    let result2 = divide(5.0, 0.0);
+    match result2 {
+        Ok(v) => println(f"5 / 0 = {v}"),
+        Err(e) => println(f"Error: {e}"),
+    }
+
+    // --- if let with Result ---
+    if let Ok(value) = divide(100.0, 4.0) {
+        println(f"100 / 4 = {value}");
+    }
+
+    if let Err(error) = divide(1.0, 0.0) {
+        println(f"Division failed: {error}");
+    }
+
+    // --- Result in collections ---
+    let results: Result<i32, string>[] = [
+        Ok(1),
+        Err("bad"),
+        Ok(3),
+        Ok(4),
+        Err("also bad"),
+    ];
+
+    for r in results {
+        match r {
+            Ok(v) => println(f"  ok: {v}"),
+            Err(e) => println(f"  err: {e}"),
+        }
+    }
+
+    // --- Nested Result values ---
+    let nested: Result<Result<i32, string>, string> = Ok(Ok(42));
+    match nested {
+        Ok(Ok(v)) => println(f"deeply nested value: {v}"),
+        Ok(Err(inner)) => println(f"inner error: {inner}"),
+        Err(outer) => println(f"outer error: {outer}"),
+    }
+
+    // --- Result with different type parameters ---
+    let int_result: Result<i32, i32> = Ok(10);
+    let str_result: Result<string, string> = Err("oops");
+    let tuple_result: Result<(i32, i32), string> = Ok((1, 2));
+
+    match tuple_result {
+        Ok((a, b)) => println(f"tuple: ({a}, {b})"),
+        Err(e) => println(f"error: {e}"),
+    }
+
+    // --- classify_division uses guards in match arms ---
+    println(classify_division(1000.0, 5.0));   // "large result"
+    println(classify_division(10.0, 5.0));     // "positive result"
+    println(classify_division(0.0, 5.0));      // "zero"
+    println(classify_division(-10.0, 5.0));    // "negative result"
+    println(classify_division(1.0, 0.0));      // "error: division by zero"
+}

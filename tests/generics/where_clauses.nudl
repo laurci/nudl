@@ -1,0 +1,102 @@
+// Test: Where clauses — where T: Clone, U: Printable
+
+interface Printable {
+    fn to_string(self) -> string;
+}
+
+interface Clone {
+    fn clone(self) -> Self;
+}
+
+interface Summary {
+    fn summarize(self) -> string;
+}
+
+// Where clause on function
+fn process<T, U>(input: T, transform: (T) -> U) -> string
+where
+    T: Clone + Printable,
+    U: Printable,
+{
+    let copy = input.clone();
+    let result = transform(input);
+    f"Input: {copy.to_string()}, Output: {result.to_string()}"
+}
+
+// Where clause with multiple predicates
+fn merge_descriptions<A, B>(a: A, b: B) -> string
+where
+    A: Printable + Summary,
+    B: Printable + Summary,
+{
+    f"{a.summarize()} & {b.summarize()}"
+}
+
+// Where clause on struct impl
+struct Container<T> {
+    items: T[],
+}
+
+impl<T> Container<T>
+where
+    T: Printable + Clone,
+{
+    fn describe_all(self) -> string {
+        let mut parts: string[] = [];
+        for item in self.items {
+            parts.push(item.to_string());
+        }
+        f"[{parts.join(", ")}]"
+    }
+
+    fn first_clone(self) -> Option<T> {
+        if self.items.len() > 0 {
+            Some(self.items[0].clone())
+        } else {
+            None
+        }
+    }
+}
+
+// Where clause on interface implementation
+impl<T> Printable for Container<T>
+where
+    T: Printable,
+{
+    fn to_string(self) -> string {
+        let mut parts: string[] = [];
+        for item in self.items {
+            parts.push(item.to_string());
+        }
+        f"Container([{parts.join(", ")}])"
+    }
+}
+
+struct Article {
+    title: string,
+    body: string,
+}
+
+impl Printable for Article {
+    fn to_string(self) -> string {
+        self.title
+    }
+}
+
+impl Summary for Article {
+    fn summarize(self) -> string {
+        if self.body.len() > 20 {
+            f"{self.title}: {self.body.substring(0, 20)}..."
+        } else {
+            f"{self.title}: {self.body}"
+        }
+    }
+}
+
+fn main() {
+    let a = Article { title: "Hello", body: "This is a test article with content" };
+    let b = Article { title: "World", body: "Short body" };
+
+    let merged = merge_descriptions(a, b: b);
+    println(merged);
+}

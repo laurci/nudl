@@ -1,0 +1,182 @@
+// Test: Code generation — generating structs, impls, and functions via quote
+//
+// Comptime code generation uses quote {} with ${} splicing to produce
+// full structs, impl blocks, functions, and even interface implementations
+// at compile time.
+
+// --- Generate a struct from a list of fields ---
+comptime fn gen_struct(name: string, fields: (string, type)[]) {
+    quote {
+        struct ${name} {
+            ${for (fname, ftype) in fields {
+                quote { ${fname}: ${ftype}, }
+            }}
+        }
+    }
+}
+
+// --- Generate a constructor ---
+comptime fn gen_constructor(T: type) {
+    let name = type_name(T);
+    let fields = type_fields(T);
+    quote {
+        impl ${T} {
+            fn new(${for (i, field) in fields.enumerate() {
+                let fname = field.name;
+                let ftype = field.field_type;
+                if i > 0 {
+                    quote { , ${fname}: ${ftype} }
+                } else {
+                    quote { ${fname}: ${ftype} }
+                }
+            }}) -> ${T} {
+                ${T} {
+                    ${for field in fields {
+                        let fname = field.name;
+                        quote { ${fname}, }
+                    }}
+                }
+            }
+        }
+    }
+}
+
+// --- Generate Clone implementation ---
+comptime fn gen_clone(T: type) {
+    let fields = type_fields(T);
+    quote {
+        impl Clone for ${T} {
+            fn clone(self) -> ${T} {
+                ${T} {
+                    ${for field in fields {
+                        let fname = field.name;
+                        quote { ${fname}: self.${fname}.clone(), }
+                    }}
+                }
+            }
+        }
+    }
+}
+
+// --- Generate equality check ---
+comptime fn gen_eq(T: type) {
+    let fields = type_fields(T);
+    quote {
+        impl Eq for ${T} {
+            fn eq(self, other: Self) -> bool {
+                ${for (i, field) in fields.enumerate() {
+                    let fname = field.name;
+                    if i == 0 {
+                        quote { self.${fname} == other.${fname} }
+                    } else {
+                        quote { && self.${fname} == other.${fname} }
+                    }
+                }}
+            }
+        }
+    }
+}
+
+// --- Generate a builder pattern ---
+comptime fn gen_builder(T: type) {
+    let name = type_name(T);
+    let builder_name = f"{name}Builder";
+    let fields = type_fields(T);
+
+    quote {
+        struct ${builder_name} {
+            ${for field in fields {
+                let fname = field.name;
+                let ftype = field.field_type;
+                quote { ${fname}: Option<${ftype}>, }
+            }}
+        }
+
+        impl ${builder_name} {
+            fn new() -> ${builder_name} {
+                ${builder_name} {
+                    ${for field in fields {
+                        let fname = field.name;
+                        quote { ${fname}: None, }
+                    }}
+                }
+            }
+
+            ${for field in fields {
+                let fname = field.name;
+                let ftype = field.field_type;
+                quote {
+                    fn ${fname}(mut self, value: ${ftype}) -> ${builder_name} {
+                        self.${fname} = Some(value);
+                        self
+                    }
+                }
+            }}
+
+            fn build(self) -> ${T} {
+                ${T} {
+                    ${for field in fields {
+                        let fname = field.name;
+                        quote { ${fname}: self.${fname}.unwrap(), }
+                    }}
+                }
+            }
+        }
+    }
+}
+
+// --- Apply code generation ---
+comptime {
+    gen_struct("Vec2", fields: [("x", f64), ("y", f64)]);
+    gen_struct("RGB", fields: [("r", u8), ("g", u8), ("b", u8)]);
+}
+
+comptime {
+    gen_constructor(Vec2);
+    gen_constructor(RGB);
+    gen_clone(Vec2);
+    gen_eq(Vec2);
+    gen_builder(Vec2);
+}
+
+fn main() {
+    // --- Generated structs ---
+    let v = Vec2 { x: 1.0, y: 2.0 };
+    assert(v.x == 1.0, "Vec2.x should be 1.0");
+    assert(v.y == 2.0, "Vec2.y should be 2.0");
+
+    let c = RGB { r: 255, g: 128, b: 0 };
+    assert(c.r == 255, "RGB.r should be 255");
+    assert(c.g == 128, "RGB.g should be 128");
+
+    // --- Generated constructors ---
+    let v2 = Vec2::new(3.0, y: 4.0);
+    assert(v2.x == 3.0, "constructor x should be 3.0");
+    assert(v2.y == 4.0, "constructor y should be 4.0");
+
+    let c2 = RGB::new(0, g: 255, b: 0);
+    assert(c2.g == 255, "constructor g should be 255");
+
+    // --- Generated clone ---
+    let mut v3 = v2.clone();
+    v3.x = 99.0;
+    assert(v2.x == 3.0, "original should be unchanged after clone mutation");
+    assert(v3.x == 99.0, "clone should have new value");
+
+    // --- Generated equality ---
+    let a = Vec2::new(1.0, y: 2.0);
+    let b = Vec2::new(1.0, y: 2.0);
+    let c_diff = Vec2::new(3.0, y: 4.0);
+    assert(a == b, "equal Vec2s should be ==");
+    assert(a != c_diff, "different Vec2s should be !=");
+
+    // --- Generated builder ---
+    let built = Vec2Builder::new()
+        .x(10.0)
+        .y(20.0)
+        .build();
+    assert(built.x == 10.0, "builder x should be 10.0");
+    assert(built.y == 20.0, "builder y should be 20.0");
+
+    println("code_generation: all assertions passed");
+}

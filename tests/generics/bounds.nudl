@@ -1,0 +1,91 @@
+// Test: Generic bounds — T: Interface, T: A + B multiple bounds
+
+interface Printable {
+    fn to_string(self) -> string;
+}
+
+interface Describable {
+    fn describe(self) -> string;
+}
+
+interface Sizeable {
+    fn size(self) -> u64;
+}
+
+// Single bound
+fn print_value<T: Printable>(value: T) {
+    println(value.to_string());
+}
+
+// Multiple bounds with +
+fn print_and_describe<T: Printable + Describable>(value: T) {
+    println(f"String: {value.to_string()}");
+    println(f"Description: {value.describe()}");
+}
+
+// Bound on generic struct
+struct SortedPair<T: Ord> {
+    lo: T,
+    hi: T,
+}
+
+impl<T: Ord> SortedPair<T> {
+    fn new(a: T, b: T) -> SortedPair<T> {
+        if a <= b {
+            SortedPair { lo: a, hi: b }
+        } else {
+            SortedPair { lo: b, hi: a }
+        }
+    }
+}
+
+// Multiple bounds on function
+fn largest_item<T: Ord + Clone>(items: T[]) -> Option<T> {
+    if items.len() == 0 {
+        return None;
+    }
+    let mut best = items[0].clone();
+    for item in items {
+        if item > best {
+            best = item.clone();
+        }
+    }
+    Some(best)
+}
+
+struct Item {
+    name: string,
+    weight: u64,
+}
+
+impl Printable for Item {
+    fn to_string(self) -> string {
+        f"Item({self.name})"
+    }
+}
+
+impl Describable for Item {
+    fn describe(self) -> string {
+        f"{self.name} weighing {self.weight}kg"
+    }
+}
+
+fn main() {
+    // Single bound
+    let item = Item { name: "Box", weight: 10 };
+    print_value(item);
+
+    // Multiple bounds
+    print_and_describe(item);
+
+    // Bound on struct
+    let pair = SortedPair::new(10, 3);
+    println(f"sorted: ({pair.lo}, {pair.hi})");
+
+    // Multiple bounds on function
+    let nums = [5, 2, 8, 1, 9, 3];
+    match largest_item(nums) {
+        Some(n) => println(f"largest: {n}"),
+        None => println("empty list"),
+    }
+}

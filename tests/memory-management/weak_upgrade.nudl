@@ -1,0 +1,95 @@
+// Test: Weak references — upgrade() returns Some when alive, None when dead
+//
+// Weak references (created with `let weak r = strong;`) do not prevent
+// deallocation. Upgrading a weak reference returns Some(strong_ref) if the
+// object is still alive, or None if it has been deallocated.
+
+struct Node {
+    value: i32,
+    children: Node[],
+}
+
+struct TreeNode {
+    value: i32,
+    parent: Option<weak Node>,
+    children: Node[],
+}
+
+fn main() {
+    // --- Basic weak reference: alive ---
+    let strong = Node { value: 42, children: [] };
+    let weak r = strong;
+
+    match r.upgrade() {
+        Some(node) => {
+            assert(node.value == 42, "upgraded weak ref should have value 42");
+        },
+        None => {
+            assert(false, "upgrade should succeed while strong ref exists");
+        },
+    }
+
+    // --- Weak reference after strong goes out of scope ---
+    let weak dangling = {
+        let temp = Node { value: 99, children: [] };
+        let weak w = temp;
+        // Verify it works while temp is alive
+        match w.upgrade() {
+            Some(node) => assert(node.value == 99, "should upgrade while alive"),
+            None => assert(false, "should not be None yet"),
+        }
+        w  // weak ref escapes, temp drops when block exits
+    };
+    // Now the weak reference should return None (temp was deallocated)
+    match dangling.upgrade() {
+        Some(_) => assert(false, "upgrade should fail after deallocation"),
+        None => { /* expected */ },
+    }
+
+    // --- Multiple weak references to same object ---
+    let obj = Node { value: 7, children: [] };
+    let weak w1 = obj;
+    let weak w2 = obj;
+    let weak w3 = obj;
+
+    // All should upgrade successfully
+    assert(w1.upgrade() != None, "w1 should upgrade");
+    assert(w2.upgrade() != None, "w2 should upgrade");
+    assert(w3.upgrade() != None, "w3 should upgrade");
+
+    // --- Upgrade returns a strong reference (increments refcount) ---
+    let weak wr = {
+        let original = Node { value: 55, children: [] };
+        let weak w = original;
+        let upgraded = w.upgrade(); // returns Option<Node>
+        // original goes out of scope at end of block, but upgraded holds a strong ref
+        match upgraded {
+            Some(node) => {
+                assert(node.value == 55, "upgraded ref should hold value");
+            },
+            None => assert(false, "should not be None"),
+        }
+        w  // weak ref escapes
+    };
+
+    // --- Weak references in struct fields (cycle breaking) ---
+    let parent = Node { value: 1, children: [] };
+    let weak wp = parent;
+    let child = TreeNode {
+        value: 2,
+        parent: Some(wp), // weak reference to parent breaks cycle
+        children: [],
+    };
+
+    match child.parent {
+        Some(weak_parent) => {
+            match weak_parent.upgrade() {
+                Some(p) => assert(p.value == 1, "parent value should be 1"),
+                None => assert(false, "parent should still be alive"),
+            }
+        },
+        None => assert(false, "parent should be Some"),
+    }
+
+    println("weak_upgrade: all assertions passed");
+}

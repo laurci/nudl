@@ -1,0 +1,206 @@
+// Test: Interface declarations — required methods and default methods with body
+
+// Interface with a single required method
+interface Printable {
+    fn to_string(self) -> string;
+}
+
+// Interface with multiple required methods
+interface Shape {
+    fn area(self) -> f64;
+    fn perimeter(self) -> f64;
+    fn name(self) -> string;
+}
+
+// Interface with a default method (has a body, doesn't need to be implemented)
+interface Summary {
+    fn summarize(self) -> string;
+
+    // Default method: implementors get this for free unless they override
+    fn preview(self) -> string {
+        let s = self.summarize();
+        if s.len() > 20 {
+            f"{s.substring(0, 20)}..."
+        } else {
+            s
+        }
+    }
+}
+
+// Interface with both required and default methods
+interface Describable {
+    fn describe(self) -> string;          // required
+    fn short_description(self) -> string; // required
+
+    // Default method using the required methods
+    fn full_report(self) -> string {
+        f"Description: {self.describe()}\nShort: {self.short_description()}"
+    }
+
+    // Another default method
+    fn is_described(self) -> bool {
+        self.describe().len() > 0
+    }
+}
+
+// Interface with mut self methods
+interface Counter {
+    fn count(self) -> i32;
+    fn increment(mut self);
+    fn reset(mut self);
+
+    // Default method using required methods
+    fn increment_by(mut self, n: i32) {
+        for _ in 0..n {
+            self.increment();
+        }
+    }
+}
+
+// --- Types that implement these interfaces ---
+
+struct Article {
+    title: string,
+    content: string,
+    author: string,
+}
+
+struct Circle {
+    radius: f64,
+}
+
+struct SimpleCounter {
+    value: i32,
+}
+
+// --- Implementations ---
+
+impl Printable for Article {
+    fn to_string(self) -> string {
+        f"Article: {self.title} by {self.author}"
+    }
+}
+
+impl Summary for Article {
+    fn summarize(self) -> string {
+        f"{self.title} by {self.author}: {self.content}"
+    }
+    // preview() is inherited as default
+}
+
+impl Describable for Article {
+    fn describe(self) -> string {
+        f"An article titled '{self.title}' written by {self.author}"
+    }
+
+    fn short_description(self) -> string {
+        self.title
+    }
+    // full_report() and is_described() are inherited as defaults
+}
+
+impl Printable for Circle {
+    fn to_string(self) -> string {
+        f"Circle(r={self.radius})"
+    }
+}
+
+impl Shape for Circle {
+    fn area(self) -> f64 {
+        3.14159 * self.radius * self.radius
+    }
+
+    fn perimeter(self) -> f64 {
+        2.0 * 3.14159 * self.radius
+    }
+
+    fn name(self) -> string {
+        "circle"
+    }
+}
+
+impl Counter for SimpleCounter {
+    fn count(self) -> i32 {
+        self.value
+    }
+
+    fn increment(mut self) {
+        self.value += 1;
+    }
+
+    fn reset(mut self) {
+        self.value = 0;
+    }
+    // increment_by() is inherited as default
+}
+
+// --- Type that overrides a default method ---
+
+struct Tweet {
+    user: string,
+    body: string,
+}
+
+impl Summary for Tweet {
+    fn summarize(self) -> string {
+        f"@{self.user}: {self.body}"
+    }
+
+    // Override the default preview method
+    fn preview(self) -> string {
+        f"@{self.user}"
+    }
+}
+
+fn main() {
+    // --- Printable interface ---
+    let article = Article {
+        title: "nudl language",
+        content: "A new programming language",
+        author: "Team nudl",
+    };
+    println(article.to_string());
+
+    let circle = Circle { radius: 5.0 };
+    println(circle.to_string());
+
+    // --- Shape interface ---
+    println(f"{circle.name()} area: {circle.area()}");
+    println(f"{circle.name()} perimeter: {circle.perimeter()}");
+
+    // --- Summary with default method ---
+    let long_article = Article {
+        title: "A Very Long Article Title That Exceeds Twenty Characters",
+        content: "Content here",
+        author: "Author",
+    };
+    println(f"Summarize: {long_article.summarize()}");
+    println(f"Preview (default): {long_article.preview()}");
+    // preview should truncate to 20 chars + "..."
+
+    // --- Summary with overridden default ---
+    let tweet = Tweet { user: "nudl_lang", body: "Hello, world!" };
+    println(f"Tweet summarize: {tweet.summarize()}");
+    println(f"Tweet preview (overridden): {tweet.preview()}");
+    // preview returns just "@nudl_lang" instead of the default
+
+    // --- Describable with default methods ---
+    println(f"Describe: {article.describe()}");
+    println(f"Short: {article.short_description()}");
+    println(f"Full report: {article.full_report()}");
+    println(f"Is described: {article.is_described()}");
+
+    // --- Counter with default increment_by ---
+    let mut counter = SimpleCounter { value: 0 };
+    counter.increment();
+    counter.increment();
+    println(f"After 2 increments: {counter.count()}");    // 2
+
+    counter.increment_by(5);   // uses the default method
+    println(f"After increment_by(5): {counter.count()}"); // 7
+
+    counter.reset();
+    println(f"After reset: {counter.count()}");           // 0
+
+    println("All interface declaration tests passed");
+}

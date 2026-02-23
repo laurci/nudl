@@ -1,0 +1,55 @@
+// Stack — generic LIFO collection
+// Features: generic structs, Option, methods, bounds
+
+pub struct Stack<T> {
+    items: T[],
+}
+
+impl<T> Stack<T> {
+    pub fn new() -> Stack<T> {
+        Stack { items: [] }
+    }
+
+    pub fn push(mut self, value: T) {
+        self.items.push(value);
+    }
+
+    pub fn pop(mut self) -> Option<T> {
+        if self.items.len() == 0 {
+            None
+        } else {
+            Some(self.items.remove(self.items.len() - 1))
+        }
+    }
+
+    pub fn peek(self) -> Option<T> {
+        if self.items.len() == 0 {
+            None
+        } else {
+            Some(self.items[self.items.len() - 1])
+        }
+    }
+
+    pub fn len(self) -> u64 {
+        self.items.len()
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.items.len() == 0
+    }
+
+    pub fn clear(mut self) {
+        self.items = [];
+    }
+}
+
+impl<T: Printable> Printable for Stack<T> {
+    fn to_string(self) -> string {
+        let mut result = "Stack[";
+        for (i, item) in self.items.enumerate() {
+            if i > 0 { result = f"{result}, "; }
+            result = f"{result}{item.to_string()}";
+        }
+        f"{result}]"
+    }
+}

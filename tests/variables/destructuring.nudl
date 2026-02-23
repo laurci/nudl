@@ -1,0 +1,90 @@
+// Test: Destructuring — tuple destructuring in let, struct destructuring
+// Covers: tuple patterns, struct field patterns, wildcard, nested destructuring,
+//         destructuring in for loops
+
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+struct Config {
+    host: string,
+    port: u16,
+    tls: bool,
+}
+
+struct Color(u8, u8, u8);
+
+enum Shape {
+    Circle(f64),
+    Rectangle { width: f64, height: f64 },
+    Point,
+}
+
+fn get_pair() -> (i32, string) {
+    (42, "answer")
+}
+
+fn main() {
+    // --- Tuple destructuring ---
+    let (a, b) = (10, 20);
+    let (x, y, z) = (1, "two", 3.0);
+
+    // --- Tuple destructuring with wildcard ---
+    let (first, _) = (100, 200);
+    let (_, second) = (100, 200);
+    let (_, _, third) = (1, 2, 3);
+
+    // --- Tuple destructuring from function return ---
+    let (val, msg) = get_pair();
+
+    // --- Struct destructuring ---
+    let p = Point { x: 3.0, y: 4.0 };
+    let Point { x, y } = p;
+
+    // --- Struct destructuring with renaming ---
+    let cfg = Config { host: "localhost", port: 8080, tls: false };
+    let Config { host: h, port: p, tls: secure } = cfg;
+
+    // --- Struct destructuring with partial fields and .. ---
+    let Config { host, .. } = cfg;
+    let Config { port, tls, .. } = cfg;
+
+    // --- Nested destructuring ---
+    let nested = ((1, 2), (3, 4));
+    let ((a1, a2), (b1, b2)) = nested;
+
+    // --- Destructuring in match ---
+    let point = Point { x: 5.0, y: 10.0 };
+    match point {
+        Point { x: 0.0, y: 0.0 } => println("origin"),
+        Point { x, y } => println(f"({x}, {y})"),
+    }
+
+    // --- Enum destructuring ---
+    let shape = Shape::Circle(5.0);
+    match shape {
+        Shape::Circle(radius) => println(f"radius: {radius}"),
+        Shape::Rectangle { width, height } => println(f"{width}x{height}"),
+        Shape::Point => println("point"),
+    }
+
+    // --- Destructuring in for loop ---
+    let pairs: (i32, string)[] = [(1, "one"), (2, "two"), (3, "three")];
+    for (num, name) in pairs {
+        println(f"{num}: {name}");
+    }
+
+    // --- Mutable destructuring ---
+    let (mut count, label) = (0, "items");
+    count += 1;
+
+    // --- Destructuring with if-let ---
+    let maybe: Option<(i32, string)> = Some((42, "found"));
+    if let Some((value, desc)) = maybe {
+        println(f"{desc}: {value}");
+    }
+
+    // --- Destructuring single-element tuple ---
+    let (single,) = (42,);
+}

@@ -1,0 +1,121 @@
+// Test: Actors — concurrent objects with isolated mutable state
+
+// Basic actor declaration
+actor Counter {
+    value: i32,
+
+    fn new() -> Counter {
+        Counter { value: 0 }
+    }
+
+    fn increment(mut self) {
+        self.value += 1;
+    }
+
+    fn decrement(mut self) {
+        self.value -= 1;
+    }
+
+    fn get(self) -> i32 {
+        self.value
+    }
+
+    // Internal calls are synchronous — no .await needed
+    fn add(mut self, amount: i32) {
+        for _ in 0..amount {
+            self.increment();
+        }
+    }
+}
+
+// Actor with complex state
+actor Logger {
+    messages: string[],
+
+    fn new() -> Logger {
+        Logger { messages: [] }
+    }
+
+    fn log(mut self, msg: string) {
+        self.messages.push(msg);
+    }
+
+    fn get_all(self) -> string[] {
+        self.messages
+    }
+
+    fn count(self) -> i32 {
+        self.messages.len() as i32
+    }
+}
+
+// Actor with Result returns
+actor BankAccount {
+    owner: string,
+    balance: f64,
+
+    fn new(owner: string, initial_balance: f64) -> BankAccount {
+        BankAccount { owner, balance: initial_balance }
+    }
+
+    fn deposit(mut self, amount: f64) -> Result<f64, string> {
+        if amount <= 0.0 {
+            return Err("deposit must be positive");
+        }
+        self.balance += amount;
+        Ok(self.balance)
+    }
+
+    fn withdraw(mut self, amount: f64) -> Result<f64, string> {
+        if amount <= 0.0 {
+            return Err("withdrawal must be positive");
+        }
+        if amount > self.balance {
+            return Err("insufficient funds");
+        }
+        self.balance -= amount;
+        Ok(self.balance)
+    }
+
+    fn get_balance(self) -> f64 {
+        self.balance
+    }
+}
+
+async fn main() {
+    // Create actor instance — actors are reference types (ARC'd)
+    let counter = Counter::new();
+
+    // External calls are implicitly async — return Future<T>
+    counter.increment().await;
+    counter.increment().await;
+    counter.increment().await;
+    let val = counter.get().await;
+    println(f"Counter: {val}");  // 3
+
+    counter.add(5).await;
+    println(f"After add(5): {counter.get().await}");  // 8
+
+    // Logger actor
+    let logger = Logger::new();
+    logger.log("first message").await;
+    logger.log("second message").await;
+    println(f"Log count: {logger.count().await}");
+
+    // Bank account with Result returns
+    let account = BankAccount::new("Alice", initial_balance: 100.0);
+    match account.deposit(50.0).await {
+        Ok(balance) => println(f"Balance after deposit: {balance}"),
+        Err(e) => println(f"Error: {e}"),
+    }
+
+    match account.withdraw(200.0).await {
+        Ok(balance) => println(f"Balance after withdrawal: {balance}"),
+        Err(e) => println(f"Error: {e}"),
+    }
+
+    // Actors are ARC'd — assignment shares the same instance
+    let alias = counter;
+    alias.increment().await;
+    println(f"Counter via alias: {counter.get().await}");
+}

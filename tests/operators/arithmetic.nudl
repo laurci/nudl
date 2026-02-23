@@ -1,0 +1,78 @@
+// Test: Arithmetic operators — +, -, *, /, %, unary -
+// Covers: all binary arithmetic on integers and floats,
+//         unary negation on signed integers and floats,
+//         same-type requirement (no implicit widening)
+
+fn main() {
+    // --- Addition ---
+    let sum_i32 = 1 + 2;
+    let sum_i64 = 100i64 + 200i64;
+    let sum_f64 = 1.5 + 2.5;
+    let sum_f32 = 1.0f32 + 2.0f32;
+
+    // --- Subtraction ---
+    let diff_i32 = 10 - 3;
+    let diff_i64 = 500i64 - 200i64;
+    let diff_f64 = 5.0 - 2.5;
+    let diff_f32 = 10.0f32 - 3.5f32;
+
+    // --- Multiplication ---
+    let prod_i32 = 3 * 4;
+    let prod_i64 = 1000i64 * 1000i64;
+    let prod_f64 = 3.0 * 4.0;
+    let prod_f32 = 2.5f32 * 4.0f32;
+
+    // --- Division ---
+    let quot_i32 = 10 / 3;
+    let quot_i64 = 100i64 / 7i64;
+    let quot_f64 = 10.0 / 3.0;
+    let quot_f32 = 7.0f32 / 2.0f32;
+
+    // --- Remainder ---
+    let rem_i32 = 10 % 3;
+    let rem_i64 = 100i64 % 7i64;
+    let rem_f64 = 10.0 % 3.0;
+    let rem_pos = 17 % 5;
+    let rem_neg = -17 % 5;
+
+    // --- Unary negation (signed integers) ---
+    let neg_i32 = -42;
+    let neg_i64 = -100i64;
+    let neg_expr = -(10 + 20);
+
+    // --- Unary negation (floats) ---
+    let neg_f64 = -3.14;
+    let neg_f32 = -1.5f32;
+    let neg_float_expr = -(1.0 + 2.0);
+
+    // --- Double negation ---
+    let double_neg = -(-42);
+    let double_neg_f = -(-3.14);
+
+    // --- Chained arithmetic ---
+    let chain = 1 + 2 + 3 + 4 + 5;
+    let mixed_ops = 10 + 20 - 5;
+    let complex = 2 * 3 + 4 * 5;
+
+    // --- Parenthesized expressions ---
+    let grouped = (1 + 2) * (3 + 4);
+    let nested = ((10 + 5) * 2) - 3;
+
+    // --- Arithmetic on u8/u16/u32 ---
+    let u8_sum = 100u8 + 50u8;
+    let u16_prod = 100u16 * 100u16;
+    let u32_rem = 1000u32 % 7u32;
+
+    // --- Arithmetic with mutable variables ---
+    let mut x = 10;
+    x = x + 5;
+    x = x * 2;
+    x = x - 3;
+    x = x / 2;
+    x = x % 3;
+
+    // --- Arithmetic preserving type (same-type operands required) ---
+    let a: i32 = 10;
+    let b: i32 = 20;
+    let c: i32 = a + b;
+}

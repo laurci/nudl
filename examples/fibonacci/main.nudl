@@ -1,0 +1,63 @@
+// Fibonacci — recursive and iterative implementations
+// Features: functions, match expressions, for loops, ranges, f-strings, mut bindings
+
+fn fib(n: u64) -> u64 {
+    match n {
+        0 => 0,
+        1 => 1,
+        n => fib(n - 1) + fib(n - 2),
+    }
+}
+
+fn fib_iter(n: u64) -> u64 {
+    if n == 0 { return 0; }
+    let mut a: u64 = 0;
+    let mut b: u64 = 1;
+    for _ in 1..n {
+        let temp = b;
+        b = a + b;
+        a = temp;
+    }
+    b
+}
+
+fn fib_memo(n: u64) -> u64 {
+    let mut cache: u64[] = [0; (n + 1) as u64];
+    cache[0] = 0;
+    if n > 0 { cache[1] = 1; }
+    for i in 2..=n {
+        cache[i] = cache[i - 1] + cache[i - 2];
+    }
+    cache[n]
+}
+
+fn main() {
+    println("Recursive Fibonacci:");
+    for i in 0..10 {
+        println(f"  fib({i}) = {fib(i)}");
+    }
+
+    println("\nIterative Fibonacci:");
+    for i in 0..20 {
+        println(f"  fib({i}) = {fib_iter(i)}");
+    }
+
+    println("\nMemoized Fibonacci:");
+    let n: u64 = 50;
+    println(f"  fib({n}) = {fib_memo(n)}");
+
+    // Compare results for small values
+    println("\nVerification (recursive == iterative):");
+    let mut all_match = true;
+    for i in 0..15 {
+        let r = fib(i);
+        let it = fib_iter(i);
+        if r != it {
+            println(f"  MISMATCH at {i}: recursive={r}, iterative={it}");
+            all_match = false;
+        }
+    }
+    if all_match {
+        println("  All values match!");
+    }
+}

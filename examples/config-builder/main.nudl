@@ -1,0 +1,176 @@
+// Config Builder — builder pattern with defaults and validation
+// Features: struct spread, default/optional params, named args, Result
+
+struct Config {
+    host: string,
+    port: u16,
+    max_connections: u32,
+    timeout_ms: u64,
+    tls: bool,
+    log_level: string,
+    workers: u32,
+}
+
+impl Config {
+    fn default() -> Config {
+        Config {
+            host: "localhost",
+            port: 8080,
+            max_connections: 100,
+            timeout_ms: 30000,
+            tls: false,
+            log_level: "info",
+            workers: 4,
+        }
+    }
+
+    fn with_host(self, host: string) -> Config {
+        Config { ...self, host }
+    }
+
+    fn with_port(self, port: u16) -> Config {
+        Config { ...self, port }
+    }
+
+    fn with_tls(self, tls: bool) -> Config {
+        Config { ...self, tls }
+    }
+
+    fn with_workers(self, workers: u32) -> Config {
+        Config { ...self, workers }
+    }
+
+    fn with_timeout(self, timeout_ms: u64) -> Config {
+        Config { ...self, timeout_ms }
+    }
+
+    fn with_log_level(self, log_level: string) -> Config {
+        Config { ...self, log_level }
+    }
+
+    fn with_max_connections(self, max_connections: u32) -> Config {
+        Config { ...self, max_connections }
+    }
+}
+
+enum ConfigError {
+    InvalidPort(string),
+    InvalidWorkers(string),
+    InvalidTimeout(string),
+    InvalidLogLevel(string),
+}
+
+impl Printable for ConfigError {
+    fn to_string(self) -> string {
+        match self {
+            ConfigError::InvalidPort(msg) => f"invalid port: {msg}",
+            ConfigError::InvalidWorkers(msg) => f"invalid workers: {msg}",
+            ConfigError::InvalidTimeout(msg) => f"invalid timeout: {msg}",
+            ConfigError::InvalidLogLevel(msg) => f"invalid log level: {msg}",
+        }
+    }
+}
+
+fn validate(config: Config) -> Result<Config, ConfigError> {
+    if config.port == 0 {
+        return Err(ConfigError::InvalidPort("port cannot be 0"));
+    }
+    if config.workers == 0 {
+        return Err(ConfigError::InvalidWorkers("must have at least 1 worker"));
+    }
+    if config.workers > 64 {
+        return Err(ConfigError::InvalidWorkers("max 64 workers allowed"));
+    }
+    if config.timeout_ms == 0 {
+        return Err(ConfigError::InvalidTimeout("timeout must be positive"));
+    }
+    let valid_levels = ["debug", "info", "warn", "error"];
+    if !valid_levels.contains(config.log_level) {
+        return Err(ConfigError::InvalidLogLevel(
+            f"'{config.log_level}' is not valid (use debug/info/warn/error)"
+        ));
+    }
+    Ok(config)
+}
+
+impl Printable for Config {
+    fn to_string(self) -> string {
+        let scheme = if self.tls { "https" } else { "http" };
+        f"Config {{ {scheme}://{self.host}:{self.port}, workers={self.workers}, \
+          timeout={self.timeout_ms}ms, max_conn={self.max_connections}, \
+          log={self.log_level} }}"
+    }
+}
+
+// A function demonstrating named/default/optional params
+fn create_server_config(
+    host: string,
+    port: u16 = 8080,
+    tls: bool = false,
+    workers: u32 = 4,
+    log_level?: string,
+) -> Config {
+    let base = Config::default()
+        .with_host(host)
+        .with_port(port)
+        .with_tls(tls)
+        .with_workers(workers);
+
+    match log_level {
+        Some(level) => base.with_log_level(level),
+        None => base,
+    }
+}
+
+fn main() {
+    // Default config
+    let default_cfg = Config::default();
+    println(f"Default: {default_cfg.to_string()}");
+
+    // Builder pattern with spread
+    let dev = Config { ...Config::default(), log_level: "debug" };
+    println(f"Dev:     {dev.to_string()}");
+
+    // Chained builder methods
+    let prod = Config::default()
+        .with_host("api.example.com")
+        .with_port(443)
+        .with_tls(true)
+        .with_workers(16)
+        .with_max_connections(1000)
+        .with_log_level("warn");
+    println(f"Prod:    {prod.to_string()}");
+
+    // Using named args with defaults
+    let staging = create_server_config(
+        "staging.example.com",
+        port: 8443,
+        tls: true,
+        log_level: "debug",
+    );
+    println(f"Staging: {staging.to_string()}");
+
+    // Minimal call — defaults fill in
+    let local = create_server_config("127.0.0.1");
+    println(f"Local:   {local.to_string()}");
+
+    // Validation
+    println("\nValidation:");
+    let valid = validate(prod);
+    match valid {
+        Ok(c) => println(f"  Valid: {c.to_string()}"),
+        Err(e) => println(f"  Error: {e.to_string()}"),
+    }
+
+    let bad_config = Config { ...Config::default(), workers: 0 };
+    match validate(bad_config) {
+        Ok(c) => println(f"  Valid: {c.to_string()}"),
+        Err(e) => println(f"  Error: {e.to_string()}"),
+    }
+
+    let bad_log = Config { ...Config::default(), log_level: "verbose" };
+    match validate(bad_log) {
+        Ok(c) => println(f"  Valid: {c.to_string()}"),
+        Err(e) => println(f"  Error: {e.to_string()}"),
+    }
+}

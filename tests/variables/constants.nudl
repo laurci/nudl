@@ -1,0 +1,88 @@
+// Test: Constants — const declarations at module and block scope
+// Covers: const syntax, allowed types, inlining behavior, comptime evaluation,
+//         pub const, interaction with expressions
+
+const MAX_RETRIES: u32 = 3;
+const PI: f64 = 3.14159265358979;
+const APP_NAME: string = "nudl-test";
+const DEBUG: bool = false;
+const NEWLINE: char = '\n';
+const ORIGIN: (f64, f64) = (0.0, 0.0);
+const IDENTITY: [f64; 3] = [1.0, 0.0, 0.0];
+
+// --- Constants in expressions ---
+const TIMEOUT_MS: u64 = 30 * 1000;
+const DOUBLE_PI: f64 = PI * 2.0;
+const GREETING: string = "hello";
+
+fn main() {
+    // --- Module-level constants are usable ---
+    assert(MAX_RETRIES == 3, "MAX_RETRIES should be 3");
+    assert(PI > 3.14, "PI should be > 3.14");
+    assert(APP_NAME == "nudl-test", "APP_NAME should match");
+    assert(DEBUG == false, "DEBUG should be false");
+    assert(NEWLINE == '\n', "NEWLINE should be line feed");
+
+    // --- Tuple and array constants ---
+    assert(ORIGIN.0 == 0.0, "ORIGIN.0 should be 0.0");
+    assert(ORIGIN.1 == 0.0, "ORIGIN.1 should be 0.0");
+    assert(IDENTITY[0] == 1.0, "IDENTITY[0] should be 1.0");
+    assert(IDENTITY[1] == 0.0, "IDENTITY[1] should be 0.0");
+
+    // --- Computed constants ---
+    assert(TIMEOUT_MS == 30000, "TIMEOUT_MS should be 30000");
+    assert(DOUBLE_PI > 6.28, "DOUBLE_PI should be > 6.28");
+
+    // --- Constants in block scope ---
+    {
+        const LOCAL_LIMIT: i32 = 100;
+        let mut sum = 0;
+        for i in 0..LOCAL_LIMIT {
+            sum += 1;
+        }
+        assert(sum == 100, "LOCAL_LIMIT should control loop iterations");
+    }
+
+    // --- Constant in if condition ---
+    const THRESHOLD: i32 = 50;
+    let value = 75;
+    if value > THRESHOLD {
+        assert(true, "value should exceed threshold");
+    } else {
+        assert(false, "should not reach here");
+    }
+
+    // --- Constant in match ---
+    const MAGIC: i32 = 42;
+    let result = match MAGIC {
+        0 => "zero",
+        42 => "the answer",
+        _ => "other",
+    };
+    assert(result == "the answer", "match on constant should work");
+
+    // --- Constant as array repeat count ---
+    const SIZE: u32 = 5;
+    let zeros = [0; SIZE];
+    assert(zeros.len() == 5, "array size from constant should be 5");
+
+    // --- Constant used in arithmetic ---
+    let circumference = DOUBLE_PI * 10.0;
+    assert(circumference > 62.0, "circumference calculation with constant");
+
+    // --- String constant equality ---
+    let name = "nudl-test";
+    assert(name == APP_NAME, "string constant comparison");
+
+    // --- Constant in format string ---
+    let msg = f"app={APP_NAME}, retries={MAX_RETRIES}";
+    assert(msg.contains("nudl-test"), "format string with constant");
+    assert(msg.contains("3"), "format string with integer constant");
+
+    // --- Constants don't interfere with let bindings of same-ish names ---
+    let max_retries = 10;
+    assert(max_retries == 10, "local binding is independent");
+    assert(MAX_RETRIES == 3, "constant still has its value");
+
+    println("constants: all assertions passed");
+}

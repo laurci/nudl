@@ -1,0 +1,128 @@
+// Test: Struct patterns — field matching and `..` rest syntax in match.
+
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+struct Config {
+    host: string,
+    port: u16,
+    tls: bool,
+    max_connections: i32,
+}
+
+struct Color {
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+}
+
+struct User {
+    name: string,
+    age: i32,
+    role: string,
+    active: bool,
+}
+
+fn main() {
+    // Basic struct pattern matching all fields
+    let p = Point { x: 3.0, y: 4.0 };
+    match p {
+        Point { x, y } => println(f"Point at ({x}, {y})"),
+    }
+
+    // Struct pattern with specific field values
+    let origin = Point { x: 0.0, y: 0.0 };
+    let desc = match origin {
+        Point { x: 0.0, y: 0.0 } => "origin",
+        Point { x, y: 0.0 } => f"on x-axis at {x}",
+        Point { x: 0.0, y } => f"on y-axis at {y}",
+        Point { x, y } => f"at ({x}, {y})",
+    };
+    println(f"Origin: {desc}");
+
+    // Struct pattern with `..` to ignore remaining fields
+    let config = Config {
+        host: "prod.example.com",
+        port: 443,
+        tls: true,
+        max_connections: 1000,
+    };
+
+    match config {
+        Config { tls: true, port: 443, .. } => println("Standard HTTPS config"),
+        Config { tls: true, port, .. } => println(f"HTTPS on custom port {port}"),
+        Config { host, .. } => println(f"Plaintext to {host}"),
+    }
+
+    // Struct pattern extracting specific fields, ignoring rest
+    let user = User {
+        name: "Alice",
+        age: 30,
+        role: "admin",
+        active: true,
+    };
+
+    match user {
+        User { role: "admin", name, .. } => println(f"Admin user: {name}"),
+        User { active: false, name, .. } => println(f"Inactive user: {name}"),
+        User { name, age, .. } => println(f"Regular user: {name}, age {age}"),
+    }
+
+    // Struct destructuring in let binding
+    let Point { x, y } = p;
+    println(f"Destructured: x={x}, y={y}");
+
+    // Struct pattern with renamed bindings
+    let color = Color { r: 255, g: 128, b: 0, a: 255 };
+    match color {
+        Color { r: red, g: green, b: blue, a: 255 } => {
+            println(f"Opaque color: rgb({red}, {green}, {blue})");
+        },
+        Color { r: red, g: green, b: blue, a: alpha } => {
+            println(f"Transparent color: rgba({red}, {green}, {blue}, {alpha})");
+        },
+    }
+
+    // Struct pattern with `..` and only one field matched
+    match config {
+        Config { host, .. } => println(f"Host: {host}"),
+    }
+
+    // Multiple struct patterns for different configs
+    let configs = [
+        Config { host: "localhost", port: 8080, tls: false, max_connections: 10 },
+        Config { host: "staging.example.com", port: 443, tls: true, max_connections: 100 },
+        Config { host: "prod.example.com", port: 443, tls: true, max_connections: 10000 },
+    ];
+
+    for cfg in configs {
+        let desc = match cfg {
+            Config { tls: false, .. } => "insecure",
+            Config { max_connections: mc, .. } if mc > 1000 => "high-capacity secure",
+            Config { tls: true, .. } => "secure",
+        };
+        println(f"  {cfg.host}: {desc}");
+    }
+
+    // Struct let-destructure with `..`
+    let Config { host: h, port: p, .. } = config;
+    println(f"Partial destructure: host={h}, port={p}");
+
+    // Nested struct in match (struct containing struct)
+    struct Rect {
+        origin: Point,
+        size: Point,
+    }
+    let rect = Rect {
+        origin: Point { x: 10.0, y: 20.0 },
+        size: Point { x: 100.0, y: 50.0 },
+    };
+    match rect {
+        Rect { origin: Point { x, y }, size: Point { x: w, y: h } } => {
+            println(f"Rect at ({x}, {y}) size ({w} x {h})");
+        },
+    }
+}

@@ -1,0 +1,102 @@
+// Test: Value type copy semantics — value types are copied on assignment
+//
+// Value types (integers, floats, bools, chars, tuples of value types,
+// fixed-size arrays of value types) are stored inline and copied on assignment.
+// Modifying the copy does not affect the original.
+
+fn main() {
+    // --- Integer copy ---
+    let a: i32 = 42;
+    let mut b = a; // b is an independent copy
+    b = 99;
+    assert(a == 42, "original i32 should be unchanged");
+    assert(b == 99, "copy should have new value");
+
+    // --- Different integer sizes ---
+    let x8: i8 = 10;
+    let mut y8 = x8;
+    y8 = 20;
+    assert(x8 == 10, "i8 original unchanged");
+
+    let xu64: u64 = 1000000;
+    let mut yu64 = xu64;
+    yu64 = 2000000;
+    assert(xu64 == 1000000, "u64 original unchanged");
+
+    // --- Float copy ---
+    let f1: f64 = 3.14;
+    let mut f2 = f1;
+    f2 = 2.71;
+    assert(f1 == 3.14, "original f64 should be unchanged");
+    assert(f2 == 2.71, "copy f64 should have new value");
+
+    let f3: f32 = 1.5;
+    let mut f4 = f3;
+    f4 = 2.5;
+    assert(f3 == 1.5, "original f32 unchanged");
+
+    // --- Bool copy ---
+    let t = true;
+    let mut u = t;
+    u = false;
+    assert(t == true, "original bool should be unchanged");
+    assert(u == false, "copy bool should be false");
+
+    // --- Char copy ---
+    let c1: char = 'A';
+    let mut c2 = c1;
+    c2 = 'Z';
+    assert(c1 == 'A', "original char should be unchanged");
+    assert(c2 == 'Z', "copy char should be Z");
+
+    // --- Tuple of value types (value type) ---
+    let tup1: (i32, f64) = (10, 3.14);
+    let mut tup2 = tup1; // full copy of all elements
+    tup2.0 = 99;
+    tup2.1 = 0.0;
+    assert(tup1.0 == 10, "original tuple element 0 unchanged");
+    assert(tup1.1 == 3.14, "original tuple element 1 unchanged");
+    assert(tup2.0 == 99, "copy tuple element 0 is 99");
+    assert(tup2.1 == 0.0, "copy tuple element 1 is 0.0");
+
+    // --- Nested tuple of value types ---
+    let nested1: (i32, (bool, f64)) = (1, (true, 2.5));
+    let mut nested2 = nested1;
+    nested2.1.0 = false;
+    assert(nested1.1.0 == true, "original nested tuple unchanged");
+    assert(nested2.1.0 == false, "copy nested tuple mutated");
+
+    // --- Fixed-size array (value type) ---
+    let arr1: [i32; 4] = [1, 2, 3, 4];
+    let mut arr2 = arr1; // full copy
+    arr2[0] = 100;
+    arr2[3] = 400;
+    assert(arr1[0] == 1, "original fixed array element 0 unchanged");
+    assert(arr1[3] == 4, "original fixed array element 3 unchanged");
+    assert(arr2[0] == 100, "copy fixed array element 0 is 100");
+    assert(arr2[3] == 400, "copy fixed array element 3 is 400");
+
+    // --- Fixed-size array of floats ---
+    let fvec: [f64; 3] = [1.0, 0.0, 0.0];
+    let mut fvec2 = fvec;
+    fvec2[0] = 0.0;
+    fvec2[2] = 1.0;
+    assert(fvec[0] == 1.0, "original float array unchanged");
+    assert(fvec2[2] == 1.0, "copy float array mutated");
+
+    // --- Unit type ---
+    let u1: () = ();
+    let u2 = u1; // trivial copy
+    assert(u1 == u2, "unit values are always equal");
+
+    // --- Value type passed to function is a copy ---
+    let mut val = 42;
+    no_effect_on_original(val);
+    assert(val == 42, "value type arg should not be modified by callee");
+
+    println("value_type_copy: all assertions passed");
+}
+
+fn no_effect_on_original(mut x: i32) {
+    x = 0; // modifies local copy only
+}

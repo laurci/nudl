@@ -1,0 +1,92 @@
+// Test: Comparison operators — ==, !=, <, >, <=, >=
+// Covers: equality and ordering on all numeric types, strings, chars, bools,
+//         result type is always bool, non-chaining restriction
+
+fn main() {
+    // --- Equality (==) ---
+    let eq_int = 42 == 42;
+    let eq_float = 3.14 == 3.14;
+    let eq_bool = true == true;
+    let eq_char = 'a' == 'a';
+    let eq_str = "hello" == "hello";
+
+    // --- Inequality (!=) ---
+    let ne_int = 1 != 2;
+    let ne_float = 1.0 != 2.0;
+    let ne_bool = true != false;
+    let ne_char = 'a' != 'b';
+    let ne_str = "hello" != "world";
+
+    // --- Less than (<) ---
+    let lt_int = 1 < 2;
+    let lt_float = 1.0 < 2.0;
+    let lt_char = 'a' < 'z';
+
+    // --- Greater than (>) ---
+    let gt_int = 10 > 5;
+    let gt_float = 3.14 > 2.71;
+    let gt_char = 'z' > 'a';
+
+    // --- Less than or equal (<=) ---
+    let le_int = 1 <= 2;
+    let le_eq = 5 <= 5;
+    let le_float = 1.0 <= 1.0;
+
+    // --- Greater than or equal (>=) ---
+    let ge_int = 10 >= 5;
+    let ge_eq = 5 >= 5;
+    let ge_float = 3.14 >= 3.14;
+
+    // --- Comparison results used in conditions ---
+    let x = 42;
+    if x > 0 {
+        let positive = true;
+    }
+
+    if x >= 42 {
+        let at_least = true;
+    }
+
+    // --- Comparison in let binding ---
+    let is_adult = 25 >= 18;
+    let is_zero = 0 == 0;
+    let is_negative = -5 < 0;
+
+    // --- Comparison with same types (no implicit widening) ---
+    let a: i32 = 10;
+    let b: i32 = 20;
+    let cmp = a < b;
+
+    let c: u64 = 100;
+    let d: u64 = 200;
+    let cmp2 = c <= d;
+
+    let e: f32 = 1.0f32;
+    let f: f32 = 2.0f32;
+    let cmp3 = e != f;
+
+    // --- Non-chaining: a < b < c is NOT valid ---
+    // Instead use:
+    let x = 5;
+    let in_range = x > 0 && x < 10;
+    let between = 1 <= x && x <= 100;
+
+    // --- Comparison in match guard ---
+    let val = 42;
+    let category = match val {
+        n if n < 0 => "negative",
+        n if n == 0 => "zero",
+        n if n > 0 => "positive",
+        _ => "unreachable",
+    };
+
+    // --- String comparison (lexicographic) ---
+    let str_lt = "abc" < "def";
+    let str_gt = "xyz" > "abc";
+    let str_le = "abc" <= "abc";
+    let str_ge = "xyz" >= "abc";
+
+    // --- Tuple comparison ---
+    let tuple_eq = (1, 2) == (1, 2);
+    let tuple_ne = (1, 2) != (3, 4);
+}

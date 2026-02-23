@@ -1,0 +1,118 @@
+// Test: Types as first-class values in comptime — type variables, arrays, comparison
+//
+// In comptime context, types are first-class values of the special kind `type`.
+// They can be stored in variables, passed to functions, placed in arrays, and
+// compared for equality.
+
+// --- Comptime function that checks if a type is an integer ---
+comptime fn is_integer(T: type) -> bool {
+    let integers: type[] = [i8, i16, i32, i64, u8, u16, u32, u64];
+    for t in integers {
+        if t == T {
+            return true;
+        }
+    }
+    false
+}
+
+// --- Comptime function returning an array of types ---
+comptime fn numeric_types() -> type[] {
+    [i8, i16, i32, i64, u8, u16, u32, u64, f32, f64]
+}
+
+// --- Comptime function that selects a type based on size ---
+comptime fn sized_int(bits: u32) -> type {
+    if bits <= 8 {
+        i8
+    } else if bits <= 16 {
+        i16
+    } else if bits <= 32 {
+        i32
+    } else {
+        i64
+    }
+}
+
+// --- Comptime function using type comparison ---
+comptime fn type_category(T: type) -> string {
+    if T == bool {
+        "boolean"
+    } else if T == string {
+        "string"
+    } else if is_integer(T) {
+        "integer"
+    } else if T == f32 || T == f64 {
+        "float"
+    } else {
+        "other"
+    }
+}
+
+fn main() {
+    // --- Type stored in variable ---
+    let cat_i32 = comptime {
+        let t: type = i32;
+        type_category(t)
+    };
+    assert(cat_i32 == "integer", "i32 should be 'integer'");
+
+    // --- Type comparison ---
+    let same = comptime {
+        let a: type = i32;
+        let b: type = i32;
+        a == b
+    };
+    assert(same == true, "i32 == i32 should be true");
+
+    let different = comptime {
+        let a: type = i32;
+        let b: type = f64;
+        a == b
+    };
+    assert(different == false, "i32 == f64 should be false");
+
+    // --- Array of types ---
+    let num_count = comptime {
+        let types = numeric_types();
+        types.len()
+    };
+    assert(num_count == 10, "should have 10 numeric types");
+
+    // --- is_integer checks ---
+    let i32_is_int = comptime { is_integer(i32) };
+    assert(i32_is_int == true, "i32 should be integer");
+
+    let u64_is_int = comptime { is_integer(u64) };
+    assert(u64_is_int == true, "u64 should be integer");
+
+    let f64_is_int = comptime { is_integer(f64) };
+    assert(f64_is_int == false, "f64 should not be integer");
+
+    let bool_is_int = comptime { is_integer(bool) };
+    assert(bool_is_int == false, "bool should not be integer");
+
+    // --- Type selection based on runtime needs ---
+    let bits_8 = comptime { sized_int(8) == i8 };
+    assert(bits_8 == true, "8 bits should select i8");
+
+    let bits_32 = comptime { sized_int(32) == i32 };
+    assert(bits_32 == true, "32 bits should select i32");
+
+    let bits_64 = comptime { sized_int(64) == i64 };
+    assert(bits_64 == true, "64 bits should select i64");
+
+    // --- Type categories ---
+    let cat_bool = comptime { type_category(bool) };
+    assert(cat_bool == "boolean", "bool should be 'boolean'");
+
+    let cat_str = comptime { type_category(string) };
+    assert(cat_str == "string", "string should be 'string'");
+
+    let cat_f64 = comptime { type_category(f64) };
+    assert(cat_f64 == "float", "f64 should be 'float'");
+
+    // --- Types cannot escape comptime ---
+    // let t: type = i32;  // ERROR: type values cannot exist at runtime
+
+    println("types_as_values: all assertions passed");
+}

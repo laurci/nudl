@@ -1,0 +1,6 @@
+// Module: deeply
+// Top-level namespace module in the deeply nested path.
+
+pub fn deeply_function() -> string {
+    "called from deeply"
+}

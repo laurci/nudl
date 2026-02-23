@@ -1,0 +1,293 @@
+// Test: Operator overloading — impl Add/Eq/Ord/Index for custom types
+
+// Built-in operator interfaces:
+// interface Add<Rhs, Output> { fn add(self, rhs: Rhs) -> Output; }
+// interface Sub<Rhs, Output> { fn sub(self, rhs: Rhs) -> Output; }
+// interface Mul<Rhs, Output> { fn mul(self, rhs: Rhs) -> Output; }
+// interface Neg<Output>      { fn neg(self) -> Output; }
+// interface Eq               { fn eq(self, other: Self) -> bool; }
+// interface Ord              { fn cmp(self, other: Self) -> Ordering; }
+// interface Index<Idx, Output> { fn index(self, idx: Idx) -> Output; }
+
+struct Vec2 {
+    x: f64,
+    y: f64,
+}
+
+impl Vec2 {
+    fn new(x: f64, y: f64) -> Vec2 {
+        Vec2 { x, y }
+    }
+}
+
+// --- Add: a + b ---
+impl Add<Vec2, Vec2> for Vec2 {
+    fn add(self, rhs: Vec2) -> Vec2 {
+        Vec2 { x: self.x + rhs.x, y: self.y + rhs.y }
+    }
+}
+
+// --- Sub: a - b ---
+impl Sub<Vec2, Vec2> for Vec2 {
+    fn sub(self, rhs: Vec2) -> Vec2 {
+        Vec2 { x: self.x - rhs.x, y: self.y - rhs.y }
+    }
+}
+
+// --- Mul with scalar: vec * f64 ---
+impl Mul<f64, Vec2> for Vec2 {
+    fn mul(self, rhs: f64) -> Vec2 {
+        Vec2 { x: self.x * rhs, y: self.y * rhs }
+    }
+}
+
+// --- Neg: -vec ---
+impl Neg<Vec2> for Vec2 {
+    fn neg(self) -> Vec2 {
+        Vec2 { x: -self.x, y: -self.y }
+    }
+}
+
+// --- Eq: vec == vec, vec != vec ---
+impl Eq for Vec2 {
+    fn eq(self, other: Vec2) -> bool {
+        self.x == other.x && self.y == other.y
+    }
+}
+
+// --- Ord: <, >, <=, >= based on magnitude ---
+impl Ord for Vec2 {
+    fn cmp(self, other: Vec2) -> Ordering {
+        let self_mag = self.x * self.x + self.y * self.y;
+        let other_mag = other.x * other.x + other.y * other.y;
+        if self_mag < other_mag {
+            Ordering::Less
+        } else if self_mag > other_mag {
+            Ordering::Greater
+        } else {
+            Ordering::Equal
+        }
+    }
+}
+
+// --- Index: custom indexable type ---
+struct IntList {
+    items: i32[],
+}
+
+impl IntList {
+    fn new() -> IntList {
+        IntList { items: [] }
+    }
+
+    fn push(mut self, item: i32) {
+        self.items.push(item);
+    }
+
+    fn len(self) -> i32 {
+        self.items.len() as i32
+    }
+}
+
+impl Index<i32, i32> for IntList {
+    fn index(self, idx: i32) -> i32 {
+        self.items[idx]
+    }
+}
+
+// --- Div: a / b ---
+impl Div<f64, Vec2> for Vec2 {
+    fn div(self, rhs: f64) -> Vec2 {
+        Vec2 { x: self.x / rhs, y: self.y / rhs }
+    }
+}
+
+// --- Not: !value ---
+struct Flag {
+    value: bool,
+}
+
+impl Not<Flag> for Flag {
+    fn not(self) -> Flag {
+        Flag { value: !self.value }
+    }
+}
+
+// --- IndexMut: list[idx] = value ---
+impl IndexMut<i32, i32> for IntList {
+    fn index_mut(mut self, idx: i32) -> i32 {
+        self.items[idx]
+    }
+}
+
+// --- Rem: a % b ---
+struct ModInt {
+    value: i32,
+    modulus: i32,
+}
+
+impl Rem<ModInt, ModInt> for ModInt {
+    fn rem(self, rhs: ModInt) -> ModInt {
+        ModInt { value: self.value % rhs.value, modulus: self.modulus }
+    }
+}
+
+// --- Another type with Eq and Ord ---
+struct Temperature {
+    celsius: f64,
+}
+
+impl Temperature {
+    fn new(c: f64) -> Temperature {
+        Temperature { celsius: c }
+    }
+}
+
+impl Eq for Temperature {
+    fn eq(self, other: Temperature) -> bool {
+        self.celsius == other.celsius
+    }
+}
+
+impl Ord for Temperature {
+    fn cmp(self, other: Temperature) -> Ordering {
+        if self.celsius < other.celsius {
+            Ordering::Less
+        } else if self.celsius > other.celsius {
+            Ordering::Greater
+        } else {
+            Ordering::Equal
+        }
+    }
+}
+
+impl Add<Temperature, Temperature> for Temperature {
+    fn add(self, rhs: Temperature) -> Temperature {
+        Temperature { celsius: self.celsius + rhs.celsius }
+    }
+}
+
+impl Sub<Temperature, Temperature> for Temperature {
+    fn sub(self, rhs: Temperature) -> Temperature {
+        Temperature { celsius: self.celsius - rhs.celsius }
+    }
+}
+
+fn main() {
+    // --- Add ---
+    let a = Vec2::new(1.0, 2.0);
+    let b = Vec2::new(3.0, 4.0);
+    let c = a + b;
+    println(f"({a.x},{a.y}) + ({b.x},{b.y}) = ({c.x},{c.y})");
+    // (1,2) + (3,4) = (4,6)
+
+    // --- Sub ---
+    let d = a - b;
+    println(f"({a.x},{a.y}) - ({b.x},{b.y}) = ({d.x},{d.y})");
+    // (1,2) - (3,4) = (-2,-2)
+
+    // --- Mul (scalar) ---
+    let scaled = a * 3.0;
+    println(f"({a.x},{a.y}) * 3.0 = ({scaled.x},{scaled.y})");
+    // (1,2) * 3.0 = (3,6)
+
+    // --- Neg ---
+    let neg_a = -a;
+    println(f"-({a.x},{a.y}) = ({neg_a.x},{neg_a.y})");
+    // -(1,2) = (-1,-2)
+
+    // --- Eq (== and !=) ---
+    let e = Vec2::new(1.0, 2.0);
+    println(f"a == e: {a == e}");      // true (same values)
+    println(f"a == b: {a == b}");      // false
+    println(f"a != b: {a != b}");      // true
+
+    // --- Ord (<, >, <=, >=) ---
+    let small = Vec2::new(1.0, 0.0);
+    let big = Vec2::new(3.0, 4.0);
+    println(f"small < big: {small < big}");     // true
+    println(f"small > big: {small > big}");     // false
+    println(f"small <= big: {small <= big}");   // true
+    println(f"big >= small: {big >= small}");   // true
+
+    let same1 = Vec2::new(3.0, 4.0);
+    let same2 = Vec2::new(4.0, 3.0);
+    // same magnitude (9+16 = 25 vs 16+9 = 25)
+    println(f"same1 <= same2: {same1 <= same2}");  // true (Equal)
+    println(f"same1 >= same2: {same1 >= same2}");  // true (Equal)
+
+    // --- Index ---
+    let mut list = IntList::new();
+    list.push(10);
+    list.push(20);
+    list.push(30);
+    println(f"list[0] = {list[0]}");  // 10
+    println(f"list[1] = {list[1]}");  // 20
+    println(f"list[2] = {list[2]}");  // 30
+
+    // --- Temperature operators ---
+    let t1 = Temperature::new(20.0);
+    let t2 = Temperature::new(30.0);
+    let t3 = Temperature::new(20.0);
+
+    println(f"t1 == t3: {t1 == t3}");    // true
+    println(f"t1 == t2: {t1 == t2}");    // false
+    println(f"t1 < t2: {t1 < t2}");      // true
+    println(f"t2 > t1: {t2 > t1}");      // true
+
+    let sum = t1 + t2;
+    println(f"20 + 30 = {sum.celsius}");   // 50.0
+    let diff = t2 - t1;
+    println(f"30 - 20 = {diff.celsius}");  // 10.0
+
+    // --- Div ---
+    let halved = a / 2.0;
+    println(f"({a.x},{a.y}) / 2.0 = ({halved.x},{halved.y})");
+    // (1,2) / 2.0 = (0.5, 1.0)
+
+    // --- Not ---
+    let flag = Flag { value: true };
+    let flipped = !flag;
+    println(f"!true = {flipped.value}");  // false
+    let double_flip = !(!flag);
+    println(f"!!true = {double_flip.value}");  // true
+
+    // --- Rem ---
+    let m1 = ModInt { value: 17, modulus: 5 };
+    let m2 = ModInt { value: 5, modulus: 5 };
+    let remainder = m1 % m2;
+    println(f"17 % 5 = {remainder.value}");  // 2
+
+    // --- IndexMut: writing via index ---
+    let mut mutable_list = IntList::new();
+    mutable_list.push(10);
+    mutable_list.push(20);
+    mutable_list[0] = 99;  // uses IndexMut
+    println(f"mutable_list[0] after assignment: {mutable_list[0]}");  // 99
+
+    // --- Chained operators ---
+    let chained = a + b + Vec2::new(10.0, 10.0);
+    println(f"Chained add: ({chained.x}, {chained.y})");
+    // (1+3+10, 2+4+10) = (14, 16)
+
+    // --- Ordering enum direct usage ---
+    // Ordering is a built-in enum with Less, Equal, Greater variants
+    let cmp_result: Ordering = a.cmp(b);
+    match cmp_result {
+        Ordering::Less => println("a < b by magnitude"),
+        Ordering::Equal => println("a == b by magnitude"),
+        Ordering::Greater => println("a > b by magnitude"),
+    }
+
+    // Direct construction and comparison of Ordering values
+    let o1 = Ordering::Less;
+    let o2 = Ordering::Greater;
+    let o3 = Ordering::Equal;
+
+    // Using Ordering in conditionals
+    if t1.cmp(t2) == Ordering::Less {
+        println("t1 is less than t2");
+    }
+
+    println("All operator overloading tests passed");
+}

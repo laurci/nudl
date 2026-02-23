@@ -1,0 +1,115 @@
+// Test: Operator precedence — verify precedence levels from spec
+// Precedence (high to low):
+//   15: . [] ()         (field, index, call)
+//   14: ? .await        (postfix)
+//   13: - (unary), !    (prefix)
+//   12: as              (type cast)
+//   11: * / %           (multiplicative)
+//   10: + -             (additive)
+//    9: << >>           (shift)
+//    8: &               (bitwise AND)
+//    7: ^               (bitwise XOR)
+//    6: |               (bitwise OR)
+//    5: == != < > <= >= (comparison)
+//    4: &&              (logical AND)
+//    3: ||              (logical OR)
+//    2: .. ..=          (range)
+//    1: |>              (pipe)
+//    0: = += -= *= /= %=(assignment, right-assoc)
+
+fn double(x: i32) -> i32 {
+    x * 2
+}
+
+fn main() {
+    // --- Multiplicative before additive ---
+    // 2 + 3 * 4 == 2 + (3 * 4) == 14
+    let p1 = 2 + 3 * 4;
+
+    // 10 - 6 / 2 == 10 - (6 / 2) == 7
+    let p2 = 10 - 6 / 2;
+
+    // 1 + 2 % 3 == 1 + (2 % 3) == 3
+    let p3 = 1 + 2 % 3;
+
+    // --- Additive before shift ---
+    // 1 + 2 << 3 == (1 + 2) << 3 == 24
+    let p4 = (1 + 2) << 3;
+
+    // --- Shift before bitwise AND ---
+    // 1 << 2 & 0xFF == (1 << 2) & 0xFF == 4
+    let p5 = 1 << 2 & 0xFF;
+
+    // --- Bitwise AND before bitwise XOR ---
+    // 0b1100 & 0b1010 ^ 0b0001 == (0b1100 & 0b1010) ^ 0b0001 == 0b1001
+    let p6 = 0b1100 & 0b1010 ^ 0b0001;
+
+    // --- Bitwise XOR before bitwise OR ---
+    // 0b0001 ^ 0b0010 | 0b0100 == (0b0001 ^ 0b0010) | 0b0100 == 0b0111
+    let p7 = 0b0001 ^ 0b0010 | 0b0100;
+
+    // --- Bitwise OR before comparison ---
+    // This means: (a | b) == c, which is the natural grouping
+    let cmp1 = (0b0001 | 0b0010) == 0b0011;
+
+    // --- Comparison before logical AND ---
+    // 1 < 2 && 3 < 4 == (1 < 2) && (3 < 4) == true
+    let p8 = 1 < 2 && 3 < 4;
+
+    // --- Logical AND before logical OR ---
+    // true || false && false == true || (false && false) == true
+    let p9 = true || false && false;
+
+    // false && true || true == (false && true) || true == true
+    let p10 = false && true || true;
+
+    // --- Unary minus before multiplicative ---
+    // -2 * 3 == (-2) * 3 == -6
+    let p11 = -2 * 3;
+
+    // --- Logical NOT before AND/OR ---
+    // !false && true == (!false) && true == true
+    let p12 = !false && true;
+
+    // !true || true == (!true) || true == true
+    let p13 = !true || true;
+
+    // --- as before multiplicative ---
+    // 10 as f64 * 2.0 == (10 as f64) * 2.0 == 20.0
+    let p14 = 10 as f64 * 2.0;
+
+    // --- Pipe has very low precedence (1) ---
+    // x |> double evaluates after all arithmetic
+    let p15 = 5 + 3 |> double;
+    // Should be: double(5 + 3) = double(8) = 16
+
+    // --- Assignment has lowest precedence (0, right-assoc) ---
+    let mut result = 0;
+    result = 2 + 3;
+    // Parsed as: result = (2 + 3)
+
+    // --- Compound assignment at same level ---
+    let mut v = 10;
+    v += 2 * 3;
+    // Parsed as: v += (2 * 3) => v = v + 6
+
+    // --- Parentheses override all precedence ---
+    let override1 = (2 + 3) * 4;
+    let override2 = 2 * (3 + 4);
+    let override3 = (true || false) && (false || true);
+
+    // --- Complex mixed expression ---
+    let complex = 1 + 2 * 3 - 4 / 2 + 1;
+    // == 1 + (2*3) - (4/2) + 1 == 1 + 6 - 2 + 1 == 6
+
+    // --- Field access (15) binds tighter than everything ---
+    struct Pair { x: i32, y: i32 }
+    let p = Pair { x: 10, y: 20 };
+    let field_sum = p.x + p.y;
+    // == (p.x) + (p.y) == 30
+
+    // --- Comparison operators are non-chaining ---
+    // a < b < c is a syntax error, use:
+    let x = 5;
+    let in_range = 0 < x && x < 10;
+}

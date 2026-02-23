@@ -1,0 +1,9 @@
+// Module: deeply::nested
+// Namespace module that re-exports from submodules.
+
+// This module serves as a namespace for the `module` submodule.
+// Items from `module.nudl` are accessible as deeply::nested::module::*
+
+pub fn nested_helper() -> string {
+    "called from deeply::nested"
+}

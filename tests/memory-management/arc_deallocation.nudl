@@ -1,0 +1,92 @@
+// Test: ARC deallocation — refcount reaching 0 deallocates the object
+//
+// When the last strong reference to a heap-allocated object goes out of scope,
+// the reference count drops to zero and the object is deallocated. The Drop
+// interface (if implemented) is called at that point.
+
+struct DropLog {
+    entries: i32[],
+}
+
+impl DropLog {
+    fn new() -> DropLog {
+        DropLog { entries: [] }
+    }
+}
+
+struct Resource {
+    id: i32,
+    log: DropLog,  // shared via ARC — all Resources share the same log
+}
+
+impl Drop for Resource {
+    fn drop(mut self) {
+        self.log.entries.push(self.id);
+    }
+}
+
+fn main() {
+    // --- Basic scope-based deallocation ---
+    let log = DropLog::new();
+    {
+        let r = Resource { id: 1, log };
+        // r has refcount 1
+        assert(log.entries.len() == 0, "resource should not be dropped yet");
+    }
+    // r went out of scope, refcount -> 0, drop called
+    assert(log.entries.len() == 1, "resource 1 should be dropped");
+    assert(log.entries[0] == 1, "resource 1 id should be in log");
+
+    // --- Shared reference delays deallocation ---
+    let log2 = DropLog::new();
+    {
+        let outer = {
+            let inner = Resource { id: 2, log: log2 };
+            inner  // block expression returns this value
+        };
+        // inner went out of scope inside the block, but outer holds a ref, refcount -> 1
+        assert(log2.entries.len() == 0, "resource 2 should NOT be dropped (outer still holds it)");
+        // outer goes out of scope here, refcount -> 0
+    }
+    assert(log2.entries.len() == 1, "resource 2 should now be dropped");
+    assert(log2.entries[0] == 2, "resource 2 id should be in log");
+
+    // --- Multiple references all released ---
+    let log3 = DropLog::new();
+    {
+        let a = Resource { id: 3, log: log3 };
+        let b = a; // refcount 2
+        let c = a; // refcount 3
+        // all three go out of scope in reverse order: c, b, a
+        // only when a (the last) is released does refcount reach 0
+    }
+    assert(log3.entries.len() == 1, "resource 3 should be dropped exactly once");
+    assert(log3.entries[0] == 3, "resource 3 id should be in log");
+
+    // --- Reassignment decrements old reference ---
+    let log4 = DropLog::new();
+    {
+        let mut slot = Resource { id: 4, log: log4 }; // refcount 1 for id:4
+        slot = Resource { id: 5, log: log4 };          // id:4 refcount -> 0, id:5 refcount 1
+        assert(log4.entries.len() == 1, "resource 4 should be dropped on reassignment");
+        assert(log4.entries[0] == 4, "resource 4 id should be in log");
+    }
+    // id:5 goes out of scope
+    assert(log4.entries.len() == 2, "resource 5 should also be dropped");
+    assert(log4.entries[1] == 5, "resource 5 id should be in log");
+
+    // --- Array element deallocation ---
+    let log5 = DropLog::new();
+    {
+        let items: Resource[] = [
+            Resource { id: 10, log: log5 },
+            Resource { id: 11, log: log5 },
+            Resource { id: 12, log: log5 },
+        ];
+        // All resources held by the array
+    }
+    // Array goes out of scope, all elements released
+    assert(log5.entries.len() == 3, "all three array resources should be dropped");
+
+    println("arc_deallocation: all assertions passed");
+}

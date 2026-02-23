@@ -1,0 +1,125 @@
+// Iterator module — custom iterator types with chaining
+// Features: Iterator<T> interface, generic structs, method chaining
+
+pub struct RangeIter {
+    current: i64,
+    end: i64,
+    step: i64,
+}
+
+impl RangeIter {
+    pub fn new(start: i64, end: i64) -> RangeIter {
+        RangeIter { current: start, end, step: 1 }
+    }
+
+    pub fn with_step(start: i64, end: i64, step: i64) -> RangeIter {
+        RangeIter { current: start, end, step }
+    }
+}
+
+impl Iterator<i64> for RangeIter {
+    fn next(mut self) -> Option<i64> {
+        if self.current >= self.end {
+            None
+        } else {
+            let value = self.current;
+            self.current += self.step;
+            Some(value)
+        }
+    }
+}
+
+pub struct MapIter<T, U> {
+    source: dyn Iterator<T>,
+    transform: (T) -> U,
+}
+
+impl<T, U> Iterator<U> for MapIter<T, U> {
+    fn next(mut self) -> Option<U> {
+        match self.source.next() {
+            Some(value) => Some((self.transform)(value)),
+            None => None,
+        }
+    }
+}
+
+pub struct FilterIter<T> {
+    source: dyn Iterator<T>,
+    predicate: (T) -> bool,
+}
+
+impl<T> Iterator<T> for FilterIter<T> {
+    fn next(mut self) -> Option<T> {
+        loop {
+            match self.source.next() {
+                Some(value) => {
+                    if (self.predicate)(value) {
+                        return Some(value);
+                    }
+                },
+                None => { return None; },
+            }
+        }
+    }
+}
+
+pub struct TakeIter<T> {
+    source: dyn Iterator<T>,
+    remaining: u64,
+}
+
+impl<T> Iterator<T> for TakeIter<T> {
+    fn next(mut self) -> Option<T> {
+        if self.remaining == 0 {
+            return None;
+        }
+        self.remaining -= 1;
+        self.source.next()
+    }
+}
+
+pub struct ChainIter<T> {
+    first: dyn Iterator<T>,
+    second: dyn Iterator<T>,
+    on_second: bool,
+}
+
+impl<T> ChainIter<T> {
+    pub fn new(first: dyn Iterator<T>, second: dyn Iterator<T>) -> ChainIter<T> {
+        ChainIter { first, second, on_second: false }
+    }
+}
+
+impl<T> Iterator<T> for ChainIter<T> {
+    fn next(mut self) -> Option<T> {
+        if !self.on_second {
+            match self.first.next() {
+                Some(v) => Some(v),
+                None => {
+                    self.on_second = true;
+                    self.second.next()
+                },
+            }
+        } else {
+            self.second.next()
+        }
+    }
+}
+
+// Collect an iterator into an array
+pub fn collect<T>(iter: dyn Iterator<T>) -> T[] {
+    let mut result: T[] = [];
+    while let Some(value) = iter.next() {
+        result.push(value);
+    }
+    result
+}
+
+// Fold an iterator with an accumulator
+pub fn fold_iter<T, A>(iter: dyn Iterator<T>, initial: A, reducer: (A, T) -> A) -> A {
+    let mut acc = initial;
+    while let Some(value) = iter.next() {
+        acc = reducer(acc, value);
+    }
+    acc
+}

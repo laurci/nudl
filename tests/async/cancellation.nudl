@@ -1,0 +1,63 @@
+// Test: Cancellation — cooperative cancellation of async tasks
+
+async fn long_running_task() -> Result<i32, CancellationError> {
+    let mut sum = 0;
+    for i in 0..1000000 {
+        // Check for cancellation periodically
+        Task.check_cancelled()?;  // returns Err(CancellationError) if cancelled
+        sum += i;
+    }
+    Ok(sum)
+}
+
+async fn polling_task() -> string {
+    let mut iterations = 0;
+    loop {
+        // Check cancellation flag as a bool
+        if Task.is_cancelled() {
+            return f"cancelled after {iterations} iterations";
+        }
+        iterations += 1;
+        if iterations >= 100 {
+            break;
+        }
+    }
+    f"completed {iterations} iterations"
+}
+
+async fn cancellable_work(label: string) -> Result<string, CancellationError> {
+    for i in 0..10 {
+        Task.check_cancelled()?;
+    }
+    Ok(f"{label} done")
+}
+
+async fn main() {
+    // Task.is_cancelled() returns bool
+    let handle = Task.spawn(async { polling_task().await });
+    let result = handle.await;
+    println(result);
+
+    // Task.check_cancelled() returns Result<(), CancellationError>
+    // Designed for use with ? operator
+    let handle = Task.spawn(async { long_running_task().await });
+    match handle.await {
+        Ok(sum) => println(f"Sum: {sum}"),
+        Err(_) => println("Task was cancelled"),
+    }
+
+    // Cancellation in task group — if one child panics,
+    // remaining children are cancelled
+    let results = Task.group { group ->
+        group.spawn(async { cancellable_work("A").await });
+        group.spawn(async { cancellable_work("B").await });
+        group.spawn(async { cancellable_work("C").await });
+    };
+
+    for result in results {
+        match result {
+            Ok(msg) => println(msg),
+            Err(_) => println("cancelled"),
+        }
+    }
+}

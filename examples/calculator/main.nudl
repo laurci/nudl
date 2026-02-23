@@ -1,0 +1,189 @@
+// Calculator — expression evaluator with enum AST
+// Features: recursive enums, nested pattern matching, guards, if-else expressions
+
+enum Expr {
+    Num(f64),
+    Add { left: Expr, right: Expr },
+    Sub { left: Expr, right: Expr },
+    Mul { left: Expr, right: Expr },
+    Div { left: Expr, right: Expr },
+    Neg(Expr),
+    Abs(Expr),
+}
+
+impl Expr {
+    fn num(value: f64) -> Expr { Expr::Num(value) }
+
+    fn eval(self) -> Result<f64, string> {
+        match self {
+            Expr::Num(n) => Ok(n),
+            Expr::Add { left, right } => {
+                let l = left.eval()?;
+                let r = right.eval()?;
+                Ok(l + r)
+            },
+            Expr::Sub { left, right } => {
+                let l = left.eval()?;
+                let r = right.eval()?;
+                Ok(l - r)
+            },
+            Expr::Mul { left, right } => {
+                let l = left.eval()?;
+                let r = right.eval()?;
+                Ok(l * r)
+            },
+            Expr::Div { left, right } => {
+                let l = left.eval()?;
+                let r = right.eval()?;
+                if r == 0.0 {
+                    Err("division by zero")
+                } else {
+                    Ok(l / r)
+                }
+            },
+            Expr::Neg(inner) => {
+                let v = inner.eval()?;
+                Ok(-v)
+            },
+            Expr::Abs(inner) => {
+                let v = inner.eval()?;
+                Ok(if v >= 0.0 { v } else { -v })
+            },
+        }
+    }
+
+    fn to_string(self) -> string {
+        match self {
+            Expr::Num(n) => f"{n}",
+            Expr::Add { left, right } =>
+                f"({left.to_string()} + {right.to_string()})",
+            Expr::Sub { left, right } =>
+                f"({left.to_string()} - {right.to_string()})",
+            Expr::Mul { left, right } =>
+                f"({left.to_string()} * {right.to_string()})",
+            Expr::Div { left, right } =>
+                f"({left.to_string()} / {right.to_string()})",
+            Expr::Neg(inner) =>
+                f"(-{inner.to_string()})",
+            Expr::Abs(inner) =>
+                f"|{inner.to_string()}|",
+        }
+    }
+
+    // Count the number of nodes in the expression tree
+    fn depth(self) -> u64 {
+        match self {
+            Expr::Num(_) => 1,
+            Expr::Add { left, right } | Expr::Sub { left, right }
+            | Expr::Mul { left, right } | Expr::Div { left, right } => {
+                let ld = left.depth();
+                let rd = right.depth();
+                1 + if ld > rd { ld } else { rd }
+            },
+            Expr::Neg(inner) | Expr::Abs(inner) => 1 + inner.depth(),
+        }
+    }
+
+    // Constant folding simplification
+    fn simplify(self) -> Expr {
+        match self {
+            // x + 0 = x
+            Expr::Add { left, right } if right.is_zero() => left.simplify(),
+            // 0 + x = x
+            Expr::Add { left, right } if left.is_zero() => right.simplify(),
+            // x * 1 = x
+            Expr::Mul { left, right } if right.is_one() => left.simplify(),
+            // 1 * x = x
+            Expr::Mul { left, right } if left.is_one() => right.simplify(),
+            // x * 0 = 0
+            Expr::Mul { left, right } if left.is_zero() || right.is_zero() =>
+                Expr::Num(0.0),
+            // --x = x
+            Expr::Neg(inner) => match inner {
+                Expr::Neg(double_inner) => double_inner.simplify(),
+                _ => Expr::Neg(inner.simplify()),
+            },
+            // Otherwise, recurse
+            Expr::Add { left, right } =>
+                Expr::Add { left: left.simplify(), right: right.simplify() },
+            Expr::Sub { left, right } =>
+                Expr::Sub { left: left.simplify(), right: right.simplify() },
+            Expr::Mul { left, right } =>
+                Expr::Mul { left: left.simplify(), right: right.simplify() },
+            Expr::Div { left, right } =>
+                Expr::Div { left: left.simplify(), right: right.simplify() },
+            Expr::Abs(inner) => Expr::Abs(inner.simplify()),
+            other => other,
+        }
+    }
+
+    fn is_zero(self) -> bool {
+        match self {
+            Expr::Num(n) => n == 0.0,
+            _ => false,
+        }
+    }
+
+    fn is_one(self) -> bool {
+        match self {
+            Expr::Num(n) => n == 1.0,
+            _ => false,
+        }
+    }
+}
+
+fn eval_and_print(expr: Expr) {
+    let display = expr.to_string();
+    match expr.eval() {
+        Ok(result) => println(f"  {display} = {result}"),
+        Err(e) => println(f"  {display} => ERROR: {e}"),
+    }
+}
+
+fn main() {
+    // (3 + 4) * 2
+    let expr1 = Expr::Mul {
+        left: Expr::Add {
+            left: Expr::num(3.0),
+            right: Expr::num(4.0),
+        },
+        right: Expr::num(2.0),
+    };
+
+    // 10 / (5 - 5) — division by zero
+    let expr2 = Expr::Div {
+        left: Expr::num(10.0),
+        right: Expr::Sub {
+            left: Expr::num(5.0),
+            right: Expr::num(5.0),
+        },
+    };
+
+    // |(-3) + 1|
+    let expr3 = Expr::Abs(Expr::Add {
+        left: Expr::Neg(Expr::num(3.0)),
+        right: Expr::num(1.0),
+    });
+
+    println("Expression evaluation:");
+    eval_and_print(expr1);
+    eval_and_print(expr2);
+    eval_and_print(expr3);
+
+    // Simplification
+    // x + 0 => x
+    let redundant = Expr::Add {
+        left: Expr::Mul {
+            left: Expr::num(5.0),
+            right: Expr::num(1.0),
+        },
+        right: Expr::num(0.0),
+    };
+    let simplified = redundant.simplify();
+    println(f"\nSimplification:");
+    println(f"  Before: {redundant.to_string()} (depth={redundant.depth()})");
+    println(f"  After:  {simplified.to_string()} (depth={simplified.depth()})");
+
+    // Evaluate simplified
+    eval_and_print(simplified);
+}

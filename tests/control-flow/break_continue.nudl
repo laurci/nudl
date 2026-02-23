@@ -1,0 +1,133 @@
+// Test: break and continue statements.
+//       break exits the innermost loop, continue skips to next iteration.
+//       break with value makes the loop an expression.
+
+fn main() {
+    // Basic break: exit a for loop early
+    println("Break from for loop:");
+    for i in 0..100 {
+        if i >= 5 {
+            break;
+        }
+        println(f"  i = {i}");
+    }
+
+    // Basic continue: skip odd numbers
+    println("Continue in for loop (only evens):");
+    for i in 0..10 {
+        if i % 2 != 0 {
+            continue;
+        }
+        println(f"  i = {i}");
+    }
+
+    // Break from while loop
+    let mut n = 0;
+    while true {
+        n += 1;
+        if n > 5 {
+            break;
+        }
+    }
+    println(f"Broke while loop at n = {n}");
+
+    // Continue in while loop
+    let mut sum = 0;
+    let mut i = 0;
+    while i < 20 {
+        i += 1;
+        if i % 3 == 0 {
+            continue;
+        }
+        sum += i;
+    }
+    println(f"Sum (1..20, skip multiples of 3) = {sum}");
+
+    // Break with value from loop
+    let mut counter = 0;
+    let result = loop {
+        counter += 1;
+        if counter == 7 {
+            break counter * 10;
+        }
+    };
+    println(f"Loop break value: {result}");
+
+    // Break with value: search for element
+    let data = [5, 12, 3, 18, 7, 21, 9];
+    let mut idx = 0;
+    let found = loop {
+        if idx >= data.len() {
+            break None;
+        }
+        if data[idx] > 15 {
+            break Some(data[idx]);
+        }
+        idx += 1;
+    };
+    match found {
+        Some(v) => println(f"First > 15: {v}"),
+        None => println("No value > 15 found"),
+    }
+
+    // Continue with multiple conditions
+    println("Numbers 1-20 not divisible by 2 or 3:");
+    for n in 1..=20 {
+        if n % 2 == 0 {
+            continue;
+        }
+        if n % 3 == 0 {
+            continue;
+        }
+        println(f"  {n}");
+    }
+
+    // Break in nested loops (breaks inner only)
+    println("Nested loops, break inner:");
+    for i in 0..3 {
+        for j in 0..10 {
+            if j >= 3 {
+                break;
+            }
+            println(f"  ({i}, {j})");
+        }
+    }
+
+    // Continue in nested loops (continues inner only)
+    println("Nested loops, continue inner:");
+    for i in 0..3 {
+        for j in 0..5 {
+            if j == 2 {
+                continue;
+            }
+            println(f"  ({i}, {j})");
+        }
+    }
+
+    // Break with string value
+    let status = loop {
+        let check = true;
+        if check {
+            break "all good";
+        }
+    };
+    println(f"Status: {status}");
+
+    // Break with computed tuple value
+    let coords = loop {
+        let x = 3;
+        let y = 4;
+        break (x, y);
+    };
+    println(f"Coords: ({coords.0}, {coords.1})");
+
+    // Continue skipping over entire ranges of values
+    let mut collected: i32[] = [];
+    for i in 0..30 {
+        if i >= 5 && i <= 24 {
+            continue;
+        }
+        collected.push(i);
+    }
+    println(f"Collected (0-4 and 25-29): {collected}");
+}

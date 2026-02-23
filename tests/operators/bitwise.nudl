@@ -1,0 +1,79 @@
+// Test: Bitwise operators — &, |, ^, <<, >>
+// Covers: AND, OR, XOR, left shift, right shift on integer types,
+//         both operands must have the same type
+
+fn main() {
+    // --- Bitwise AND (&) ---
+    let and1 = 0b1100 & 0b1010;
+    let and2 = 0xFF & 0x0F;
+    let and3 = 255u8 & 128u8;
+    let and_zero = 0b1010 & 0b0101;
+
+    // --- Bitwise OR (|) ---
+    let or1 = 0b1100 | 0b1010;
+    let or2 = 0xF0 | 0x0F;
+    let or3 = 1u8 | 2u8;
+    let or_same = 0b1111 | 0b1111;
+
+    // --- Bitwise XOR (^) ---
+    let xor1 = 0b1100 ^ 0b1010;
+    let xor2 = 0xFF ^ 0xFF;
+    let xor3 = 0xFF ^ 0x00;
+    let xor_self = 42 ^ 42;
+
+    // --- Left shift (<<) ---
+    let shl1 = 1 << 0;
+    let shl2 = 1 << 1;
+    let shl3 = 1 << 4;
+    let shl4 = 1 << 10;
+    let shl5 = 0b0001 << 3;
+
+    // --- Right shift (>>) ---
+    let shr1 = 8 >> 1;
+    let shr2 = 16 >> 2;
+    let shr3 = 0b1000 >> 3;
+    let shr4 = 256 >> 4;
+
+    // --- Combined bitwise operations ---
+    let combined1 = (0b1100 & 0b1010) | 0b0001;
+    let combined2 = (1 << 4) | (1 << 2) | (1 << 0);
+    let combined3 = (0xFF >> 4) & 0x0F;
+
+    // --- Bitwise on different integer sizes ---
+    let u8_and = 0xFFu8 & 0x0Fu8;
+    let u16_or = 0xFF00u16 | 0x00FFu16;
+    let u32_xor = 0xDEAD_BEEFu32 ^ 0xFFFF_FFFFu32;
+    let i64_shl = 1i64 << 32;
+
+    // --- Bit manipulation patterns ---
+    // Set a bit
+    let mut flags: u32 = 0;
+    flags = flags | (1 << 3);
+
+    // Clear a bit
+    flags = flags & !(1 << 3);
+
+    // Toggle a bit
+    flags = flags ^ (1 << 5);
+
+    // Check if bit is set
+    let bit3_set = (flags & (1 << 3)) != 0;
+    let bit5_set = (flags & (1 << 5)) != 0;
+
+    // --- Mask extraction ---
+    let value: u32 = 0xABCD1234u32;
+    let low_byte = value & 0xFF;
+    let high_byte = (value >> 24) & 0xFF;
+    let mid_bits = (value >> 8) & 0xFFFF;
+
+    // --- Power of 2 check pattern ---
+    let n = 16;
+    let is_pow2 = n > 0 && (n & (n - 1)) == 0;
+
+    // --- Bitwise with mutable variables ---
+    let mut bits: u8 = 0b0000_0000;
+    bits = bits | 0b0000_0001;
+    bits = bits | 0b0000_0010;
+    bits = bits | 0b0000_0100;
+    bits = bits & 0b1111_1101;
+}

@@ -1,0 +1,109 @@
+// Test: Error propagation operator — ? on Result and Option
+// Covers: ? on Result<T, E>, ? on Option<T>, early return semantics,
+//         chained ?, enclosing function return type compatibility
+
+fn parse_i32(s: string) -> Result<i32, string> {
+    // Simulated parser
+    match s {
+        "42" => Ok(42),
+        "0" => Ok(0),
+        "100" => Ok(100),
+        _ => Err(f"cannot parse '{s}' as i32"),
+    }
+}
+
+fn divide(a: f64, b: f64) -> Result<f64, string> {
+    if b == 0.0 {
+        Err("division by zero")
+    } else {
+        Ok(a / b)
+    }
+}
+
+fn first_element(arr: i32[]) -> Option<i32> {
+    arr.first()
+}
+
+// --- ? on Result: unwraps Ok, early-returns Err ---
+fn parse_and_double(input: string) -> Result<i32, string> {
+    let value = parse_i32(input)?;
+    Ok(value * 2)
+}
+
+// --- Chained ? operators ---
+fn parse_and_divide(a_str: string, b_str: string) -> Result<f64, string> {
+    let a = parse_i32(a_str)? as f64;
+    let b = parse_i32(b_str)? as f64;
+    let result = divide(a, b: b)?;
+    Ok(result)
+}
+
+// --- ? on Option: unwraps Some, early-returns None ---
+fn first_even(numbers: i32[]) -> Option<i32> {
+    let first = numbers.first()?;
+    if first % 2 == 0 {
+        Some(first)
+    } else {
+        None
+    }
+}
+
+// --- ? in complex expressions ---
+fn complex_result(input: string) -> Result<string, string> {
+    let n = parse_i32(input)?;
+    let doubled = n * 2;
+    let halved = divide(doubled as f64, b: 2.0)?;
+    Ok(f"result: {halved}")
+}
+
+// --- Multiple ? in sequence ---
+fn multi_step(s1: string, s2: string, s3: string) -> Result<i32, string> {
+    let a = parse_i32(s1)?;
+    let b = parse_i32(s2)?;
+    let c = parse_i32(s3)?;
+    Ok(a + b + c)
+}
+
+// --- ? on nested Option ---
+fn get_nested_value(outer: Option<Option<i32>>) -> Option<i32> {
+    let inner = outer?;
+    let value = inner?;
+    Some(value)
+}
+
+fn main() {
+    // --- Test ? on Result with Ok value ---
+    let ok_result = parse_and_double("42");
+    match ok_result {
+        Ok(v) => println(f"Ok: {v}"),
+        Err(e) => println(f"Err: {e}"),
+    }
+
+    // --- Test ? on Result with Err value ---
+    let err_result = parse_and_double("invalid");
+    match err_result {
+        Ok(v) => println(f"Ok: {v}"),
+        Err(e) => println(f"Err: {e}"),
+    }
+
+    // --- Test chained ? ---
+    let chain_ok = parse_and_divide("100", b_str: "42");
+    let chain_err = parse_and_divide("100", b_str: "0");
+
+    // --- Test ? on Option ---
+    let has_even = first_even([2, 3, 4]);
+    let no_even = first_even([1, 3, 5]);
+    let empty = first_even([]);
+
+    // --- Using match on Result/Option from ? functions ---
+    match multi_step("42", s2: "0", s3: "100") {
+        Ok(total) => println(f"Total: {total}"),
+        Err(e) => println(f"Failed: {e}"),
+    }
+
+    // --- Direct use of Ok/Err and Some/None ---
+    let ok: Result<i32, string> = Ok(42);
+    let err: Result<i32, string> = Err("oops");
+    let some: Option<i32> = Some(42);
+    let none: Option<i32> = None;
+}

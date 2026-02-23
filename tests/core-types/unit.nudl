@@ -1,0 +1,81 @@
+// Test: Unit type — ()
+// Covers: unit literal, implicit return, explicit return,
+//         functions returning (), unit in let bindings
+
+fn no_return_annotation() {
+    // Implicit () return type when return type is omitted
+    let x = 42;
+}
+
+fn explicit_unit() -> () {
+    // Explicit () return type
+    let x = 42;
+}
+
+fn returns_unit_implicitly() {
+    // A block ending with a semicolon yields ()
+    println("hello");
+}
+
+fn returns_value() -> i32 {
+    42
+}
+
+fn early_return_unit() {
+    let x = 10;
+    if x > 5 {
+        return;
+    }
+    let y = 20;
+}
+
+fn main() {
+    // --- Unit literal ---
+    let u = ();
+    let u2: () = ();
+
+    // --- Function returning () implicitly ---
+    let result = no_return_annotation();
+
+    // --- Function with explicit () return type ---
+    let result2 = explicit_unit();
+
+    // --- Block expression yielding () ---
+    let block_unit = {
+        let a = 1;
+        let b = 2;
+        // no tail expression, block yields ()
+    };
+
+    // --- Block with trailing semicolon yields () ---
+    let block_unit2 = {
+        42;
+    };
+
+    // --- Calling void functions ---
+    returns_unit_implicitly();
+    early_return_unit();
+
+    // --- Expression statement discards value, yields () ---
+    returns_value();
+
+    // --- if without else as statement (yields ()) ---
+    if true {
+        let x = 1;
+    }
+
+    // --- for loop yields () ---
+    let loop_result = for i in 0..3 {
+        let x = i;
+    };
+
+    // --- while loop yields () ---
+    let mut n = 0;
+    let while_result = while n < 3 {
+        n += 1;
+    };
+
+    // --- Unit in tuple ---
+    let with_unit: (i32, ()) = (42, ());
+    let extracted = with_unit.1;
+}

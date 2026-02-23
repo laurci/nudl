@@ -1,0 +1,152 @@
+// Test: Type aliases — type Name = T, generic aliases type Pair<A,B> = (A,B)
+
+// Simple type alias for a primitive
+type Count = u64;
+
+// Alias for a collection
+type StringList = string[];
+type IntArray = i32[];
+
+// Alias for a map
+type Headers = Map<string, string>;
+
+// Alias for a tuple
+type Coordinate = (f64, f64);
+
+// Alias for a function type
+type Predicate = (i32) -> bool;
+type Transform = (string) -> string;
+
+// Generic type alias
+type Pair<A, B> = (A, B);
+
+// Generic alias for a collection
+type List<T> = T[];
+
+// Alias that partially applies a generic type
+type StringResult = Result<string, string>;
+type IntOption = Option<i32>;
+
+// Alias for nested generics
+type Matrix<T> = T[][];
+
+// Alias referencing user-defined types
+struct Point {
+    x: f64,
+    y: f64,
+}
+type PointList = Point[];
+
+fn sum_counts(counts: Count[]) -> Count {
+    let mut total: Count = 0;
+    for c in counts {
+        total += c;
+    }
+    total
+}
+
+fn apply_predicate(nums: IntArray, pred: Predicate) -> IntArray {
+    let mut result: IntArray = [];
+    for n in nums {
+        if pred(n) {
+            result.push(n);
+        }
+    }
+    result
+}
+
+fn make_pair<A, B>(a: A, b: B) -> Pair<A, B> {
+    (a, b)
+}
+
+fn first<A, B>(pair: Pair<A, B>) -> A {
+    pair.0
+}
+
+fn second<A, B>(pair: Pair<A, B>) -> B {
+    pair.1
+}
+
+fn main() {
+    // --- Simple type alias ---
+    let count: Count = 42;
+    println(f"Count: {count}");
+
+    // --- Collection aliases ---
+    let names: StringList = ["alice", "bob", "charlie"];
+    println(f"Names: {names.len()} items");
+
+    let numbers: IntArray = [1, 2, 3, 4, 5];
+    println(f"Numbers: {numbers.len()} items");
+
+    // --- Map alias ---
+    let mut headers: Headers = Map::new();
+    headers.insert("Content-Type", "text/html");
+    headers.insert("Accept", "application/json");
+    println(f"Headers count: {headers.len()}");
+
+    // --- Tuple alias ---
+    let origin: Coordinate = (0.0, 0.0);
+    let pos: Coordinate = (3.14, 2.71);
+    println(f"Position: ({pos.0}, {pos.1})");
+
+    // --- Function type alias ---
+    let is_even: Predicate = |n| n % 2 == 0;
+    let is_positive: Predicate = |n| n > 0;
+    println(f"4 is even: {is_even(4)}");
+    println(f"-1 is positive: {is_positive(-1)}");
+
+    // --- Using aliases with functions ---
+    let counts: Count[] = [10, 20, 30, 40];
+    let total = sum_counts(counts);
+    println(f"Total: {total}");
+
+    let evens = apply_predicate(numbers, is_even);
+    println(f"Evens: {evens.len()} items");
+
+    // --- Generic aliases ---
+    let int_pair: Pair<i32, i32> = (1, 2);
+    let mixed_pair: Pair<string, i32> = ("hello", 42);
+    println(f"Int pair: ({int_pair.0}, {int_pair.1})");
+    println(f"Mixed pair: ({mixed_pair.0}, {mixed_pair.1})");
+
+    // --- Generic alias with make_pair ---
+    let p = make_pair("key", 100);
+    println(f"Made pair: ({first(p)}, {second(p)})");
+
+    // --- List alias ---
+    let int_list: List<i32> = [10, 20, 30];
+    let str_list: List<string> = ["a", "b", "c"];
+    println(f"Int list: {int_list.len()}, Str list: {str_list.len()}");
+
+    // --- Partially applied generic aliases ---
+    let sr: StringResult = Ok("success");
+    match sr {
+        Ok(s) => println(f"StringResult: {s}"),
+        Err(e) => println(f"Error: {e}"),
+    }
+
+    let io: IntOption = Some(99);
+    match io {
+        Some(v) => println(f"IntOption: {v}"),
+        None => println("None"),
+    }
+
+    // --- Alias for user-defined type collection ---
+    let points: PointList = [
+        Point { x: 0.0, y: 0.0 },
+        Point { x: 1.0, y: 1.0 },
+        Point { x: 2.0, y: 2.0 },
+    ];
+    for p in points {
+        println(f"  point: ({p.x}, {p.y})");
+    }
+
+    // --- Aliases are fully transparent (interchangeable with original type) ---
+    let c: Count = 5;
+    let n: u64 = c;      // Count is just u64, so this works
+    let c2: Count = n;   // and the reverse
+    println(f"Transparent: {c} == {n} == {c2}");
+
+    println("All type alias tests passed");
+}

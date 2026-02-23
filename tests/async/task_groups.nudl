@@ -1,0 +1,51 @@
+// Test: Task.group — structured fan-out with collected results
+
+async fn fetch_page(url: string) -> string {
+    f"content of {url}"
+}
+
+async fn compute(n: i32) -> i32 {
+    n * n
+}
+
+async fn main() {
+    // Basic task group — spawns children, collects results in spawn order
+    let urls = ["https://a.com", "https://b.com", "https://c.com"];
+
+    let results = Task.group { group ->
+        for url in urls {
+            group.spawn(async { fetch_page(url).await });
+        }
+    };
+
+    // results: string[] — collected in spawn order
+    for (i, page) in results.enumerate() {
+        println(f"Page {i}: {page}");
+    }
+
+    // Task group with computed values
+    let numbers = [1, 2, 3, 4, 5];
+    let squares = Task.group { group ->
+        for n in numbers {
+            group.spawn(async { compute(n).await });
+        }
+    };
+
+    for (i, sq) in squares.enumerate() {
+        println(f"{numbers[i]}^2 = {sq}");
+    }
+
+    // Task group with captured state
+    let prefix = "result";
+    let labeled = Task.group { group ->
+        for i in 0..3 {
+            group.spawn(async {
+                f"{prefix}_{i}: {compute(i).await}"
+            });
+        }
+    };
+
+    for item in labeled {
+        println(item);
+    }
+}

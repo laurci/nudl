@@ -1,0 +1,208 @@
+// Test: Dynamic dispatch — dyn Interface type, heterogeneous arrays
+
+interface Printable {
+    fn to_string(self) -> string;
+}
+
+interface Shape {
+    fn area(self) -> f64;
+    fn name(self) -> string;
+}
+
+interface Drawable {
+    fn draw(self) -> string;
+}
+
+// --- Types implementing Printable ---
+
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+struct Color {
+    r: u8,
+    g: u8,
+    b: u8,
+}
+
+struct Label {
+    text: string,
+}
+
+impl Printable for Point {
+    fn to_string(self) -> string {
+        f"Point({self.x}, {self.y})"
+    }
+}
+
+impl Printable for Color {
+    fn to_string(self) -> string {
+        f"Color({self.r}, {self.g}, {self.b})"
+    }
+}
+
+impl Printable for Label {
+    fn to_string(self) -> string {
+        f"Label(\"{self.text}\")"
+    }
+}
+
+// --- Types implementing Shape ---
+
+struct Circle {
+    radius: f64,
+}
+
+struct Rectangle {
+    width: f64,
+    height: f64,
+}
+
+struct Triangle {
+    base: f64,
+    height: f64,
+}
+
+impl Shape for Circle {
+    fn area(self) -> f64 {
+        3.14159 * self.radius * self.radius
+    }
+    fn name(self) -> string { "circle" }
+}
+
+impl Shape for Rectangle {
+    fn area(self) -> f64 {
+        self.width * self.height
+    }
+    fn name(self) -> string { "rectangle" }
+}
+
+impl Shape for Triangle {
+    fn area(self) -> f64 {
+        0.5 * self.base * self.height
+    }
+    fn name(self) -> string { "triangle" }
+}
+
+// Implement Printable for shapes too
+impl Printable for Circle {
+    fn to_string(self) -> string {
+        f"Circle(r={self.radius})"
+    }
+}
+
+impl Printable for Rectangle {
+    fn to_string(self) -> string {
+        f"Rect({self.width}x{self.height})"
+    }
+}
+
+impl Printable for Triangle {
+    fn to_string(self) -> string {
+        f"Tri(b={self.base}, h={self.height})"
+    }
+}
+
+// --- Functions taking dyn types ---
+
+fn print_all(items: (dyn Printable)[]) {
+    for item in items {
+        println(f"  {item.to_string()}");
+    }
+}
+
+fn total_area(shapes: (dyn Shape)[]) -> f64 {
+    let mut total = 0.0;
+    for shape in shapes {
+        total += shape.area();
+    }
+    total
+}
+
+fn largest_shape(shapes: (dyn Shape)[]) -> string {
+    let mut max_area = 0.0;
+    let mut max_name = "none";
+    for shape in shapes {
+        let a = shape.area();
+        if a > max_area {
+            max_area = a;
+            max_name = shape.name();
+        }
+    }
+    max_name
+}
+
+fn main() {
+    // --- Heterogeneous array of dyn Printable ---
+    let items: (dyn Printable)[] = [
+        Point { x: 1.0, y: 2.0 },
+        Color { r: 255, g: 0, b: 0 },
+        Label { text: "hello" },
+    ];
+    println("Printable items:");
+    print_all(items);
+
+    // --- Heterogeneous array of dyn Shape ---
+    let shapes: (dyn Shape)[] = [
+        Circle { radius: 5.0 },
+        Rectangle { width: 10.0, height: 3.0 },
+        Triangle { base: 6.0, height: 4.0 },
+    ];
+
+    println("Shapes:");
+    for shape in shapes {
+        println(f"  {shape.name()}: area = {shape.area()}");
+    }
+
+    // --- total_area with dyn ---
+    let total = total_area(shapes);
+    println(f"Total area: {total}");
+
+    // --- largest_shape ---
+    let biggest = largest_shape(shapes);
+    println(f"Largest shape: {biggest}");
+
+    // --- Single dyn variable ---
+    let item: dyn Printable = Point { x: 10.0, y: 20.0 };
+    println(f"Single dyn item: {item.to_string()}");
+
+    // --- Reassigning a dyn variable to a different concrete type ---
+    let mut dynamic: dyn Printable = Point { x: 0.0, y: 0.0 };
+    println(f"Before: {dynamic.to_string()}");
+    dynamic = Color { r: 0, g: 255, b: 0 };
+    println(f"After: {dynamic.to_string()}");
+
+    // --- dyn in function parameter ---
+    fn describe(thing: dyn Printable) -> string {
+        f"Described: {thing.to_string()}"
+    }
+    println(describe(Label { text: "test" }));
+    println(describe(Point { x: 5.0, y: 5.0 }));
+
+    // --- dyn in Option ---
+    let maybe_shape: Option<dyn Shape> = Some(Circle { radius: 3.0 });
+    match maybe_shape {
+        Some(s) => println(f"Optional shape: {s.name()}, area={s.area()}"),
+        None => println("No shape"),
+    }
+
+    // --- Building a heterogeneous collection dynamically ---
+    let mut collection: (dyn Printable)[] = [];
+    collection.push(Point { x: 1.0, y: 1.0 });
+    collection.push(Color { r: 128, g: 128, b: 128 });
+    collection.push(Label { text: "dynamic" });
+    println(f"Dynamic collection has {collection.len()} items:");
+    print_all(collection);
+
+    // --- Shapes that also implement Printable (dyn can only dispatch one interface at a time) ---
+    let printable_shapes: (dyn Printable)[] = [
+        Circle { radius: 2.0 },
+        Rectangle { width: 4.0, height: 5.0 },
+        Triangle { base: 3.0, height: 6.0 },
+    ];
+    println("Shapes as Printable:");
+    print_all(printable_shapes);
+
+    println("All dynamic dispatch tests passed");
+}

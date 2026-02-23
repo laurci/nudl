@@ -1,0 +1,62 @@
+// Test: Floating-point types — f32, f64
+// Covers: decimal notation, scientific notation (e/E), suffixes,
+//         default inference to f64, underscore separators
+
+fn main() {
+    // --- Default float type (f64) ---
+    let pi = 3.14159265358979;
+    let half = 0.5;
+    let big = 123456.789;
+
+    // --- Explicit f32 suffix ---
+    let pi_f32 = 3.14f32;
+    let half_f32 = 0.5f32;
+    let one_f32 = 1.0f32;
+
+    // --- Explicit f64 suffix ---
+    let precise = 0.001_f64;
+    let exact = 2.718281828_f64;
+
+    // --- Scientific notation ---
+    let sci1 = 2.0e10;
+    let sci2 = 1.5E3;
+    let sci3 = 1e-3;
+    let sci4 = 6.022e23;
+    let sci5 = 1.0E+5;
+    let sci6 = 9.109e-31;
+
+    // --- Scientific notation with suffixes ---
+    let sci_f32 = 1.0e5f32;
+    let sci_f64 = 2.998e8f64;
+
+    // --- Suffix alone (no decimal point, no exponent — suffix makes it float) ---
+    let just_suffix = 42f64;
+    let just_suffix_f32 = 100f32;
+
+    // --- Exponent alone (no decimal point — exponent makes it float) ---
+    let exp_only = 1e10;
+    let exp_neg = 5e-2;
+
+    // --- Underscore separators ---
+    let readable = 1_000.000_001;
+    let sci_under = 1_000e1_0;
+
+    // --- Explicit type annotation constraining unsuffixed literal ---
+    let typed: f64 = 3.14;
+    let typed32: f32 = 2.0;
+
+    // --- Float arithmetic (same-type operands) ---
+    let sum = 1.5 + 2.5;
+    let diff = 5.0 - 2.5;
+    let prod = 3.0 * 4.0;
+    let quot = 10.0 / 3.0;
+    let rem = 10.0 % 3.0;
+
+    // --- Unary negation ---
+    let neg = -3.14;
+    let neg_f32 = -1.0f32;
+
+    // --- Very small and very large values ---
+    let tiny = 1.0e-300;
+    let huge = 1.0e300;
+}

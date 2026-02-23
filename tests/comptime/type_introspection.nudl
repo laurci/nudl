@@ -1,0 +1,142 @@
+// Test: Type introspection — type_name, type_fields, size_of, align_of
+//
+// The reflection API provides built-in functions for inspecting types at
+// compile time: type_name, type_fields, type_methods, size_of, align_of.
+
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+struct Config {
+    name: string,
+    port: u16,
+    debug: bool,
+}
+
+struct Empty;
+
+enum Shape {
+    Circle(f64),
+    Rectangle { width: f64, height: f64 },
+    Point,
+}
+
+// --- Generate a describe function using type introspection ---
+comptime fn generate_describe(T: type) {
+    let name = type_name(T);
+    let fields = type_fields(T);
+    quote {
+        impl ${T} {
+            fn describe() -> string {
+                let mut desc = f"${name} has ${fields.len()} fields:";
+                ${for field in fields {
+                    let fname = field.name;
+                    let ftype = type_name(field.field_type);
+                    quote {
+                        desc = f"{desc}\n  ${fname}: ${ftype}";
+                    }
+                }}
+                desc
+            }
+        }
+    }
+}
+
+comptime {
+    generate_describe(Point);
+    generate_describe(Config);
+}
+
+fn main() {
+    // --- type_name ---
+    let point_name = comptime { type_name(Point) };
+    assert(point_name == "Point", "type_name(Point) should be 'Point'");
+
+    let config_name = comptime { type_name(Config) };
+    assert(config_name == "Config", "type_name(Config) should be 'Config'");
+
+    let i32_name = comptime { type_name(i32) };
+    assert(i32_name == "i32", "type_name(i32) should be 'i32'");
+
+    // --- type_fields ---
+    let point_field_count = comptime { type_fields(Point).len() };
+    assert(point_field_count == 2, "Point should have 2 fields");
+
+    let config_field_count = comptime { type_fields(Config).len() };
+    assert(config_field_count == 3, "Config should have 3 fields");
+
+    // --- Field names and types ---
+    let first_field_name = comptime {
+        let fields = type_fields(Point);
+        fields[0].name
+    };
+    assert(first_field_name == "x", "first field of Point should be 'x'");
+
+    let first_field_type = comptime {
+        let fields = type_fields(Point);
+        type_name(fields[0].field_type)
+    };
+    assert(first_field_type == "f64", "first field type of Point should be 'f64'");
+
+    // --- size_of ---
+    let i32_size = comptime { size_of(i32) };
+    assert(i32_size == 4, "size_of(i32) should be 4");
+
+    let i64_size = comptime { size_of(i64) };
+    assert(i64_size == 8, "size_of(i64) should be 8");
+
+    let bool_size = comptime { size_of(bool) };
+    assert(bool_size == 1, "size_of(bool) should be 1");
+
+    let char_size = comptime { size_of(char) };
+    assert(char_size == 4, "size_of(char) should be 4");
+
+    // --- align_of ---
+    let i32_align = comptime { align_of(i32) };
+    assert(i32_align == 4, "align_of(i32) should be 4");
+
+    let i64_align = comptime { align_of(i64) };
+    assert(i64_align == 8, "align_of(i64) should be 8");
+
+    let bool_align = comptime { align_of(bool) };
+    assert(bool_align == 1, "align_of(bool) should be 1");
+
+    // --- Generated describe methods ---
+    let point_desc = Point::describe();
+    assert(point_desc.len() > 0, "Point describe should produce output");
+
+    let config_desc = Config::describe();
+    assert(config_desc.len() > 0, "Config describe should produce output");
+
+    // --- type_variants for enums ---
+    let variant_count = comptime { type_variants(Shape).len() };
+    assert(variant_count == 3, "Shape should have 3 variants");
+
+    let first_variant = comptime { type_variants(Shape)[0].name };
+    assert(first_variant == "Circle", "first variant should be 'Circle'");
+
+    // --- type_methods ---
+    let method_count = comptime { type_methods(Point).len() };
+    // Point has the generated describe() method
+    assert(method_count >= 1, "Point should have at least 1 method");
+
+    // --- type_implements ---
+    // Check if a type implements an interface
+    let point_is_printable = comptime { type_implements(Point, Printable) };
+    // Point may or may not implement Printable depending on setup
+
+    // --- call_site ---
+    let site = comptime { call_site() };
+    // call_site() returns a CallSite with file, line, col
+    let file = comptime { call_site().file };
+    let line = comptime { call_site().line };
+
+    // --- comptime_print for diagnostics ---
+    comptime {
+        comptime_print(f"Point has {type_fields(Point).len()} fields");
+        comptime_print(f"Config has {type_fields(Config).len()} fields");
+    }
+
+    println("type_introspection: all assertions passed");
+}

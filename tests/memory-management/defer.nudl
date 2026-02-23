@@ -1,0 +1,122 @@
+// Test: defer — LIFO order, works with return/break/?
+//
+// defer { } schedules a block to run on scope exit. Multiple defers execute
+// in LIFO (last-in, first-out) order. Defer blocks execute before drop calls
+// at scope exit. They work correctly with early return, break, and ? operator.
+
+let mut log: string[] = [];
+
+fn main() {
+    // --- Basic defer LIFO order ---
+    log = [];
+    {
+        defer { log.push("first defer"); }
+        defer { log.push("second defer"); }
+        defer { log.push("third defer"); }
+        log.push("body");
+    }
+    assert(log[0] == "body", "body executes first");
+    assert(log[1] == "third defer", "last defer runs first (LIFO)");
+    assert(log[2] == "second defer", "middle defer runs second");
+    assert(log[3] == "first defer", "first defer runs last");
+
+    // --- Defer with early return ---
+    log = [];
+    early_return_test(true);
+    assert(log.len() == 2, "defer should run on early return");
+    assert(log[0] == "entered", "entered should be logged");
+    assert(log[1] == "cleanup", "cleanup defer should run on return");
+
+    // --- Defer runs even when return is at end ---
+    log = [];
+    early_return_test(false);
+    assert(log.len() == 3, "defer should run on normal return too");
+    assert(log[0] == "entered", "entered logged");
+    assert(log[1] == "continued", "continued logged");
+    assert(log[2] == "cleanup", "cleanup runs on normal exit");
+
+    // --- Defer with break ---
+    log = [];
+    for i in 0..3 {
+        defer { log.push(f"defer-{i}"); }
+        if i == 1 {
+            break;
+        }
+        log.push(f"iter-{i}");
+    }
+    // i=0: body runs, defer scheduled. At end of iteration: defer-0
+    // i=1: defer scheduled, break. defer-1 runs.
+    assert(log.len() == 3, "should have iter-0, defer-0, defer-1");
+    assert(log[0] == "iter-0", "first iteration body");
+    assert(log[1] == "defer-0", "first iteration defer");
+    assert(log[2] == "defer-1", "break triggers defer");
+
+    // --- Defer with ? operator (error propagation) ---
+    log = [];
+    let result = defer_with_error();
+    match result {
+        Err(_) => {
+            assert(log.len() == 2, "defer should run before ? propagates");
+            assert(log[0] == "before-error", "body before error");
+            assert(log[1] == "error-cleanup", "defer runs on ? propagation");
+        },
+        Ok(_) => assert(false, "should have returned error"),
+    }
+
+    // --- Nested defers in nested scopes ---
+    log = [];
+    {
+        defer { log.push("outer"); }
+        {
+            defer { log.push("inner"); }
+            log.push("inner-body");
+        }
+        // inner defer runs here
+        log.push("outer-body");
+    }
+    // outer defer runs here
+    assert(log[0] == "inner-body", "inner body first");
+    assert(log[1] == "inner", "inner defer at inner scope exit");
+    assert(log[2] == "outer-body", "outer body");
+    assert(log[3] == "outer", "outer defer at outer scope exit");
+
+    // --- Defer executes before drops ---
+    log = [];
+    {
+        let _resource = DeferTestResource { name: "res" };
+        defer { log.push("defer-before-drop"); }
+        // At scope exit: defer runs first, then drop
+    }
+    assert(log[0] == "defer-before-drop", "defer should run before drop");
+    assert(log[1] == "drop:res", "drop should run after defer");
+
+    println("defer: all assertions passed");
+}
+
+fn early_return_test(early: bool) {
+    defer { log.push("cleanup"); }
+    log.push("entered");
+    if early {
+        return;
+    }
+    log.push("continued");
+}
+
+fn defer_with_error() -> Result<i32, string> {
+    defer { log.push("error-cleanup"); }
+    log.push("before-error");
+    let val: Result<i32, string> = Err("something went wrong");
+    val?; // propagates error, defer should still run
+    log.push("after-error"); // should not reach here
+    Ok(0)
+}
+
+struct DeferTestResource {
+    name: string,
+}
+
+impl Drop for DeferTestResource {
+    fn drop(mut self) {
+        log.push(f"drop:{self.name}");
+    }
+}

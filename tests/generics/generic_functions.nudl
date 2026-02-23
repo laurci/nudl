@@ -1,0 +1,57 @@
+// Test: Generic functions — fn name<T>(...), type inference at call site
+
+fn identity<T>(value: T) -> T {
+    value
+}
+
+fn max<T: Ord>(a: T, b: T) -> T {
+    if a > b { a } else { b }
+}
+
+fn swap<A, B>(pair: (A, B)) -> (B, A) {
+    (pair.1, pair.0)
+}
+
+fn first<T>(items: T[]) -> Option<T> {
+    if items.len() > 0 {
+        Some(items[0])
+    } else {
+        None
+    }
+}
+
+// Generic function with multiple type params
+fn zip_with<A, B, C>(a_list: A[], b_list: B[], combine: (A, B) -> C) -> C[] {
+    let mut result: C[] = [];
+    let len = if a_list.len() < b_list.len() { a_list.len() } else { b_list.len() };
+    for i in 0..len {
+        result.push(combine(a_list[i], b_list[i]));
+    }
+    result
+}
+
+fn main() {
+    // Type inference from arguments
+    let x = identity(42);          // T inferred as i32
+    let s = identity("hello");     // T inferred as string
+
+    // Explicit type params not needed when inferable
+    let m = max(10, 20);           // T inferred as i32
+    let mf = max(3.14, 2.71);     // T inferred as f64
+
+    // Swap with inference
+    let swapped = swap((1, "hello"));  // A=i32, B=string -> (string, i32)
+
+    // Generic over arrays
+    let nums = [10, 20, 30];
+    let f = first(nums);  // Option<i32>
+
+    // Multiple type params with closure
+    let names = ["Alice", "Bob"];
+    let ages = [30, 25];
+    let pairs = zip_with(names, b_list: ages) { name, age -> f"{name}: {age}" };
+
+    println(f"identity(42) = {x}");
+    println(f"max(10, 20) = {m}");
+    println(f"first = {f}");
+}

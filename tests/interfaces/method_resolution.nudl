@@ -1,0 +1,190 @@
+// Test: Method resolution — inherent methods preferred over interface,
+//       qualified calls A::name(foo) for disambiguation
+
+interface Printable {
+    fn to_string(self) -> string;
+}
+
+interface Debuggable {
+    fn to_string(self) -> string;
+}
+
+// Two interfaces with the same method name
+interface A {
+    fn name(self) -> string;
+}
+
+interface B {
+    fn name(self) -> string;
+}
+
+interface C {
+    fn describe(self) -> string;
+}
+
+// --- Type with inherent method AND interface method of the same name ---
+
+struct Widget {
+    id: i32,
+    label: string,
+}
+
+// Inherent methods
+impl Widget {
+    fn new(id: i32, label: string) -> Widget {
+        Widget { id, label }
+    }
+
+    // This inherent to_string takes priority over Printable::to_string
+    fn to_string(self) -> string {
+        f"Widget#{self.id}({self.label})"
+    }
+
+    fn details(self) -> string {
+        f"id={self.id}, label={self.label}"
+    }
+}
+
+// Interface implementation (same method name as inherent)
+impl Printable for Widget {
+    fn to_string(self) -> string {
+        f"[Widget: {self.label}]"
+    }
+}
+
+// --- Type implementing two interfaces with the same method name ---
+
+struct Foo {
+    value: i32,
+}
+
+impl A for Foo {
+    fn name(self) -> string {
+        f"A::name({self.value})"
+    }
+}
+
+impl B for Foo {
+    fn name(self) -> string {
+        f"B::name({self.value})"
+    }
+}
+
+impl C for Foo {
+    fn describe(self) -> string {
+        f"Foo with value {self.value}"
+    }
+}
+
+// --- Type with inherent method that shadows one interface method ---
+
+struct Bar {
+    data: string,
+}
+
+impl Bar {
+    fn name(self) -> string {
+        f"Bar::inherent({self.data})"
+    }
+}
+
+impl A for Bar {
+    fn name(self) -> string {
+        f"A::name({self.data})"
+    }
+}
+
+// --- Type with only interface methods (no ambiguity because only one interface) ---
+
+struct Simple {
+    x: i32,
+}
+
+impl Printable for Simple {
+    fn to_string(self) -> string {
+        f"Simple({self.x})"
+    }
+}
+
+// --- Functions accepting interface-bounded parameters ---
+
+fn print_as_printable<T: Printable>(item: T) {
+    // This calls Printable::to_string specifically
+    println(Printable::to_string(item));
+}
+
+fn print_as_a<T: A>(item: T) {
+    println(A::name(item));
+}
+
+fn print_as_b<T: B>(item: T) {
+    println(B::name(item));
+}
+
+fn main() {
+    // --- Inherent method preferred over interface method ---
+    let w = Widget::new(1, "button");
+
+    // Calling .to_string() resolves to the INHERENT method (priority 1)
+    let inherent_result = w.to_string();
+    println(f"w.to_string() (inherent): {inherent_result}");
+    // Output: "Widget#1(button)"
+
+    // Qualified call to get the INTERFACE method explicitly
+    let interface_result = Printable::to_string(w);
+    println(f"Printable::to_string(w): {interface_result}");
+    // Output: "[Widget: button]"
+
+    // Other inherent methods work normally
+    println(f"w.details(): {w.details()}");
+
+    // --- Two interfaces with same method name: must use qualified syntax ---
+    let foo = Foo { value: 42 };
+
+    // foo.name() would be ambiguous (A::name vs B::name), so use qualified:
+    let a_name = A::name(foo);
+    let b_name = B::name(foo);
+    println(f"A::name(foo): {a_name}");
+    println(f"B::name(foo): {b_name}");
+
+    // Non-ambiguous method works fine with dot syntax
+    let desc = foo.describe();
+    println(f"foo.describe(): {desc}");
+
+    // --- Inherent method shadows interface method ---
+    let bar = Bar { data: "test" };
+
+    // .name() resolves to the inherent method
+    let bar_name = bar.name();
+    println(f"bar.name() (inherent): {bar_name}");
+    // Output: "Bar::inherent(test)"
+
+    // Qualified call to get A's version
+    let a_bar_name = A::name(bar);
+    println(f"A::name(bar): {a_bar_name}");
+    // Output: "A::name(test)"
+
+    // --- No ambiguity: single interface, no inherent override ---
+    let simple = Simple { x: 99 };
+    let s = simple.to_string();
+    println(f"simple.to_string(): {s}");
+    // Output: "Simple(99)"
+
+    // Qualified also works when there's no ambiguity
+    let s2 = Printable::to_string(simple);
+    println(f"Printable::to_string(simple): {s2}");
+
+    // --- Using functions that bind to specific interfaces ---
+    println("--- print_as_printable ---");
+    print_as_printable(w);       // uses Printable::to_string
+    print_as_printable(simple);
+
+    println("--- print_as_a ---");
+    print_as_a(foo);
+    print_as_a(bar);
+
+    println("--- print_as_b ---");
+    print_as_b(foo);
+
+    println("All method resolution tests passed");
+}

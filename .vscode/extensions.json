@@ -1,0 +1,10 @@
+{
+  // See http://go.microsoft.com/fwlink/?LinkId=827846
+  // for the documentation about the extensions.json format
+  "recommendations": [
+    "dbaeumer.vscode-eslint",
+    //https://marketplace.visualstudio.com/_apis/public/gallery/publishers/connor4312/vsextensions/esbuild-problem-matchers/0.0.3/vspackage
+    "connor4312.esbuild-problem-matchers",
+    "ms-vscode.extension-test-runner"
+  ]
+}

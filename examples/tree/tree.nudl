@@ -1,0 +1,145 @@
+// Tree module — binary tree with weak parent references
+// Features: weak references, ARC, Clone, Drop, defer, Option
+
+pub struct TreeNode {
+    pub value: i32,
+    parent: Option<weak TreeNode>,
+    pub left: Option<TreeNode>,
+    pub right: Option<TreeNode>,
+}
+
+impl TreeNode {
+    pub fn new(value: i32) -> TreeNode {
+        TreeNode { value, parent: None, left: None, right: None }
+    }
+
+    pub fn insert(mut self, value: i32) {
+        if value < self.value {
+            match self.left {
+                Some(mut left) => left.insert(value),
+                None => {
+                    let mut child = TreeNode::new(value);
+                    let weak parent_ref = self;
+                    child.parent = Some(parent_ref);
+                    self.left = Some(child);
+                },
+            }
+        } else if value > self.value {
+            match self.right {
+                Some(mut right) => right.insert(value),
+                None => {
+                    let mut child = TreeNode::new(value);
+                    let weak parent_ref = self;
+                    child.parent = Some(parent_ref);
+                    self.right = Some(child);
+                },
+            }
+        }
+        // Duplicate values are ignored
+    }
+
+    pub fn contains(self, value: i32) -> bool {
+        if value == self.value {
+            true
+        } else if value < self.value {
+            match self.left {
+                Some(left) => left.contains(value),
+                None => false,
+            }
+        } else {
+            match self.right {
+                Some(right) => right.contains(value),
+                None => false,
+            }
+        }
+    }
+
+    pub fn min(self) -> i32 {
+        match self.left {
+            Some(left) => left.min(),
+            None => self.value,
+        }
+    }
+
+    pub fn max(self) -> i32 {
+        match self.right {
+            Some(right) => right.max(),
+            None => self.value,
+        }
+    }
+
+    pub fn depth(self) -> u64 {
+        let left_depth = match self.left {
+            Some(left) => left.depth(),
+            None => 0,
+        };
+        let right_depth = match self.right {
+            Some(right) => right.depth(),
+            None => 0,
+        };
+        1 + if left_depth > right_depth { left_depth } else { right_depth }
+    }
+
+    pub fn count(self) -> u64 {
+        let left_count = match self.left {
+            Some(left) => left.count(),
+            None => 0,
+        };
+        let right_count = match self.right {
+            Some(right) => right.count(),
+            None => 0,
+        };
+        1 + left_count + right_count
+    }
+
+    // In-order traversal collects sorted values
+    pub fn in_order(self) -> i32[] {
+        let mut result: i32[] = [];
+        if let Some(left) = self.left {
+            let left_values = left.in_order();
+            for v in left_values { result.push(v); }
+        }
+        result.push(self.value);
+        if let Some(right) = self.right {
+            let right_values = right.in_order();
+            for v in right_values { result.push(v); }
+        }
+        result
+    }
+
+    // Get parent value via weak reference upgrade
+    pub fn parent_value(self) -> Option<i32> {
+        match self.parent {
+            Some(weak_parent) => match weak_parent.upgrade() {
+                Some(parent) => Some(parent.value),
+                None => None,
+            },
+            None => None,
+        }
+    }
+}
+
+impl Printable for TreeNode {
+    fn to_string(self) -> string {
+        fn format_tree(node: TreeNode, prefix: string, is_left: bool) -> string {
+            let mut result = f"{prefix}";
+            result = f"{result}{if is_left { "|-- " } else { "\\-- " }}";
+            result = f"{result}{node.value}\n";
+            let child_prefix = f"{prefix}{if is_left { "|   " } else { "    " }}";
+            if let Some(left) = node.left {
+                result = f"{result}{format_tree(left, prefix: child_prefix, is_left: true)}";
+            }
+            if let Some(right) = node.right {
+                result = f"{result}{format_tree(right, prefix: child_prefix, is_left: false)}";
+            }
+            result
+        }
+        f"{self.value}\n{match self.left {
+            Some(l) => format_tree(l, prefix: "", is_left: true),
+            None => "",
+        }}{match self.right {
+            Some(r) => format_tree(r, prefix: "", is_left: false),
+            None => "",
+        }}"
+    }
+}

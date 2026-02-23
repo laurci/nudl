@@ -1,0 +1,93 @@
+// Test: Unit structs — struct Marker; construction by name alone
+
+// Unit struct declarations (no fields, no parentheses, no braces)
+struct Marker;
+struct Empty;
+struct Sentinel;
+struct ReadOnly;
+struct WriteOnly;
+
+// Unit structs used as marker types for type-safe state machines
+struct Locked;
+struct Unlocked;
+
+// Unit struct for state pattern
+struct Connected;
+struct Disconnected;
+
+fn describe_marker(is_marker: bool) -> string {
+    if is_marker {
+        "has marker"
+    } else {
+        "no marker"
+    }
+}
+
+fn main() {
+    // --- Construction by name alone (no braces, no parens) ---
+    let m = Marker;
+    let e = Empty;
+    let s = Sentinel;
+
+    // --- Unit structs can be assigned and passed around ---
+    let m2 = m;   // reference type: refcount incremented
+    let m3 = m2;
+
+    // --- Multiple distinct unit structs are different types ---
+    let ro = ReadOnly;
+    let wo = WriteOnly;
+
+    // --- Unit struct in a match expression ---
+    let lock_state = Locked;
+    let status = match lock_state {
+        Locked => "locked",
+        _ => "unknown",
+    };
+    println(f"Lock status: {status}");
+
+    // --- Unit structs in collections ---
+    let markers: Marker[] = [Marker, Marker, Marker];
+    println(f"Number of markers: {markers.len()}");
+
+    // --- Unit struct as function parameter ---
+    println(describe_state(Connected));
+    println(describe_state(Disconnected));
+
+    // --- Unit struct as function return type ---
+    let signal = create_sentinel();
+    println("Sentinel created");
+
+    // --- Unit struct in Option ---
+    let maybe_marker: Option<Marker> = Some(Marker);
+    match maybe_marker {
+        Some(_) => println("Marker is present"),
+        None => println("No marker"),
+    }
+
+    let no_marker: Option<Marker> = None;
+    match no_marker {
+        Some(_) => println("Marker is present"),
+        None => println("No marker"),              // this branch
+    }
+
+    // --- Unit struct in Result ---
+    let ok_result: Result<Marker, string> = Ok(Marker);
+    match ok_result {
+        Ok(_) => println("Success with marker"),
+        Err(e) => println(f"Error: {e}"),
+    }
+
+    println("All unit struct tests passed");
+}
+
+fn describe_state(state: Connected) -> string {
+    "connected"
+}
+
+fn describe_state(state: Disconnected) -> string {
+    "disconnected"
+}
+
+fn create_sentinel() -> Sentinel {
+    Sentinel
+}

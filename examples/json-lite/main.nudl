@@ -1,0 +1,90 @@
+// JSON Lite — lightweight JSON value representation and serialization
+// Features: recursive enum (Null/Bool/Number/Str/Array/Object), Printable interface,
+//           recursive pattern matching, modules
+
+import value::JsonValue;
+import serialize::{serialize, pretty_print};
+
+fn main() {
+    // Build a JSON object representing a user profile
+    let mut address: Map<string, JsonValue> = Map::new();
+    address.insert("street", JsonValue::Str("123 Main St"));
+    address.insert("city", JsonValue::Str("Springfield"));
+    address.insert("zip", JsonValue::Str("62704"));
+
+    let mut user: Map<string, JsonValue> = Map::new();
+    user.insert("name", JsonValue::Str("Alice"));
+    user.insert("age", JsonValue::Number(30.0));
+    user.insert("active", JsonValue::Bool(true));
+    user.insert("address", JsonValue::Object(address));
+    user.insert("tags", JsonValue::Array([
+        JsonValue::Str("admin"),
+        JsonValue::Str("developer"),
+    ]));
+    user.insert("notes", JsonValue::Null);
+
+    let json = JsonValue::Object(user);
+
+    // Compact serialization
+    println("Compact JSON:");
+    println(f"  {serialize(json)}");
+
+    // Pretty-printed
+    println("\nPretty JSON:");
+    println(pretty_print(json, indent: 0));
+
+    // Accessing nested values
+    println("\nAccessing values:");
+    match json.get("name") {
+        Some(name) => println(f"  name: {name.to_string()} (type: {name.type_name()})"),
+        None => println("  name: not found"),
+    }
+
+    match json.get("age") {
+        Some(age) => match age.as_number() {
+            Some(n) => println(f"  age: {n}"),
+            None => println(f"  age: not a number"),
+        },
+        None => println("  age: not found"),
+    }
+
+    // Nested access
+    match json.get("address") {
+        Some(addr) => match addr.get("city") {
+            Some(city) => println(f"  address.city: {city.to_string()}"),
+            None => println("  address.city: not found"),
+        },
+        None => println("  address: not found"),
+    }
+
+    // Array access
+    match json.get("tags") {
+        Some(tags) => match tags.at(0) {
+            Some(first_tag) => println(f"  tags[0]: {first_tag.to_string()}"),
+            None => println("  tags[0]: empty array"),
+        },
+        None => println("  tags: not found"),
+    }
+
+    // Null check
+    match json.get("notes") {
+        Some(notes) => println(f"  notes is null: {notes.is_null()}"),
+        None => println("  notes: not found"),
+    }
+
+    // Build a JSON array of numbers
+    let numbers = JsonValue::Array([
+        JsonValue::Number(1.0),
+        JsonValue::Number(2.0),
+        JsonValue::Number(3.0),
+        JsonValue::Number(4.0),
+        JsonValue::Number(5.0),
+    ]);
+    println(f"\nNumbers: {serialize(numbers)}");
+
+    // Empty structures
+    let empty_obj = JsonValue::Object(Map::new());
+    let empty_arr = JsonValue::Array([]);
+    println(f"Empty object: {serialize(empty_obj)}");
+    println(f"Empty array: {serialize(empty_arr)}");
+}

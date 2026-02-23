@@ -1,0 +1,84 @@
+// JSON Value module — recursive enum representing JSON values
+// Features: recursive enums, Printable interface, pattern matching
+
+pub enum JsonValue {
+    Null,
+    Bool(bool),
+    Number(f64),
+    Str(string),
+    Array(JsonValue[]),
+    Object(Map<string, JsonValue>),
+}
+
+impl JsonValue {
+    pub fn is_null(self) -> bool {
+        match self {
+            JsonValue::Null => true,
+            _ => false,
+        }
+    }
+
+    pub fn as_bool(self) -> Option<bool> {
+        match self {
+            JsonValue::Bool(b) => Some(b),
+            _ => None,
+        }
+    }
+
+    pub fn as_number(self) -> Option<f64> {
+        match self {
+            JsonValue::Number(n) => Some(n),
+            _ => None,
+        }
+    }
+
+    pub fn as_string(self) -> Option<string> {
+        match self {
+            JsonValue::Str(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn as_array(self) -> Option<JsonValue[]> {
+        match self {
+            JsonValue::Array(arr) => Some(arr),
+            _ => None,
+        }
+    }
+
+    pub fn as_object(self) -> Option<Map<string, JsonValue>> {
+        match self {
+            JsonValue::Object(map) => Some(map),
+            _ => None,
+        }
+    }
+
+    // Lookup a key in a JSON object
+    pub fn get(self, key: string) -> Option<JsonValue> {
+        match self {
+            JsonValue::Object(map) => map.get(key),
+            _ => None,
+        }
+    }
+
+    // Lookup an index in a JSON array
+    pub fn at(self, index: u64) -> Option<JsonValue> {
+        match self {
+            JsonValue::Array(arr) => {
+                if index < arr.len() { Some(arr[index]) } else { None }
+            },
+            _ => None,
+        }
+    }
+
+    pub fn type_name(self) -> string {
+        match self {
+            JsonValue::Null => "null",
+            JsonValue::Bool(_) => "boolean",
+            JsonValue::Number(_) => "number",
+            JsonValue::Str(_) => "string",
+            JsonValue::Array(_) => "array",
+            JsonValue::Object(_) => "object",
+        }
+    }
+}

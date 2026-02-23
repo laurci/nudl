@@ -1,0 +1,89 @@
+// Test: Let bindings — let, let mut, reassignment rules
+// Covers: immutable bindings, mutable bindings, reassignment,
+//         shadowing, binding initializer requirement
+
+fn main() {
+    // --- Immutable binding ---
+    let x = 42;
+    let name = "alice";
+    let flag = true;
+
+    // --- Mutable binding ---
+    let mut counter = 0;
+    counter = 1;
+    counter = 2;
+
+    // --- Reassignment of mutable binding ---
+    let mut value = 10;
+    value = 20;
+    value = value + 5;
+
+    // --- Mutable binding with compound assignment ---
+    let mut n = 100;
+    n += 10;
+    n -= 5;
+    n *= 2;
+    n /= 3;
+    n %= 7;
+
+    // --- Shadowing (re-declaring with same name) ---
+    let x = 42;
+    let x = x + 1;
+    let x = "now a string";
+
+    // --- Shadowing mutable with immutable ---
+    let mut a = 10;
+    a = 20;
+    let a = a;
+    // a is now immutable with value 20
+
+    // --- Shadowing immutable with mutable ---
+    let b = 5;
+    let mut b = b * 2;
+    b += 1;
+
+    // --- Multiple let bindings in sequence ---
+    let first = 1;
+    let second = 2;
+    let third = first + second;
+
+    // --- Let binding in block scope ---
+    let outer = 10;
+    {
+        let inner = 20;
+        let combined = outer + inner;
+    }
+    // inner is not accessible here
+
+    // --- Let binding in if block ---
+    let condition = true;
+    if condition {
+        let scoped = 42;
+    }
+
+    // --- Let binding in for loop ---
+    for i in 0..5 {
+        let squared = i * i;
+    }
+
+    // --- Let binding with block expression as initializer ---
+    let computed = {
+        let a = 10;
+        let b = 20;
+        a + b
+    };
+
+    // --- Let binding with if expression ---
+    let abs_val = if computed > 0 { computed } else { -computed };
+
+    // --- Mutable field access through mutable binding ---
+    // (struct is a reference type)
+    struct Point { x: f64, y: f64 }
+    let mut p = Point { x: 1.0, y: 2.0 };
+    p.x = 5.0;
+    p.y = 10.0;
+
+    // --- Immutable binding prevents field mutation ---
+    let q = Point { x: 3.0, y: 4.0 };
+    // q.x = 5.0;  // ERROR: q is not mut
+}

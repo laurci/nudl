@@ -1,0 +1,60 @@
+// Test: Constants with comptime — const values usable in comptime context,
+//       comptime expressions as const initializers
+//
+// Constants are compile-time values. They should be accessible in comptime
+// blocks and usable as comptime parameters.
+
+const DIMENSIONS: u32 = 3;
+const PREFIX: string = "field";
+
+// --- Constant used as comptime parameter ---
+fn create_zeros(comptime size: u32) -> [f64; size] {
+    [0.0; size]
+}
+
+// --- Constant used inside comptime block ---
+comptime {
+    let names: string[] = [];
+    for i in 0..DIMENSIONS {
+        names.push(f"{PREFIX}_{i}");
+    }
+    quote {
+        struct Generated {
+            ${for name in names {
+                quote { ${name}: f64, }
+            }}
+        }
+    }
+}
+
+// --- Constant as array size ---
+const BUFFER_SIZE: u32 = 4;
+
+fn main() {
+    // --- Constant as comptime parameter ---
+    let zeros = create_zeros(DIMENSIONS);
+    assert(zeros[0] == 0.0, "zeros[0] should be 0.0");
+    assert(zeros[1] == 0.0, "zeros[1] should be 0.0");
+    assert(zeros[2] == 0.0, "zeros[2] should be 0.0");
+
+    // --- Struct generated using constants in comptime ---
+    let g = Generated { field_0: 1.0, field_1: 2.0, field_2: 3.0 };
+    assert(g.field_0 == 1.0, "generated field_0 should be 1.0");
+    assert(g.field_1 == 2.0, "generated field_1 should be 2.0");
+    assert(g.field_2 == 3.0, "generated field_2 should be 3.0");
+
+    // --- Constant in fixed-size array type ---
+    let buf: [i32; BUFFER_SIZE] = [10, 20, 30, 40];
+    assert(buf[0] == 10, "buffer[0] should be 10");
+    assert(buf[3] == 40, "buffer[3] should be 40");
+
+    // --- Constant in inline comptime expression ---
+    let doubled = comptime { DIMENSIONS * 2 };
+    assert(doubled == 6, "DIMENSIONS * 2 should be 6");
+
+    // --- Constant string in comptime ---
+    let msg = comptime { f"name={PREFIX}, dims={DIMENSIONS}" };
+    assert(msg == "name=field, dims=3", "comptime format with constants");
+
+    println("const_comptime: all assertions passed");
+}

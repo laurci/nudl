@@ -1,0 +1,66 @@
+// Test: Block expressions — { stmts; tail_expr } as expression
+
+fn main() {
+    // Block as expression — tail expression (no semicolon) is the value
+    let x = {
+        let a = 10;
+        let b = 20;
+        a + b  // tail expression: block evaluates to 30
+    };
+    println(f"x = {x}");
+
+    // Block with semicolon at end — evaluates to ()
+    let y: () = {
+        println("side effect");
+        // no tail expression
+    };
+
+    // Block in let binding with computation
+    let area = {
+        let width = 5.0;
+        let height = 3.0;
+        width * height
+    };
+    println(f"area = {area}");
+
+    // Nested blocks
+    let result = {
+        let outer = 10;
+        let inner_val = {
+            let inner = 20;
+            outer + inner
+        };
+        inner_val * 2
+    };
+    println(f"result = {result}");
+
+    // Block as function argument
+    println(f"computed: {{
+        let a = 7;
+        let b = 6;
+        a * b
+    }}");
+
+    // Block in if expression
+    let sign = if {
+        let temp = -5;
+        temp > 0
+    } {
+        "positive"
+    } else {
+        "non-positive"
+    };
+    println(f"sign: {sign}");
+
+    // Empty block evaluates to ()
+    let unit = {};
+
+    // Block with multiple statements and tail
+    let message = {
+        let mut parts: string[] = [];
+        parts.push("Hello");
+        parts.push("World");
+        parts.join(", ")
+    };
+    println(message);
+}

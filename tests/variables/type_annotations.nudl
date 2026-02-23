@@ -1,0 +1,83 @@
+// Test: Type annotations — explicit types vs inference, default int/float types
+// Covers: annotated let bindings, inference from literals, inference from
+//         expressions, default types for unsuffixed literals
+
+fn identity(x: i32) -> i32 {
+    x
+}
+
+fn concat(a: string, b: string) -> string {
+    f"{a}{b}"
+}
+
+fn main() {
+    // --- Default type inference: unsuffixed integer defaults to i32 ---
+    let default_int = 42;
+
+    // --- Default type inference: unsuffixed float defaults to f64 ---
+    let default_float = 3.14;
+
+    // --- Explicit type annotation overrides default ---
+    let annotated_u64: u64 = 42;
+    let annotated_i8: i8 = 100;
+    let annotated_u16: u16 = 500;
+    let annotated_f32: f32 = 3.14;
+
+    // --- Inference from array literal ---
+    let int_array = [1, 2, 3];
+    let float_array = [1.0, 2.0, 3.0];
+    let str_array = ["a", "b", "c"];
+
+    // --- Inference from tuple literal ---
+    let pair = (42, "hello");
+    let triple = (true, 3.14, 'a');
+
+    // --- Inference from function return type ---
+    let from_fn = identity(10);
+    let from_concat = concat("hello", b: " world");
+
+    // --- Inference from if expression ---
+    let from_if = if true { 1 } else { 2 };
+
+    // --- Inference from match expression ---
+    let from_match = match 42 {
+        0 => "zero",
+        _ => "other",
+    };
+
+    // --- Inference from block expression ---
+    let from_block = {
+        let a = 10;
+        let b = 20;
+        a + b
+    };
+
+    // --- Suffix-based typing ---
+    let suffix_i64 = 42i64;
+    let suffix_u8 = 255u8;
+    let suffix_f32 = 1.0f32;
+    let suffix_f64 = 1.0f64;
+
+    // --- Type annotation on complex types ---
+    let typed_arr: i32[] = [1, 2, 3];
+    let typed_map: Map<string, i32> = Map::new();
+    let typed_fn: (i32) -> i32 = |x| x * 2;
+    let typed_tuple: (i32, string, bool) = (1, "a", true);
+    let typed_fixed: [i32; 3] = [1, 2, 3];
+
+    // --- Annotation required: function parameters always annotated ---
+    // fn add(a: i32, b: i32) -> i32 { a + b }  // params must have types
+
+    // --- Annotation required: struct fields always annotated ---
+    struct Config {
+        port: u16,
+        host: string,
+    }
+
+    // --- Inference from struct construction ---
+    let cfg = Config { port: 8080, host: "localhost" };
+
+    // --- Closure parameter type inference from context ---
+    let numbers: i32[] = [1, 2, 3];
+    let doubled = map(numbers) { it * 2 };
+}

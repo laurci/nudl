@@ -1,0 +1,87 @@
+// Collections — generic stack and queue with usage examples
+// Features: generic structs, bounds, Option, methods, modules
+
+import stack::Stack;
+import queue::Queue;
+
+fn reverse_with_stack<T: Printable>(items: T[]) -> T[] {
+    let mut s: Stack<T> = Stack::new();
+    for item in items {
+        s.push(item);
+    }
+    let mut result: T[] = [];
+    while let Some(item) = s.pop() {
+        result.push(item);
+    }
+    result
+}
+
+fn is_balanced(parens: string) -> bool {
+    let mut stack: Stack<char> = Stack::new();
+    for ch in parens.chars() {
+        match ch {
+            '(' | '[' | '{' => stack.push(ch),
+            ')' => match stack.pop() {
+                Some('(') => {},
+                _ => { return false; },
+            },
+            ']' => match stack.pop() {
+                Some('[') => {},
+                _ => { return false; },
+            },
+            '}' => match stack.pop() {
+                Some('{') => {},
+                _ => { return false; },
+            },
+            _ => {},
+        }
+    }
+    stack.is_empty()
+}
+
+fn main() {
+    // Stack demo
+    println("=== Stack ===");
+    let mut stack: Stack<i32> = Stack::new();
+    for i in 1..=5 {
+        stack.push(i);
+        println(f"  Pushed {i}: {stack.to_string()}");
+    }
+
+    println(f"  Peek: {stack.peek()}");
+
+    while let Some(value) = stack.pop() {
+        println(f"  Popped: {value}");
+    }
+    println(f"  Empty? {stack.is_empty()}");
+
+    // Queue demo
+    println("\n=== Queue ===");
+    let mut queue: Queue<string> = Queue::new();
+    let tasks = ["compile", "test", "deploy", "monitor"];
+    for task in tasks {
+        queue.enqueue(task);
+        println(f"  Enqueued '{task}': {queue.to_string()}");
+    }
+
+    println(f"  Front: {queue.front()}");
+
+    while let Some(task) = queue.dequeue() {
+        println(f"  Processing: '{task}' (remaining: {queue.len()})");
+    }
+
+    // Reverse using stack
+    println("\n=== Reverse ===");
+    let numbers = [1, 2, 3, 4, 5];
+    let reversed = reverse_with_stack(numbers);
+    println(f"  Original: {numbers}");
+    println(f"  Reversed: {reversed}");
+
+    // Balanced parentheses checker
+    println("\n=== Balanced Parentheses ===");
+    let tests = ["(())", "({[]})", "(()", "([)]", ""];
+    for test in tests {
+        let label = if test.len() == 0 { "(empty)" } else { test };
+        println(f"  '{label}' => {is_balanced(test)}");
+    }
+}

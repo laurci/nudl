@@ -1,0 +1,78 @@
+// Test: Generic structs — struct Pair<A, B> { first: A, second: B }
+
+struct Pair<A, B> {
+    first: A,
+    second: B,
+}
+
+struct Wrapper<T> {
+    value: T,
+}
+
+struct Triple<A, B, C> {
+    a: A,
+    b: B,
+    c: C,
+}
+
+// Generic struct with methods
+impl<A, B> Pair<A, B> {
+    fn new(first: A, second: B) -> Pair<A, B> {
+        Pair { first, second }
+    }
+
+    fn swap(self) -> Pair<B, A> {
+        Pair { first: self.second, second: self.first }
+    }
+}
+
+impl<T: Printable> Wrapper<T> {
+    fn new(value: T) -> Wrapper<T> {
+        Wrapper { value }
+    }
+
+    fn show(self) -> string {
+        f"Wrapper({self.value.to_string()})"
+    }
+}
+
+// Nested generic structs
+struct Box<T> {
+    contents: Option<T>,
+}
+
+impl<T> Box<T> {
+    fn empty() -> Box<T> {
+        Box { contents: None }
+    }
+
+    fn of(value: T) -> Box<T> {
+        Box { contents: Some(value) }
+    }
+
+    fn is_empty(self) -> bool {
+        match self.contents {
+            Some(_) => false,
+            None => true,
+        }
+    }
+}
+
+fn main() {
+    // Different concrete types
+    let int_pair = Pair::new(1, 2);
+    let mixed = Pair::new("hello", 42);
+    let swapped = mixed.swap();  // Pair<i32, string>
+
+    // Nested generics
+    let wrapped_pair = Wrapper::new(Pair::new(1, 2));
+
+    // Generic struct with Option
+    let full: Box<i32> = Box::of(42);
+    let empty: Box<string> = Box::empty();
+
+    println(f"pair: ({int_pair.first}, {int_pair.second})");
+    println(f"mixed: ({mixed.first}, {mixed.second})");
+    println(f"full is_empty: {full.is_empty()}");
+    println(f"empty is_empty: {empty.is_empty()}");
+}

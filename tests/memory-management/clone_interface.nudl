@@ -1,0 +1,137 @@
+// Test: Clone interface — deep copy via .clone(), independent after clone
+//
+// The Clone interface provides deep-copy semantics. Calling .clone() on a
+// reference type allocates a new object and recursively copies all fields.
+// After cloning, the original and clone are fully independent.
+//
+// The compiler can auto-derive Clone for types whose fields all implement Clone.
+
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+// Auto-derived by compiler since all fields (f64) implement Clone
+// Equivalent to:
+//   impl Clone for Point {
+//       fn clone(self) -> Point {
+//           Point { x: self.x, y: self.y }
+//       }
+//   }
+impl Clone for Point {
+    fn clone(self) -> Point {
+        Point { x: self.x, y: self.y }
+    }
+}
+
+// Struct where all fields implement Clone — eligible for auto-derive
+struct Color {
+    r: u8,
+    g: u8,
+    b: u8,
+}
+
+// Compiler can auto-derive Clone for Color since u8 implements Clone
+impl Clone for Color {
+    fn clone(self) -> Color {
+        Color { r: self.r, g: self.g, b: self.b }
+    }
+}
+
+struct Config {
+    name: string,
+    values: i32[],
+}
+
+impl Clone for Config {
+    fn clone(self) -> Config {
+        Config {
+            name: self.name.clone(),
+            values: self.values.clone(),
+        }
+    }
+}
+
+struct Nested {
+    point: Point,
+    label: string,
+}
+
+impl Clone for Nested {
+    fn clone(self) -> Nested {
+        Nested {
+            point: self.point.clone(),
+            label: self.label.clone(),
+        }
+    }
+}
+
+fn main() {
+    // --- Basic clone: struct ---
+    let a = Point { x: 1.0, y: 2.0 };
+    let mut b = a.clone(); // independent allocation
+
+    b.x = 99.0;
+    b.y = 88.0;
+    assert(a.x == 1.0, "original x should be unchanged after clone mutation");
+    assert(a.y == 2.0, "original y should be unchanged after clone mutation");
+    assert(b.x == 99.0, "clone x should be 99.0");
+    assert(b.y == 88.0, "clone y should be 88.0");
+
+    // --- Clone vs assignment (contrast) ---
+    let mut c = a;       // shared reference (ARC), not a copy
+    c.x = 50.0;
+    assert(a.x == 50.0, "assignment shares: a.x should be 50.0");
+
+    let mut d = a.clone(); // independent copy
+    d.x = 75.0;
+    assert(a.x == 50.0, "clone is independent: a.x still 50.0");
+    assert(d.x == 75.0, "clone has its own value");
+
+    // --- Clone with dynamic array field ---
+    let cfg1 = Config { name: "test", values: [1, 2, 3] };
+    let mut cfg2 = cfg1.clone();
+
+    cfg2.name = "modified";
+    cfg2.values.push(4);
+
+    assert(cfg1.name == "test", "original name unchanged");
+    assert(cfg1.values.len() == 3, "original values unchanged");
+    assert(cfg2.name == "modified", "clone name modified");
+    assert(cfg2.values.len() == 4, "clone values has extra element");
+
+    // --- Nested clone (recursive deep copy) ---
+    let n1 = Nested { point: Point { x: 1.0, y: 2.0 }, label: "hello" };
+    let mut n2 = n1.clone();
+
+    n2.point.x = 999.0;
+    n2.label = "world";
+
+    assert(n1.point.x == 1.0, "original nested point unchanged");
+    assert(n1.label == "hello", "original nested label unchanged");
+    assert(n2.point.x == 999.0, "clone nested point modified");
+    assert(n2.label == "world", "clone nested label modified");
+
+    // --- Clone of value types (equivalent to copy) ---
+    let v: i32 = 42;
+    let v2 = v.clone();
+    assert(v == v2, "clone of value type should produce equal value");
+
+    // --- Clone in a collection context ---
+    let original: Point[] = [
+        Point { x: 1.0, y: 1.0 },
+        Point { x: 2.0, y: 2.0 },
+    ];
+    let mut cloned = original.clone();
+    cloned[0].x = 100.0;
+    assert(original[0].x == 1.0, "original array element unchanged after clone");
+
+    // --- Auto-derived clone (Color) ---
+    let red = Color { r: 255, g: 0, b: 0 };
+    let mut red2 = red.clone();
+    red2.g = 128;
+    assert(red.g == 0, "original color unchanged after clone mutation");
+    assert(red2.g == 128, "cloned color has modified green channel");
+
+    println("clone_interface: all assertions passed");
+}

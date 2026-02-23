@@ -1,0 +1,60 @@
+// Module: lib
+// Provides items with mixed visibility for testing pub vs private access.
+
+// Public struct with mixed field visibility
+pub struct Config {
+    pub host: string,
+    pub port: u16,
+    secret_key: string,       // private field
+}
+
+impl Config {
+    // Public constructor that sets all fields (including private ones)
+    pub fn new(host: string, port: u16, secret_key: string) -> Config {
+        Config { host, port, secret_key }
+    }
+
+    // Public method to check the secret without exposing it
+    pub fn has_secret(self) -> bool {
+        self.secret_key.len() > 0
+    }
+
+    // Private method — not accessible outside this module
+    fn internal_validate(self) -> bool {
+        self.secret_key.len() >= 8
+    }
+}
+
+// Public enum — all variants are automatically public
+pub enum Status {
+    Active,
+    Inactive,
+    Pending(string),
+}
+
+// Public constant
+pub const DEFAULT_PORT: u16 = 8080;
+pub const MAX_CONNECTIONS: u32 = 1000;
+
+// Private constant — not accessible outside this module
+const INTERNAL_TIMEOUT: u64 = 5000;
+
+// Public function
+pub fn create_default_config() -> Config {
+    Config::new("localhost", port: 8080, secret_key: "default-secret")
+}
+
+// Private function — not accessible outside this module
+fn generate_key() -> string {
+    "generated-secret-key"
+}
+
+// Public interface
+pub interface Describable {
+    fn describe(self) -> string;
+}
+
+// Private struct — not importable
+struct InternalState {
+    counter: i32,
+}

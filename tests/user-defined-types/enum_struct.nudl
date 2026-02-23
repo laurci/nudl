@@ -1,0 +1,145 @@
+// Test: Enum struct variants — Rectangle { w: f64, h: f64 }
+
+// Enum with struct variants
+enum Shape {
+    Circle(f64),
+    Rectangle { width: f64, height: f64 },
+    Triangle { base: f64, height: f64 },
+    Point,
+}
+
+// Enum mixing all variant kinds: unit, data, and struct
+enum Event {
+    Click { x: i32, y: i32, button: string },
+    KeyPress(char),
+    Resize { width: u32, height: u32 },
+    Close,
+}
+
+// Struct variant with reference-type fields
+enum Command {
+    Print { message: string },
+    Move { target: string, x: f64, y: f64 },
+    Delete { ids: i32[] },
+    Noop,
+}
+
+fn area(shape: Shape) -> f64 {
+    match shape {
+        Shape::Circle(r) => 3.14159 * r * r,
+        Shape::Rectangle { width, height } => width * height,
+        Shape::Triangle { base, height } => 0.5 * base * height,
+        Shape::Point => 0.0,
+    }
+}
+
+fn describe_shape(shape: Shape) -> string {
+    match shape {
+        Shape::Circle(r) => f"circle(r={r})",
+        Shape::Rectangle { width, height } => f"rect({width}x{height})",
+        Shape::Triangle { base, height } => f"tri(b={base}, h={height})",
+        Shape::Point => "point",
+    }
+}
+
+fn handle_event(event: Event) -> string {
+    match event {
+        Event::Click { x, y, button } => f"click at ({x},{y}) with {button}",
+        Event::KeyPress(ch) => f"key: {ch}",
+        Event::Resize { width, height } => f"resize to {width}x{height}",
+        Event::Close => "close",
+    }
+}
+
+fn main() {
+    // --- Construction of struct variants ---
+    let rect = Shape::Rectangle { width: 10.0, height: 5.0 };
+    let tri = Shape::Triangle { base: 6.0, height: 4.0 };
+    let circle = Shape::Circle(3.0);
+    let point = Shape::Point;
+
+    // --- Pattern matching struct variants ---
+    println(f"rect: {describe_shape(rect)}");
+    println(f"tri: {describe_shape(tri)}");
+    println(f"circle: {describe_shape(circle)}");
+    println(f"point: {describe_shape(point)}");
+
+    // --- Area calculations ---
+    println(f"rect area: {area(rect)}");       // 50.0
+    println(f"tri area: {area(tri)}");         // 12.0
+    println(f"circle area: {area(circle)}");
+    println(f"point area: {area(point)}");     // 0.0
+
+    // --- Destructure struct variant fields with rename ---
+    match rect {
+        Shape::Rectangle { width: w, height: h } => {
+            println(f"Width: {w}, Height: {h}");
+        },
+        _ => {},
+    }
+
+    // --- Shorthand field binding in struct variant pattern ---
+    match rect {
+        Shape::Rectangle { width, height } => {
+            let perimeter = 2.0 * (width + height);
+            println(f"Perimeter: {perimeter}");
+        },
+        _ => {},
+    }
+
+    // --- Event enum with struct variants ---
+    let events: Event[] = [
+        Event::Click { x: 100, y: 200, button: "left" },
+        Event::KeyPress('a'),
+        Event::Resize { width: 1920, height: 1080 },
+        Event::Close,
+    ];
+    for event in events {
+        println(f"  event: {handle_event(event)}");
+    }
+
+    // --- Guards on struct variant patterns ---
+    let shapes: Shape[] = [
+        Shape::Rectangle { width: 100.0, height: 50.0 },
+        Shape::Rectangle { width: 2.0, height: 3.0 },
+        Shape::Triangle { base: 1.0, height: 1.0 },
+    ];
+    for s in shapes {
+        let size = match s {
+            Shape::Rectangle { width, height } if width * height > 1000.0 => "large rectangle",
+            Shape::Rectangle { width, height } => "small rectangle",
+            Shape::Triangle { base, height } if base * height > 10.0 => "large triangle",
+            Shape::Triangle { .. } => "small triangle",
+            _ => "other",
+        };
+        println(f"  {size}");
+    }
+
+    // --- Command enum with reference-type fields ---
+    let cmds: Command[] = [
+        Command::Print { message: "hello world" },
+        Command::Move { target: "player", x: 5.0, y: 10.0 },
+        Command::Delete { ids: [1, 2, 3] },
+        Command::Noop,
+    ];
+    for cmd in cmds {
+        match cmd {
+            Command::Print { message } => println(f"  PRINT: {message}"),
+            Command::Move { target, x, y } => println(f"  MOVE {target} to ({x},{y})"),
+            Command::Delete { ids } => println(f"  DELETE {ids.len()} items"),
+            Command::Noop => println(f"  NOOP"),
+        }
+    }
+
+    // --- Nested matching with struct variants ---
+    let opt_shape: Option<Shape> = Some(Shape::Rectangle { width: 8.0, height: 3.0 });
+    match opt_shape {
+        Some(Shape::Rectangle { width, height }) => {
+            println(f"Optional rect: {width}x{height}");
+        },
+        Some(other) => println("Some other shape"),
+        None => println("No shape"),
+    }
+
+    println("All struct variant enum tests passed");
+}

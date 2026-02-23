@@ -1,0 +1,168 @@
+// Test: Exhaustiveness checking — the compiler verifies that match expressions
+//       cover all possible values. All variants must be covered (directly or via _).
+//       - Enums: all variants must be matched
+//       - Bool: both true and false
+//       - Integers: requires wildcard _
+//       - Nested types: checked recursively
+
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+enum Option2<T> {
+    Some2(T),
+    None2,
+}
+
+enum TrafficLight {
+    Red,
+    Yellow,
+    Green,
+}
+
+enum Coin {
+    Penny,
+    Nickel,
+    Dime,
+    Quarter,
+}
+
+enum Result2<T, E> {
+    Ok2(T),
+    Err2(E),
+}
+
+fn main() {
+    // Exhaustive match on enum: all variants listed explicitly
+    let color = Color::Green;
+    let hex = match color {
+        Color::Red => "#FF0000",
+        Color::Green => "#00FF00",
+        Color::Blue => "#0000FF",
+    };
+    println(f"Color: {hex}");
+
+    // Exhaustive match on bool: both true and false covered
+    let flag = true;
+    let label = match flag {
+        true => "yes",
+        false => "no",
+    };
+    println(f"Flag: {label}");
+
+    // Exhaustive match on integer with wildcard fallback
+    let n = 42;
+    let desc = match n {
+        0 => "zero",
+        1 => "one",
+        _ => "other",
+    };
+    println(f"{n}: {desc}");
+
+    // Exhaustive match with wildcard covering remaining enum variants
+    let light = TrafficLight::Yellow;
+    let action = match light {
+        TrafficLight::Red => "stop",
+        TrafficLight::Green => "go",
+        _ => "caution",
+    };
+    println(f"Traffic light: {action}");
+
+    // Exhaustive match on all coin variants
+    let coins = [Coin::Penny, Coin::Nickel, Coin::Dime, Coin::Quarter];
+    for coin in coins {
+        let value = match coin {
+            Coin::Penny => 1,
+            Coin::Nickel => 5,
+            Coin::Dime => 10,
+            Coin::Quarter => 25,
+        };
+        println(f"  Coin value: {value}");
+    }
+
+    // Exhaustive match on Option (built-in): Some and None
+    let opt: Option<i32> = Some(10);
+    let result = match opt {
+        Some(v) => f"has value: {v}",
+        None => "empty",
+    };
+    println(result);
+
+    // Exhaustive match on custom generic enum
+    let val: Option2<string> = Option2::Some2("hello");
+    let msg = match val {
+        Option2::Some2(s) => f"got: {s}",
+        Option2::None2 => "nothing",
+    };
+    println(msg);
+
+    // Exhaustive match on Result
+    let res: Result<i32, string> = Ok(200);
+    let status = match res {
+        Ok(code) => f"success: {code}",
+        Err(err) => f"error: {err}",
+    };
+    println(status);
+
+    // Exhaustive match on nested type (Option of bool)
+    let opt_bool: Option<bool> = Some(true);
+    let desc = match opt_bool {
+        Some(true) => "some true",
+        Some(false) => "some false",
+        None => "none",
+    };
+    println(desc);
+
+    // Exhaustive match on tuple of enums
+    let pair = (Color::Red, true);
+    let desc = match pair {
+        (Color::Red, true) => "red and true",
+        (Color::Red, false) => "red and false",
+        (Color::Green, true) => "green and true",
+        (Color::Green, false) => "green and false",
+        (Color::Blue, true) => "blue and true",
+        (Color::Blue, false) => "blue and false",
+    };
+    println(desc);
+
+    // Wildcard _ as catch-all ensures exhaustiveness
+    let x = 999;
+    let bucket = match x {
+        0 => "zero",
+        1..=10 => "small",
+        11..=100 => "medium",
+        _ => "large or negative",
+    };
+    println(f"{x}: {bucket}");
+
+    // Exhaustive match on custom Result2
+    let r: Result2<i32, string> = Result2::Ok2(42);
+    let msg = match r {
+        Result2::Ok2(v) => f"Ok2({v})",
+        Result2::Err2(e) => f"Err2({e})",
+    };
+    println(msg);
+
+    // Exhaustive match with guards still needs fallback
+    // (guards don't count for exhaustiveness)
+    let n = 5;
+    let label = match n {
+        x if x > 0 => "positive",
+        x if x < 0 => "negative",
+        _ => "zero",
+    };
+    println(f"{n}: {label}");
+
+    // Exhaustive match on deeply nested type
+    let deep: Option<Option<Color>> = Some(Some(Color::Blue));
+    let desc = match deep {
+        Some(Some(Color::Red)) => "nested red",
+        Some(Some(Color::Green)) => "nested green",
+        Some(Some(Color::Blue)) => "nested blue",
+        Some(None) => "inner none",
+        None => "outer none",
+    };
+    println(desc);
+}

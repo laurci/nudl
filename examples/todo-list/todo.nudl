@@ -1,0 +1,161 @@
+// Todo module — types and logic for a todo manager
+// Features: structs, enums, methods, closures, pub visibility
+
+pub enum Status {
+    Pending,
+    InProgress,
+    Done,
+}
+
+impl Printable for Status {
+    fn to_string(self) -> string {
+        match self {
+            Status::Pending => "Pending",
+            Status::InProgress => "In Progress",
+            Status::Done => "Done",
+        }
+    }
+}
+
+pub struct Todo {
+    pub id: u64,
+    pub title: string,
+    pub status: Status,
+    pub tags: string[],
+}
+
+impl Todo {
+    pub fn new(id: u64, title: string) -> Todo {
+        Todo { id, title, status: Status::Pending, tags: [] }
+    }
+
+    pub fn with_tags(self, tags: string[]) -> Todo {
+        Todo { ...self, tags }
+    }
+
+    pub fn start(self) -> Todo {
+        Todo { ...self, status: Status::InProgress }
+    }
+
+    pub fn complete(self) -> Todo {
+        Todo { ...self, status: Status::Done }
+    }
+
+    pub fn is_done(self) -> bool {
+        match self.status {
+            Status::Done => true,
+            _ => false,
+        }
+    }
+
+    pub fn has_tag(self, tag: string) -> bool {
+        self.tags.contains(tag)
+    }
+}
+
+impl Printable for Todo {
+    fn to_string(self) -> string {
+        let check = match self.status {
+            Status::Done => "[x]",
+            Status::InProgress => "[~]",
+            Status::Pending => "[ ]",
+        };
+        let tag_str = if self.tags.len() > 0 {
+            let mut parts = "";
+            for (i, tag) in self.tags.enumerate() {
+                if i > 0 { parts = f"{parts}, "; }
+                parts = f"{parts}#{tag}";
+            }
+            f" ({parts})"
+        } else {
+            ""
+        };
+        f"{check} #{self.id}: {self.title}{tag_str} [{self.status.to_string()}]"
+    }
+}
+
+pub struct TodoList {
+    items: Todo[],
+    next_id: u64,
+}
+
+impl TodoList {
+    pub fn new() -> TodoList {
+        TodoList { items: [], next_id: 1 }
+    }
+
+    pub fn add(mut self, title: string) -> u64 {
+        let id = self.next_id;
+        self.items.push(Todo::new(id, title));
+        self.next_id += 1;
+        id
+    }
+
+    pub fn add_with_tags(mut self, title: string, tags: string[]) -> u64 {
+        let id = self.next_id;
+        self.items.push(Todo::new(id, title).with_tags(tags));
+        self.next_id += 1;
+        id
+    }
+
+    pub fn get(self, id: u64) -> Option<Todo> {
+        for item in self.items {
+            if item.id == id { return Some(item); }
+        }
+        None
+    }
+
+    pub fn start(mut self, id: u64) -> bool {
+        for (i, item) in self.items.enumerate() {
+            if item.id == id {
+                self.items[i] = item.start();
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn complete(mut self, id: u64) -> bool {
+        for (i, item) in self.items.enumerate() {
+            if item.id == id {
+                self.items[i] = item.complete();
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn filter_by_status(self, status: Status) -> Todo[] {
+        let mut result: Todo[] = [];
+        for item in self.items {
+            let matches = match (item.status, status) {
+                (Status::Pending, Status::Pending) => true,
+                (Status::InProgress, Status::InProgress) => true,
+                (Status::Done, Status::Done) => true,
+                _ => false,
+            };
+            if matches { result.push(item); }
+        }
+        result
+    }
+
+    pub fn filter_by_tag(self, tag: string) -> Todo[] {
+        let mut result: Todo[] = [];
+        for item in self.items {
+            if item.has_tag(tag) { result.push(item); }
+        }
+        result
+    }
+
+    pub fn count_done(self) -> u64 {
+        let mut count: u64 = 0;
+        for item in self.items {
+            if item.is_done() { count += 1; }
+        }
+        count
+    }
+
+    pub fn len(self) -> u64 {
+        self.items.len()
+    }
+}

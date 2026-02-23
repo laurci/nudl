@@ -1,0 +1,141 @@
+// Particle Simulation — demonstrates constants and aliased mutation
+// Features: const, aliased mutation, clone, shared state, struct methods
+
+const GRAVITY: f64 = -9.81;
+const DELTA_T: f64 = 0.016;       // ~60fps timestep
+const GROUND_Y: f64 = 0.0;
+const BOUNCE_DAMPING: f64 = 0.7;
+const MAX_STEPS: u32 = 200;
+
+struct Vec2 {
+    x: f64,
+    y: f64,
+}
+
+impl Vec2 {
+    fn new(x: f64, y: f64) -> Vec2 { Vec2 { x, y } }
+    fn zero() -> Vec2 { Vec2 { x: 0.0, y: 0.0 } }
+}
+
+impl Printable for Vec2 {
+    fn to_string(self) -> string {
+        f"({self.x}, {self.y})"
+    }
+}
+
+struct Particle {
+    name: string,
+    pos: Vec2,
+    vel: Vec2,
+    bounces: u32,
+}
+
+impl Particle {
+    fn new(name: string, x: f64, y: f64, vx: f64, vy: f64) -> Particle {
+        Particle {
+            name,
+            pos: Vec2::new(x, y),
+            vel: Vec2::new(vx, vy),
+            bounces: 0,
+        }
+    }
+
+    fn step(mut self) {
+        // Apply gravity
+        self.vel.y = self.vel.y + GRAVITY * DELTA_T;
+
+        // Update position
+        self.pos.x = self.pos.x + self.vel.x * DELTA_T;
+        self.pos.y = self.pos.y + self.vel.y * DELTA_T;
+
+        // Bounce off ground
+        if self.pos.y < GROUND_Y {
+            self.pos.y = GROUND_Y;
+            self.vel.y = -self.vel.y * BOUNCE_DAMPING;
+            self.bounces += 1;
+        }
+    }
+
+    fn is_settled(self) -> bool {
+        let speed = self.vel.x * self.vel.x + self.vel.y * self.vel.y;
+        self.pos.y <= GROUND_Y + 0.01 && speed < 0.1
+    }
+}
+
+impl Printable for Particle {
+    fn to_string(self) -> string {
+        f"{self.name}: pos={self.pos.to_string()}, vel={self.vel.to_string()}, bounces={self.bounces}"
+    }
+}
+
+// Simulation state — shared between the main loop and any observers
+struct SimState {
+    particles: Particle[],
+    step_count: u32,
+}
+
+impl SimState {
+    fn new() -> SimState {
+        SimState { particles: [], step_count: 0 }
+    }
+
+    fn add(mut self, particle: Particle) {
+        self.particles.push(particle);
+    }
+
+    fn tick(mut self) {
+        for p in self.particles {
+            p.step();
+        }
+        self.step_count += 1;
+    }
+
+    fn all_settled(self) -> bool {
+        self.particles.all { it.is_settled() }
+    }
+}
+
+fn main() {
+    let mut sim = SimState::new();
+    sim.add(Particle::new("ball-A", x: 0.0, y: 20.0, vx: 2.0, vy: 0.0));
+    sim.add(Particle::new("ball-B", x: 5.0, y: 10.0, vx: -1.0, vy: 5.0));
+
+    // Aliased mutation: observer holds a reference to the same sim state.
+    // When the main loop mutates sim, observer sees the changes automatically.
+    let observer = sim;
+
+    println(f"Starting simulation (dt={DELTA_T}, gravity={GRAVITY})");
+    println(f"Initial state:");
+    for p in sim.particles {
+        println(f"  {p.to_string()}");
+    }
+
+    // Run simulation
+    while !sim.all_settled() && sim.step_count < MAX_STEPS {
+        sim.tick();
+    }
+
+    // observer sees the final state because it aliases sim
+    println(f"\nFinal state (after {observer.step_count} steps):");
+    for p in observer.particles {
+        println(f"  {p.to_string()}");
+    }
+
+    // If we wanted an independent snapshot at some point,
+    // we would use .clone():
+    let mut sim2 = SimState::new();
+    sim2.add(Particle::new("clone-test", x: 0.0, y: 5.0, vx: 0.0, vy: 0.0));
+
+    let snapshot = sim2.particles.clone();  // independent copy
+
+    sim2.tick();
+    sim2.tick();
+    sim2.tick();
+
+    // snapshot is unaffected
+    let snap_y = snapshot[0].pos.y;
+    let live_y = sim2.particles[0].pos.y;
+    println(f"\nClone demo:");
+    println(f"  snapshot y: {snap_y} (frozen at creation time)");
+    println(f"  live y:     {live_y} (advanced by 3 ticks)");
+}

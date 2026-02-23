@@ -1,0 +1,70 @@
+// Shapes — shape hierarchy with dynamic dispatch
+// Features: enum Shape, interfaces, dyn dispatch, operator overloading, modules
+
+import shapes::{Shape, Vec2, Area, Perimeter};
+
+fn print_shape_info(shape: Shape) {
+    println(f"  {shape.to_string()}");
+    println(f"    Area:      {shape.area()}");
+    println(f"    Perimeter: {shape.perimeter()}");
+}
+
+fn total_area(shapes: (dyn Area)[]) -> f64 {
+    let mut total = 0.0;
+    for shape in shapes {
+        total += shape.area();
+    }
+    total
+}
+
+fn main() {
+    // Vector arithmetic with operator overloading
+    let a = Vec2::new(1.0, 2.0);
+    let b = Vec2::new(3.0, 4.0);
+    let c = a + b;
+    println(f"Vec2 addition: {a.to_string()} + {b.to_string()} = {c.to_string()}");
+    println(f"Distance: {a.distance(b)}");
+
+    // Create shapes
+    let shapes: Shape[] = [
+        Shape::Circle {
+            center: Vec2::new(0.0, 0.0),
+            radius: 5.0,
+        },
+        Shape::Rectangle {
+            origin: Vec2::new(1.0, 1.0),
+            width: 10.0,
+            height: 4.0,
+        },
+        Shape::Triangle {
+            a: Vec2::new(0.0, 0.0),
+            b: Vec2::new(4.0, 0.0),
+            c: Vec2::new(0.0, 3.0),
+        },
+        Shape::Point(Vec2::new(7.0, 7.0)),
+    ];
+
+    println("\nAll shapes:");
+    for shape in shapes {
+        print_shape_info(shape);
+    }
+
+    // Dynamic dispatch — treat shapes as dyn Area
+    let area_objects: (dyn Area)[] = [
+        Shape::Circle { center: Vec2::new(0.0, 0.0), radius: 1.0 },
+        Shape::Rectangle { origin: Vec2::new(0.0, 0.0), width: 2.0, height: 3.0 },
+    ];
+    println(f"\nTotal area (dyn dispatch): {total_area(area_objects)}");
+
+    // Find largest shape
+    let mut largest_idx: u64 = 0;
+    let mut largest_area = 0.0;
+    for (i, shape) in shapes.enumerate() {
+        let a = shape.area();
+        if a > largest_area {
+            largest_area = a;
+            largest_idx = i;
+        }
+    }
+    println(f"\nLargest shape: {shapes[largest_idx].to_string()} (area={largest_area})");
+}

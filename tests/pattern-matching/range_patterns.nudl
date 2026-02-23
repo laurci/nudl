@@ -1,0 +1,116 @@
+// Test: Range patterns in match expressions.
+//       Inclusive ranges: 'a'..='z', 0..=100
+//       Exclusive ranges: 0..100
+//       Supported for integer types and char.
+
+fn classify_ascii(ch: char) -> string {
+    match ch {
+        'a'..='z' => "lowercase letter",
+        'A'..='Z' => "uppercase letter",
+        '0'..='9' => "digit",
+        ' ' | '\t' | '\n' => "whitespace",
+        _ => "other/punctuation",
+    }
+}
+
+fn age_group(age: i32) -> string {
+    match age {
+        0..=2 => "infant",
+        3..=12 => "child",
+        13..=17 => "teenager",
+        18..=64 => "adult",
+        65..=120 => "senior",
+        _ => "invalid age",
+    }
+}
+
+fn http_category(code: i32) -> string {
+    match code {
+        100..=199 => "informational",
+        200..=299 => "success",
+        300..=399 => "redirect",
+        400..=499 => "client error",
+        500..=599 => "server error",
+        _ => "unknown",
+    }
+}
+
+fn main() {
+    // Character range patterns
+    let chars = ['a', 'M', '7', ' ', '!', 'z', 'A', '0', '9'];
+    for ch in chars {
+        println(f"  '{ch}' -> {classify_ascii(ch)}");
+    }
+
+    // Integer range patterns for age groups
+    let ages = [0, 1, 5, 13, 17, 18, 30, 65, 80, 121];
+    for age in ages {
+        println(f"  age {age} -> {age_group(age)}");
+    }
+
+    // HTTP status code ranges
+    let codes = [100, 200, 201, 301, 404, 500, 503, 600];
+    for code in codes {
+        println(f"  HTTP {code} -> {http_category(code)}");
+    }
+
+    // Range pattern combined with specific literals
+    let score = 85;
+    let grade = match score {
+        100 => "A+",
+        90..=99 => "A",
+        80..=89 => "B",
+        70..=79 => "C",
+        60..=69 => "D",
+        0..=59 => "F",
+        _ => "invalid",
+    };
+    println(f"Score {score}: grade {grade}");
+
+    // Range pattern with negative numbers
+    let temp = -10;
+    let state = match temp {
+        -40..=-1 => "below freezing",
+        0 => "freezing point",
+        1..=99 => "liquid range",
+        100 => "boiling point",
+        _ => "extreme",
+    };
+    println(f"Temp {temp}: {state}");
+
+    // Range pattern for Unicode classification
+    let test_chars = ['A', 'b', '3', '+', '\n'];
+    for ch in test_chars {
+        let kind = match ch {
+            'a'..='z' | 'A'..='Z' => "letter",
+            '0'..='9' => "digit",
+            _ => "symbol/control",
+        };
+        println(f"  '{ch}' is a {kind}");
+    }
+
+    // Overlapping ranges must not overlap (but adjacent is fine)
+    let n = 50;
+    let bucket = match n {
+        0..=24 => "first quarter",
+        25..=49 => "second quarter",
+        50..=74 => "third quarter",
+        75..=100 => "fourth quarter",
+        _ => "out of range",
+    };
+    println(f"Value {n} in {bucket}");
+
+    // Range pattern in a loop
+    for i in 0..=20 {
+        let label = match i {
+            0..=5 => "low",
+            6..=10 => "medium-low",
+            11..=15 => "medium-high",
+            16..=20 => "high",
+            _ => "unknown",
+        };
+        if i % 5 == 0 {
+            println(f"  {i}: {label}");
+        }
+    }
+}

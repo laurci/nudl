@@ -1,0 +1,65 @@
+// Todo List — in-memory task manager
+// Features: structs, dynamic arrays, closures, enum status, struct spread, modules
+
+import todo::{TodoList, Status};
+
+fn print_todos(label: string, todos: Todo[]) {
+    println(f"\n{label}:");
+    if todos.len() == 0 {
+        println("  (none)");
+    } else {
+        for item in todos {
+            println(f"  {item.to_string()}");
+        }
+    }
+}
+
+fn main() {
+    let mut list = TodoList::new();
+
+    // Add tasks with tags
+    list.add_with_tags("Set up project structure", tags: ["setup", "infra"]);
+    list.add_with_tags("Write parser", tags: ["compiler", "core"]);
+    list.add_with_tags("Implement type checker", tags: ["compiler", "core"]);
+    list.add_with_tags("Write unit tests", tags: ["testing"]);
+    list.add_with_tags("Deploy to staging", tags: ["infra", "deploy"]);
+    list.add("Update documentation");
+
+    // Show all
+    println(f"Total tasks: {list.len()}");
+    print_todos("All tasks", list.items);
+
+    // Start and complete some tasks
+    list.start(1);
+    list.complete(1);
+    list.start(2);
+
+    print_todos("After updates", list.items);
+
+    // Filter by status
+    let pending = list.filter_by_status(Status::Pending);
+    print_todos("Pending", pending);
+
+    let in_progress = list.filter_by_status(Status::InProgress);
+    print_todos("In Progress", in_progress);
+
+    let done = list.filter_by_status(Status::Done);
+    print_todos("Done", done);
+
+    // Filter by tag
+    let compiler_tasks = list.filter_by_tag("compiler");
+    print_todos("Tagged #compiler", compiler_tasks);
+
+    let infra_tasks = list.filter_by_tag("infra");
+    print_todos("Tagged #infra", infra_tasks);
+
+    // Progress report
+    let total = list.len();
+    let completed = list.count_done();
+    let pct = if total > 0 {
+        (completed * 100) / total
+    } else {
+        0
+    };
+    println(f"\nProgress: {completed}/{total} ({pct}% complete)");
+}

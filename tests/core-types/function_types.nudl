@@ -1,0 +1,101 @@
+// Test: Function types — (T) -> U
+// Covers: storing closures and functions in variables, function type annotations,
+//         closures with captures, passing functions as arguments, returning functions
+
+fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+fn multiply(a: i32, b: i32) -> i32 {
+    a * b
+}
+
+fn apply(value: i32, transform: (i32) -> i32) -> i32 {
+    transform(value)
+}
+
+fn make_adder(n: i32) -> (i32) -> i32 {
+    |x| x + n
+}
+
+fn compose(f: (i32) -> i32, g: (i32) -> i32) -> (i32) -> i32 {
+    |x| f(g(x))
+}
+
+fn main() {
+    // --- Storing a closure in a variable with explicit type ---
+    let transform: (i32) -> i32 = |x| x * 2;
+    let result = transform(5);
+
+    // --- Closure with multiple params ---
+    let combine: (i32, i32) -> i32 = |a, b| a + b;
+    let sum = combine(3, 4);
+
+    // --- Closure with no params ---
+    let greet: () -> string = || "hello";
+    let msg = greet();
+
+    // --- Closure returning unit ---
+    let log: (string) -> () = |msg| {
+        println(msg);
+    };
+    log("test");
+
+    // --- Type inference for closures ---
+    let double = |n| n * 2;
+    let inferred_result = double(10);
+
+    // --- Closure with explicit return type ---
+    let to_string = |n: i32| -> string {
+        f"{n}"
+    };
+
+    // --- Closure with multi-line body ---
+    let complex = |items: i32[]| -> i32 {
+        let mut sum = 0;
+        for item in items {
+            sum += item;
+        }
+        sum
+    };
+
+    // --- Closure capturing variables from enclosing scope ---
+    let base = 100;
+    let add_base = |x: i32| -> i32 { x + base };
+    let captured_result = add_base(42);
+
+    // --- Mutable capture ---
+    let mut counter = 0;
+    let increment = || {
+        counter += 1;
+    };
+    increment();
+    increment();
+
+    // --- Passing function as argument ---
+    let doubled = apply(5, transform: |x| x * 2);
+    let tripled = apply(5, transform: |x| x * 3);
+
+    // --- Returning function from function ---
+    let add5 = make_adder(5);
+    let fifteen = add5(10);
+
+    // --- Function composition ---
+    let double_then_add1 = compose(|x| x + 1, g: |x| x * 2);
+    let composed_result = double_then_add1(5);
+
+    // --- Function types in arrays ---
+    let operations: ((i32) -> i32)[] = [
+        |x| x + 1,
+        |x| x * 2,
+        |x| x - 3,
+    ];
+
+    for op in operations {
+        let r = op(10);
+    }
+
+    // --- Function types are reference types ---
+    let fn_alias = transform;
+    let alias_result = fn_alias(10);
+}

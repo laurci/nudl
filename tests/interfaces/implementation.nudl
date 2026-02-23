@@ -1,0 +1,169 @@
+// Test: Interface implementation — impl Interface for Type { methods }
+
+interface Printable {
+    fn to_string(self) -> string;
+}
+
+interface Area {
+    fn area(self) -> f64;
+}
+
+interface Scalable {
+    fn scale(self, factor: f64) -> Self;
+}
+
+interface Comparable {
+    fn compare_to(self, other: Self) -> i32;
+}
+
+// --- Multiple types implementing the same interface ---
+
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+struct Circle {
+    center: Point,
+    radius: f64,
+}
+
+struct Rectangle {
+    origin: Point,
+    width: f64,
+    height: f64,
+}
+
+// Point implements Printable
+impl Printable for Point {
+    fn to_string(self) -> string {
+        f"({self.x}, {self.y})"
+    }
+}
+
+// Circle implements Printable and Area
+impl Printable for Circle {
+    fn to_string(self) -> string {
+        f"Circle(center={self.center.to_string()}, r={self.radius})"
+    }
+}
+
+impl Area for Circle {
+    fn area(self) -> f64 {
+        3.14159 * self.radius * self.radius
+    }
+}
+
+// Rectangle implements Printable and Area
+impl Printable for Rectangle {
+    fn to_string(self) -> string {
+        f"Rect(origin={self.origin.to_string()}, {self.width}x{self.height})"
+    }
+}
+
+impl Area for Rectangle {
+    fn area(self) -> f64 {
+        self.width * self.height
+    }
+}
+
+// --- A type implementing multiple interfaces ---
+
+struct Vector2 {
+    x: f64,
+    y: f64,
+}
+
+impl Printable for Vector2 {
+    fn to_string(self) -> string {
+        f"<{self.x}, {self.y}>"
+    }
+}
+
+impl Area for Vector2 {
+    // Magnitude squared (treating it as area for testing)
+    fn area(self) -> f64 {
+        self.x * self.x + self.y * self.y
+    }
+}
+
+impl Scalable for Vector2 {
+    fn scale(self, factor: f64) -> Vector2 {
+        Vector2 { x: self.x * factor, y: self.y * factor }
+    }
+}
+
+impl Comparable for Vector2 {
+    fn compare_to(self, other: Vector2) -> i32 {
+        let self_mag = self.area();
+        let other_mag = other.area();
+        if self_mag < other_mag {
+            -1
+        } else if self_mag > other_mag {
+            1
+        } else {
+            0
+        }
+    }
+}
+
+// --- Using interface methods polymorphically via function parameters ---
+
+fn print_value<T: Printable>(item: T) {
+    println(item.to_string());
+}
+
+fn print_area<T: Area + Printable>(shape: T) {
+    println(f"{shape.to_string()} has area {shape.area()}");
+}
+
+fn main() {
+    // --- Point: Printable ---
+    let p = Point { x: 3.0, y: 4.0 };
+    println(f"Point: {p.to_string()}");
+
+    // --- Circle: Printable + Area ---
+    let c = Circle {
+        center: Point { x: 0.0, y: 0.0 },
+        radius: 5.0,
+    };
+    println(f"Circle: {c.to_string()}");
+    println(f"Circle area: {c.area()}");
+
+    // --- Rectangle: Printable + Area ---
+    let r = Rectangle {
+        origin: Point { x: 1.0, y: 1.0 },
+        width: 10.0,
+        height: 5.0,
+    };
+    println(f"Rectangle: {r.to_string()}");
+    println(f"Rectangle area: {r.area()}");
+
+    // --- Vector2: multiple interfaces ---
+    let v = Vector2 { x: 3.0, y: 4.0 };
+    println(f"Vector: {v.to_string()}");
+    println(f"Vector magnitude^2: {v.area()}");
+
+    let scaled = v.scale(2.0);
+    println(f"Scaled: {scaled.to_string()}");
+
+    let v2 = Vector2 { x: 1.0, y: 1.0 };
+    let cmp = v.compare_to(v2);
+    println(f"Compare v to v2: {cmp}");   // v > v2, so 1
+
+    // --- Calling interface methods through functions ---
+    print_value(p);
+    print_value(c);
+    print_value(r);
+    print_value(v);
+
+    print_area(c);
+    print_area(r);
+
+    // --- Interface methods on mutable bindings ---
+    let mut mv = Vector2 { x: 1.0, y: 0.0 };
+    let mv_scaled = mv.scale(10.0);
+    println(f"Scaled mutable: {mv_scaled.to_string()}");
+
+    println("All interface implementation tests passed");
+}
