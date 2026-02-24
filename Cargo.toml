@@ -2,6 +2,8 @@
 resolver = "3"
 members = [
     "tools/meta",
+    "tools/test-runner",
+
     "nudl-core",
     "nudl-ast",
     "nudl-bc",
@@ -13,4 +15,4 @@ members = [
     "nudl-lsp",
 ]
 
-default-members = ["nudl-cli", "nudl-lsp"]
+default-members = ["nudl-cli", "nudl-lsp", "tools/test-runner"]

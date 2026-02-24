@@ -3,4 +3,16 @@ name = "nudl-cli"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "nudl"
+path = "src/main.rs"
+
 [dependencies]
+nudl-core = { path = "../nudl-core" }
+nudl-ast = { path = "../nudl-ast" }
+nudl-bc = { path = "../nudl-bc" }
+nudl-vm = { path = "../nudl-vm" }
+nudl-backend-arm64 = { path = "../nudl-backend-arm64" }
+nudl-packer-macho = { path = "../nudl-packer-macho" }
+miette = { version = "7", features = ["fancy"] }
+clap = { version = "4", features = ["derive"] }

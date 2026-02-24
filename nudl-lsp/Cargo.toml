@@ -3,4 +3,13 @@ name = "nudl-lsp"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "nudl-lsp"
+path = "src/main.rs"
+
 [dependencies]
+nudl-core = { path = "../nudl-core" }
+nudl-ast = { path = "../nudl-ast" }
+nudl-bc = { path = "../nudl-bc" }
+tower-lsp = "0.20"
+tokio = { version = "1", features = ["full"] }

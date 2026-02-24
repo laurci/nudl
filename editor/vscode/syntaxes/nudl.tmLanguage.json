@@ -253,6 +253,21 @@
 						"1": { "name": "keyword.other.type.nudl" },
 						"2": { "name": "entity.name.type.alias.nudl" }
 					}
+				},
+				{
+					"comment": "Extern block",
+					"match": "\\b(extern)\\b",
+					"captures": {
+						"1": { "name": "keyword.other.extern.nudl" }
+					}
+				},
+				{
+					"comment": "Module declaration",
+					"match": "\\b(mod)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+					"captures": {
+						"1": { "name": "keyword.other.mod.nudl" },
+						"2": { "name": "entity.name.namespace.nudl" }
+					}
 				}
 			]
 		},
@@ -303,7 +318,7 @@
 				},
 				{
 					"name": "storage.type.nudl",
-					"match": "\\blet\\b"
+					"match": "\\b(?:let|const|static)\\b"
 				},
 				{
 					"name": "storage.modifier.nudl",
@@ -311,13 +326,13 @@
 				},
 				{
 					"name": "keyword.other.nudl",
-					"match": "\\b(?:as|where|defer|quote)\\b"
+					"match": "\\b(?:as|where|defer|quote|use)\\b"
 				}
 			]
 		},
 		"built-in-types": {
 			"name": "support.type.nudl",
-			"match": "\\b(?:i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|bool|char|string|Option|Result|Future|Map)\\b"
+			"match": "\\b(?:i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|bool|char|string|RawPtr|MutRawPtr|CStr|Option|Result|Future|Map|Range|RangeInclusive|WeakRef)\\b"
 		},
 		"operators": {
 			"patterns": [

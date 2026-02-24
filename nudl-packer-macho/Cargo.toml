@@ -4,3 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+nudl-core = { path = "../nudl-core" }
+nudl-backend-arm64 = { path = "../nudl-backend-arm64" }
+object = { version = "0.36", features = ["write"] }
+
+[dev-dependencies]
+nudl-ast = { path = "../nudl-ast" }
+nudl-bc = { path = "../nudl-bc" }

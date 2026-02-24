@@ -1,3 +1,27 @@
+extern {
+    fn write(fd: i32, buf: RawPtr, count: u64) -> i64;
+}
+
+fn print(s: string) {
+    write(1, __str_ptr(s), __str_len(s));
+}
+
+fn eprint(s: string) {
+    write(2, __str_ptr(s), __str_len(s));
+}
+
+fn println(s: string) {
+    print(s);
+    print("\n");
+}
+
+fn eprintln(s: string) {
+    eprint(s);
+    eprint("\n");
+}
+
 fn main() {
     println("Hello, world!");
+    println("I'm coding in nudl!");
+    eprintln("This is an error!");
 }

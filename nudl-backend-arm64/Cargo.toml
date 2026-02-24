@@ -4,3 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+nudl-core = { path = "../nudl-core" }
+nudl-bc = { path = "../nudl-bc" }
+
+[dev-dependencies]
+nudl-ast = { path = "../nudl-ast" }

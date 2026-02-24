@@ -25,7 +25,23 @@
         "scopeName": "source.nudl",
         "path": "./syntaxes/nudl.tmLanguage.json"
       }
-    ]
+    ],
+    "commands": [
+      {
+        "command": "nudl.restartLsp",
+        "title": "nudl: Restart Language Server"
+      }
+    ],
+    "configuration": {
+      "title": "nudl",
+      "properties": {
+        "nudl.lsp.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the nudl-lsp binary. If empty, searches PATH."
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "yarn run package",
@@ -39,7 +55,11 @@
     "pretest": "yarn run compile-tests && yarn run compile && yarn run lint",
     "check-types": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "vscode-test",
+    "vsix": "vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {
     "@types/vscode": "^1.75.0",
