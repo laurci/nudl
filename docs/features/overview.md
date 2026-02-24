@@ -57,7 +57,7 @@ evaluation from Zig to enable powerful metaprogramming without procedural macros
 | Attributes | `#[key = value]` metadata readable at comptime | Planned |
 | AST inspection | `ast_of(item)` for read-only AST access at comptime | Planned |
 | Module introspection | `module_types()`, `module_functions()` to iterate current module | Planned |
-| String interpolation | `f"Hello, {name}!"` | Planned |
+| String interpolation | `` `Hello, {name}!` `` | Planned |
 | Modules | File = module, `import` with aliasing and grouping | Planned |
 | Dynamic dispatch | `dyn Interface` for runtime polymorphism | Planned |
 | Enums as ADTs | Variants with data, struct fields, or unit | Planned |
@@ -104,7 +104,7 @@ evaluation from Zig to enable powerful metaprogramming without procedural macros
 | Error handling | `throws`/`try`/`catch` | `Result<T, E>` and `?` operator |
 | Generics | Type-erased by default | Monomorphized by default, `dyn Interface` opt-in |
 | Metaprogramming | Swift Macros (AST-based) | `comptime` (VM-executed, types as values) |
-| String interpolation | `"\(expr)"` | `f"Hello, {expr}!"` |
+| String interpolation | `"\(expr)"` | `` `Hello, {expr}!` `` |
 | Concurrency | Structured concurrency with actors | Structured concurrency with actors (Swift-inspired) |
 | Actors | First-class with `actor` keyword | First-class with `actor` keyword (similar model) |
 

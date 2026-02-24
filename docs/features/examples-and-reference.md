@@ -66,7 +66,7 @@ fn fib_iter(n: u64) -> u64 {
 }
 
 fn main() {
-    for i in 0..10 { println(f"fib({i}) = {fib_iter(i)}"); }
+    for i in 0..10 { println(`fib({i}) = {fib_iter(i)}`); }
 }
 ```
 
@@ -95,7 +95,7 @@ impl<T: Printable> List<T> {
 
 fn main() {
     let list = List::new().prepend(3).prepend(2).prepend(1);
-    println(f"Length: {list.len()}");  // Length: 3
+    println(`Length: {list.len()}`);  // Length: 3
 }
 ```
 
@@ -117,13 +117,13 @@ fn main() {
         .filter(|x| x % 2 == 0)
         .map(|x| x * 2)
         .fold(0) { acc, x -> acc + x };
-    println(f"Sum: {sum}");  // Sum: 60
+    println(`Sum: {sum}`);  // Sum: 60
 
     // Collect into a new array
     let evens: i32[] = data.iter()
         .filter(|x| x % 2 == 0)
         .collect();
-    println(f"Evens: {evens}");  // Evens: [2, 4, 6, 8, 10]
+    println(`Evens: {evens}`);  // Evens: [2, 4, 6, 8, 10]
 }
 ```
 
@@ -133,7 +133,7 @@ fn main() {
 comptime fn make_vector_type(comptime n: u32) {
     let names = ["x", "y", "z", "w"];
     let fields = names[0..n];
-    let type_name = f"Vec{n}";
+    let type_name = `Vec{n}`;
     quote {
         struct ${type_name} {
             ${for name in fields { quote { ${name}: f64, } }}
@@ -149,7 +149,7 @@ comptime {
 fn main() {
     let a = Vec3 { x: 1.0, y: 2.0, z: 3.0 };
     let b = Vec3 { x: 4.0, y: 5.0, z: 6.0 };
-    println(f"({a.x + b.x}, {a.y + b.y}, {a.z + b.z})");
+    println(`({a.x + b.x}, {a.y + b.y}, {a.z + b.z})`);
     // (5.0, 7.0, 9.0)
 }
 ```
@@ -174,8 +174,8 @@ fn parse_port(input: string) -> Result<u16, ParseError> {
 
 fn main() {
     match parse_port("8080") {
-        Ok(port) => println(f"Port: {port}"),
-        Err(e) => println(f"Error: {e.to_string()}"),
+        Ok(port) => println(`Port: {port}`),
+        Err(e) => println(`Error: {e.to_string()}`),
     }
 }
 ```
@@ -186,7 +186,7 @@ fn main() {
 async fn fetch_page(url: string) -> Result<string, Error> {
     let response = http_get(url).await?;
     if response.status() != 200 {
-        return Err(Error::new(f"HTTP {response.status()} for {url}"));
+        return Err(Error::new(`HTTP {response.status()} for {url}`));
     }
     Ok(response.body())
 }
@@ -214,10 +214,10 @@ async fn main() {
     match fetch_all(urls).await {
         Ok(pages) => {
             for (i, page) in pages.enumerate() {
-                println(f"Page {i + 1}: {page.len()} bytes");
+                println(`Page {i + 1}: {page.len()} bytes`);
             }
         },
-        Err(e) => println(f"Error: {e.to_string()}"),
+        Err(e) => println(`Error: {e.to_string()}`),
     }
 }
 ```
@@ -258,7 +258,7 @@ fn main() {
         |> word_count;
 
     for (word, count) in counts {
-        println(f"{word}: {count}");
+        println(`{word}: {count}`);
     }
 }
 ```
@@ -334,7 +334,7 @@ interface Printable { fn to_string(self) -> string; }
 
 if cond { a } else { b }                       // if expression
 if let Some(v) = opt { use(v); }               // if let
-match x { 0 => "zero", n => f"{n}" }           // match expression
+match x { 0 => "zero", n => `{n}` }             // match expression
 for item in list { process(item); }            // for-in loop
 'label: for item in list { break 'label; }     // labeled loop
 while cond { step(); }                         // while loop
@@ -356,7 +356,7 @@ pub fn public_function() -> i32 { 42 }         // public visibility
 comptime { generate_code(); }                  // compile-time block
 quote { fn ${name}() -> ${T} { ... } }        // comptime code generation
 #[key = "value", flag]                         // attributes
-let msg = f"Result: {compute()}";              // string interpolation
+let msg = `Result: {compute()}`;               // string interpolation
 let weak r = strong_ref;                       // weak reference
 
 async fn fetch(url: string) -> string { ... } // async function
@@ -387,20 +387,20 @@ let Point { x, y } = point;
 
 // For loops
 for (key, value) in map {
-    println(f"{key}: {value}");
+    println(`{key}: {value}`);
 }
 
 // Match arms
 match result {
-    Ok((first, second)) => println(f"{first}, {second}"),
-    Err(e) => println(f"Error: {e.message()}"),
+    Ok((first, second)) => println(`{first}, {second}`),
+    Err(e) => println(`Error: {e.message()}`),
 }
 
 // Closure parameters
 let distances = map(points) { |(x, y)| sqrt(x * x + y * y) };
 
 // Trailing lambda with destructuring
-let labels = map(entries) { (name, count) -> f"{name}: {count}" };
+let labels = map(entries) { (name, count) -> `{name}: {count}` };
 ```
 
 ### 14.2 Operator Precedence

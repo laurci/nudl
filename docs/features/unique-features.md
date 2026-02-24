@@ -18,11 +18,11 @@ allocation. Mutation through any binding affects the shared data:
 let mut a = Point { x: 1.0, y: 2.0 };
 let mut b = a;       // refcount++, shared alias
 b.x = 99.0;
-println(f"{a.x}");   // prints 99.0
+println(`{a.x}`);   // prints 99.0
 
 let mut c = a.clone();  // deep copy, independent allocation
 c.x = 0.0;
-println(f"{a.x}");   // still 99.0
+println(`{a.x}`);   // still 99.0
 ```
 
 **Aliased mutation — the most important thing to understand:**
@@ -34,12 +34,12 @@ visible through all other bindings to the same object:
 let mut a = Point { x: 1.0, y: 2.0 };
 let mut b = a;       // same object, refcount = 2
 b.x = 99.0;
-println(f"{a.x}");   // prints 99.0
+println(`{a.x}`);   // prints 99.0
 
 // Use .clone() for an independent copy:
 let mut c = a.clone();
 c.x = 0.0;
-println(f"{a.x}");   // still 99.0 — c is independent
+println(`{a.x}`);   // still 99.0 — c is independent
 ```
 
 This applies to function arguments too — if a function receives a struct and mutates it, the caller
@@ -57,7 +57,7 @@ struct Node {
 
 let weak parent_ref = root;
 match parent_ref.upgrade() {
-    Some(p) => println(f"Parent: {p.value}"),
+    Some(p) => println(`Parent: {p.value}`),
     None => println("Parent was deallocated"),
 }
 ```
@@ -210,13 +210,13 @@ functions are compiled to state machines, and child tasks cannot outlive their p
 
 ```nudl
 async fn fetch_user(id: i32) -> User {
-    let response = http_get(f"/users/{id}").await;
+    let response = http_get(`/users/{id}`).await;
     parse_json(response.body()).await
 }
 
 async fn main() {
     let user = fetch_user(42).await;
-    println(f"Hello, {user.name}!");
+    println(`Hello, {user.name}!`);
 }
 ```
 
@@ -260,11 +260,11 @@ actor ChatRoom {
 
     fn join(mut self, name: string) {
         self.users.push(name);
-        self.messages.push(f"{name} joined");
+        self.messages.push(`{name} joined`);
     }
 
     fn send(mut self, user: string, text: string) {
-        self.messages.push(f"{user}: {text}");
+        self.messages.push(`{user}: {text}`);
     }
 
     fn history(self) -> string[] {
@@ -398,7 +398,7 @@ fn main() {
 
 fn generate_models(schema: string) -> string {
     // Parse schema and generate struct definitions...
-    f"pub struct User {{ name: string, age: u32 }}"
+    `pub struct User \{ name: string, age: u32 \}`
 }
 ```
 

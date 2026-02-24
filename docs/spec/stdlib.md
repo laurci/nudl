@@ -81,7 +81,7 @@ let mut s: Set<string> = Set::new();
 s.insert("hello");
 s.insert("world");
 s.insert("hello");    // no-op, already present
-println(f"{s.len()}");  // 2
+println(`{s.len()}`);  // 2
 ```
 
 | Method | Signature | Description |
@@ -211,8 +211,8 @@ import std::io::{read_file, write_file, file_exists};
 fn main() {
     if file_exists("config.toml") {
         match read_file("config.toml") {
-            Ok(content) => println(f"Config: {content.len()} bytes"),
-            Err(e) => println(f"Error: {e.message()}"),
+            Ok(content) => println(`Config: {content.len()} bytes`),
+            Err(e) => println(`Error: {e.message()}`),
         }
     }
 
@@ -260,7 +260,7 @@ enum IoErrorKind {
 
 impl Error for IoError {
     fn message(self) -> string {
-        f"{self.kind}: {self.detail}"
+        `{self.kind}: {self.detail}`
     }
 }
 ```
@@ -275,12 +275,12 @@ fn println(value: dyn Printable)
 `print` writes the string representation of `value` to standard output.
 `println` does the same followed by a newline character (`\n`).
 
-The argument must implement the `Printable` interface. String interpolation
-expressions (`f"..."`) produce `string` values, which implement `Printable`.
+The argument must implement the `Printable` interface. Template string
+expressions (`` `...` ``) produce `string` values, which implement `Printable`.
 
 ```nudl
 print("no newline");
-println(f"value = {x}");
+println(`value = {x}`);
 println(42);              // integers implement Printable
 println(true);            // bools implement Printable
 ```
@@ -301,7 +301,7 @@ methods:
 ```nudl
 let names = ["alice", "bob", "carol"];
 for (i, name) in names.enumerate() {
-    println(f"{i}: {name}");
+    println(`{i}: {name}`);
 }
 // 0: alice
 // 1: bob

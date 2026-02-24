@@ -234,31 +234,35 @@ Examples:
 "unicode: \u{1F600}"     // grinning face emoji
 ```
 
-#### 2.6.4 Format String Literals
+#### 2.6.4 Template String Literals
 
 ```
-format_string    = 'f"' format_part* '"' ;
+template_string  = '`' template_part* '`' ;
 
-format_part      = format_text
+template_part    = template_text
                  | '{' expression '}' ;
 
-format_text      = ( string_char | '{{' | '}}' )+ ;
+template_text    = ( template_char | escape_sequence | '\{' | '\}' | '\`' )+ ;
+
+template_char    = /* any character except '`', '\', '{', '}' */ ;
 ```
 
-Format strings are prefixed with `f`. Expressions between `{` and `}` are
+Template strings are delimited by backticks. Expressions between `{` and `}` are
 evaluated, converted to strings via the `Printable` interface, and concatenated
-with the surrounding text. Literal braces are escaped as `{{` and `}}`.
+with the surrounding text. Literal braces are escaped as `\{` and `\}`. A literal
+backtick is escaped as `` \` ``. Standard escape sequences (`\n`, `\t`, etc.) are
+also supported.
 
-The type of a format string literal is `string`.
+The type of a template string literal is `string`.
 
 Examples:
 
 ```nudl
 let name = "world";
-f"hello, {name}"                   // "hello, world"
-f"1 + 1 = {1 + 1}"                // "1 + 1 = 2"
-f"braces: {{ and }}"              // "braces: { and }"
-f"nested: {f"inner {42}"}"        // "nested: inner 42"
+`hello, {name}`                    // "hello, world"
+`1 + 1 = {1 + 1}`                 // "1 + 1 = 2"
+`braces: \{ and \}`               // "braces: { and }"
+`nested: {`inner {42}`}`          // "nested: inner 42"
 ```
 
 #### 2.6.5 Character Literals

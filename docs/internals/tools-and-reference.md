@@ -374,7 +374,7 @@ fn factorial(n: u64) -> u64 {
 
 fn main() {
     let result = factorial(10);
-    println(f"10! = {result}");
+    println(`10! = {result}`);
 }
 ```
 
@@ -403,7 +403,7 @@ Module
   FnDef "main"
     body: Block
       Let(result, Call(Ident(factorial), [Literal(10)]))
-      Call(Ident(println), [FString("10! = ", Ident(result))])
+      Call(Ident(println), [TemplateString("10! = ", Ident(result))])
 ```
 
 ### 12.4 SSA Bytecode

@@ -25,7 +25,7 @@ fn add(a: i32, b: i32) -> i32 {
 }
 
 fn greet(name: string) {
-    println(f"Hello, {name}!");
+    println(`Hello, {name}!`);
 }
 
 fn divide(a: f64, b: f64) -> Result<f64, string> {
@@ -264,7 +264,7 @@ expression-based: most constructs that are statements in other languages
 literal_expr  = integer_literal
               | float_literal
               | string_literal
-              | format_string
+              | template_string
               | char_literal
               | bool_literal
               | array_literal
@@ -548,7 +548,7 @@ let pairs = [(1, "a"), (2, "b"), (3, "c")];
 let firsts = map(pairs) { |(x, _)| x };
 
 // Trailing lambda with destructuring
-let sums = map(pairs) { (a, b) -> f"{a}: {b}" };
+let sums = map(pairs) { (a, b) -> `{a}: {b}` };
 ```
 
 Destructuring is permitted in all pattern positions:
@@ -626,7 +626,7 @@ let category = if score >= 90 {
 
 ```nudl
 if let Some(value) = maybe_value {
-    println(f"Got: {value}");
+    println(`Got: {value}`);
 } else {
     println("Nothing");
 }
@@ -650,16 +650,16 @@ exhaustiveness rules.
 
 ```nudl
 let description = match shape {
-    Shape::Circle(r) => f"circle with radius {r}",
-    Shape::Rectangle { width, height } => f"rectangle {width}x{height}",
+    Shape::Circle(r) => `circle with radius {r}`,
+    Shape::Rectangle { width, height } => `rectangle {width}x{height}`,
     Shape::Point => "point",
 };
 
 match (x, y) {
     (0, 0) => "origin",
-    (x, 0) => f"on x-axis at {x}",
-    (0, y) => f"on y-axis at {y}",
-    (x, y) => f"at ({x}, {y})",
+    (x, 0) => `on x-axis at {x}`,
+    (0, y) => `on y-axis at {y}`,
+    (x, y) => `at ({x}, {y})`,
 }
 ```
 

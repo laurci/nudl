@@ -221,7 +221,7 @@ comptime fn make_conversions() {
     for from in types {
         for to in types {
             if from != to {
-                let name = f"{type_name(from)}_to_{type_name(to)}";
+                let name = `{type_name(from)}_to_{type_name(to)}`;
                 quote {
                     fn ${name}(x: ${from}) -> ${to} {
                         x as ${to}
@@ -394,7 +394,7 @@ let handle = Task.spawn(async { compute().await });
 // ... later ...
 handle.cancel();
 match handle.await {
-    Ok(value) => println(f"completed: {value}"),
+    Ok(value) => println(`completed: {value}`),
     Err(CancelledError) => println("task was cancelled"),
 }
 ```

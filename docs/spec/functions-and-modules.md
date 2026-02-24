@@ -109,7 +109,7 @@ let mut count = 0;
 let inc = || { count += 1; };
 inc();
 inc();
-println(f"{count}");  // prints "2" — mutation is shared
+println(`{count}`);  // prints "2" — mutation is shared
 ```
 
 This model is simpler than Rust's capture-by-move/reference distinction and aligns with nudl's ARC-everywhere philosophy. There is no `move` keyword for closures.
@@ -509,9 +509,9 @@ fn main() {
     let version = build::read_file("VERSION").unwrap_or("0.0.0");
     build::add_define("APP_VERSION", version);
 
-    build::generate_file("version.nudl", f"
-        pub fn version() -> string {{ \"{version}\" }}
-    ");
+    build::generate_file("version.nudl", `
+        pub fn version() -> string \{ "{version}" \}
+    `);
 }
 ```
 
@@ -522,7 +522,7 @@ Generated files are accessible as modules under the `generated` namespace:
 import generated::version;
 
 fn main() {
-    println(f"Version: {version::version()}");
+    println(`Version: {version::version()}`);
 }
 ```
 

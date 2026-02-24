@@ -621,7 +621,7 @@ impl SqliteDb {
         let mut db_ptr = MutRawPtr.null();
         let rc = sqlite3_open(path.as_cstr(), db_ptr);
         if rc != 0 {
-            return Err(f"sqlite3_open failed with code {rc}");
+            return Err(`sqlite3_open failed with code {rc}`);
         }
         Ok(SqliteDb { ptr: db_ptr.as_const() })
     }
@@ -638,7 +638,7 @@ impl SqliteDb {
         if rc != 0 {
             // In a real implementation, read errmsg and free it
             sqlite3_free(errmsg);
-            return Err(f"sqlite3_exec failed with code {rc}");
+            return Err(`sqlite3_exec failed with code {rc}`);
         }
         Ok(())
     }
@@ -667,13 +667,13 @@ extern {
 
 fn main() {
     let pid = getpid();
-    println(f"PID: {pid}");
+    println(`PID: {pid}`);
 
     let home = getenv("HOME".as_cstr());
     if !home.is_null() {
         match home.to_string() {
-            Ok(s) => println(f"HOME: {s}"),
-            Err(e) => println(f"HOME contains invalid UTF-8: {e.message()}"),
+            Ok(s) => println(`HOME: {s}`),
+            Err(e) => println(`HOME contains invalid UTF-8: {e.message()}`),
         }
     }
 }

@@ -481,7 +481,7 @@ where
     U: Printable,
 {
     let copy = input.clone();
-    println(f"Processing: {copy.to_string()}");
+    println(`Processing: {copy.to_string()}`);
     transform(input)
 }
 ```
@@ -549,7 +549,7 @@ interface Summary {
     fn preview(self) -> string {
         let s = self.summarize();
         if s.len() > 50 {
-            f"{s.substring(0, 50)}..."
+            `{s.substring(0, 50)}...`
         } else {
             s
         }
@@ -587,14 +587,14 @@ impl_interface  = 'impl' generics? path 'for' type where_clause? '{' fn_def* '}'
 ```nudl
 impl Printable for Point {
     fn to_string(self) -> string {
-        f"({self.x}, {self.y})"
+        `({self.x}, {self.y})`
     }
 }
 
 impl<T: Printable> Printable for Option<T> {
     fn to_string(self) -> string {
         match self {
-            Some(v) => f"Some({v.to_string()})",
+            Some(v) => `Some({v.to_string()})`,
             None => "None",
         }
     }
@@ -810,7 +810,7 @@ b = 99;
 let mut a = Point { x: 1.0, y: 2.0 };
 let mut b = a;         // refcount incremented; a and b alias same data
 b.x = 99.0;
-println(f"{a.x}");    // prints 99.0 (a and b share the same Point)
+println(`{a.x}`);    // prints 99.0 (a and b share the same Point)
 ```
 
 ### 4.3a Aliased Mutation
@@ -830,7 +830,7 @@ is the single most important thing to understand about nudl's memory model:
 let mut a = Point { x: 1.0, y: 2.0 };
 let mut b = a;       // b and a are the SAME object (refcount = 2)
 b.x = 99.0;
-println(f"{a.x}");   // prints 99.0 — a sees b's mutation
+println(`{a.x}`);   // prints 99.0 — a sees b's mutation
 ```
 
 This is **not** a bug. It is identical to how Swift classes, Java objects, and
@@ -872,7 +872,7 @@ let q = make_modified(p);
 let mut a = Point { x: 1.0, y: 2.0 };
 let mut b = a.clone();   // independent allocation, refcount = 1
 b.x = 99.0;
-println(f"{a.x}");       // prints 1.0 — a is unaffected
+println(`{a.x}`);       // prints 1.0 — a is unaffected
 
 fn make_modified(point: Point) -> Point {
     let mut copy = point.clone();
@@ -912,7 +912,7 @@ let strong = Node { value: 42, children: [] };
 let weak r = strong;
 
 match r.upgrade() {
-    Some(node) => println(f"Value: {node.value}"),
+    Some(node) => println(`Value: {node.value}`),
     None => println("Object has been deallocated"),
 }
 ```

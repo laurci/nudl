@@ -162,15 +162,15 @@ comptime fn derive_printable(T: type) {
     quote {
         impl Printable for ${T} {
             fn to_string(self) -> string {
-                let mut result = f"${name} {{ ";
+                let mut result = `${name} \{ `;
                 ${for (i, field) in fields.enumerate() {
                     let fname = field.name;
                     quote {
-                        ${if i > 0 { quote { result = f"{result}, "; } }}
-                        result = f"{result}${fname}: {self.${fname}.to_string()}";
+                        ${if i > 0 { quote { result = `{result}, `; } }}
+                        result = `{result}${fname}: {self.${fname}.to_string()}`;
                     }
                 }}
-                f"{result} }}"
+                `{result} \}`
             }
         }
     }
@@ -283,10 +283,10 @@ comptime {
                         ${for field in fields {
                             let fname = field.name;
                             quote {
-                                parts.push(f"\"${fname}\": {self.${fname}.to_json()}");
+                                parts.push(`"${fname}": {self.${fname}.to_json()}`);
                             }
                         }}
-                        f"{{ {parts.join(\", \")} }}"
+                        `\{ {parts.join(\", \")} \}`
                     }
                 }
             }
@@ -303,11 +303,11 @@ are already resolved before comptime runs.
 
 ```nudl
 comptime fn print_layout(T: type) {
-    comptime_print(f"Type: {type_name(T)}");
-    comptime_print(f"  Size: {size_of(T)} bytes");
-    comptime_print(f"  Align: {align_of(T)} bytes");
+    comptime_print(`Type: {type_name(T)}`);
+    comptime_print(`  Size: {size_of(T)} bytes`);
+    comptime_print(`  Align: {align_of(T)} bytes`);
     for field in type_fields(T) {
-        comptime_print(f"  Field '{field.name}': {type_name(field.field_type)} at offset {field.offset}");
+        comptime_print(`  Field '{field.name}': {type_name(field.field_type)} at offset {field.offset}`);
     }
 }
 ```
@@ -446,9 +446,9 @@ comptime fn derive_serialize(comptime T: type) {
             fn serialize(self) -> string {
                 let mut parts = string[];
                 ${for field in fields {
-                    quote { parts.push(f"\"${field.name}\": {self.${field.name}.serialize()}"); }
+                    quote { parts.push(`"${field.name}": {self.${field.name}.serialize()}`); }
                 }}
-                f"{ ${type_name(T)} }{{ {parts.join(\", \")} }}"
+                `{ ${type_name(T)} }\{ {parts.join(\", \")} \}`
             }
         }
     }

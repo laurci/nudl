@@ -96,7 +96,7 @@ fn outer() {
     }
 
     let p = LocalPoint { x: 1.0, y: 2.0 };
-    println(f"{local_helper(p)}");
+    println(`{local_helper(p)}`);
 }
 ```
 
@@ -162,7 +162,7 @@ Bind the matched value to a new variable:
 
 ```nudl
 match x {
-    n => println(f"got {n}"),
+    n => println(`got {n}`),
 }
 ```
 
@@ -187,9 +187,9 @@ Destructure a tuple by its elements:
 ```nudl
 match point {
     (0, 0) => "origin",
-    (x, 0) => f"on x-axis at {x}",
-    (0, y) => f"on y-axis at {y}",
-    (x, y) => f"({x}, {y})",
+    (x, 0) => `on x-axis at {x}`,
+    (0, y) => `on y-axis at {y}`,
+    (x, y) => `({x}, {y})`,
 }
 ```
 
@@ -200,8 +200,8 @@ Destructure a struct by its fields. `..` ignores remaining fields:
 ```nudl
 match config {
     Config { tls: true, port: 443, .. } => "standard HTTPS",
-    Config { tls: true, port, .. } => f"HTTPS on port {port}",
-    Config { host, .. } => f"plaintext to {host}",
+    Config { tls: true, port, .. } => `HTTPS on port {port}`,
+    Config { host, .. } => `plaintext to {host}`,
 }
 ```
 
@@ -211,14 +211,14 @@ Match enum variants and destructure their payloads:
 
 ```nudl
 match result {
-    Ok(value) => println(f"Success: {value}"),
-    Err(msg) => println(f"Error: {msg}"),
+    Ok(value) => println(`Success: {value}`),
+    Err(msg) => println(`Error: {msg}`),
 }
 
 match shape {
     Shape::Circle(r) if r > 10.0 => "large circle",
-    Shape::Circle(r) => f"small circle with radius {r}",
-    Shape::Rectangle { width, height } => f"{width}x{height}",
+    Shape::Circle(r) => `small circle with radius {r}`,
+    Shape::Rectangle { width, height } => `{width}x{height}`,
     Shape::Point => "point",
 }
 ```
@@ -261,8 +261,8 @@ Patterns may be nested to arbitrary depth:
 
 ```nudl
 match expr {
-    Some((x, Some(y))) => f"both present: {x}, {y}",
-    Some((x, None)) => f"only first: {x}",
+    Some((x, Some(y))) => `both present: {x}, {y}`,
+    Some((x, None)) => `only first: {x}`,
     None => "nothing",
 }
 ```
@@ -330,7 +330,7 @@ while_let_expr  = 'while' 'let' pattern '=' expression block_expr ;
 ```nudl
 // if let
 if let Some(value) = map.get("key") {
-    println(f"Found: {value}");
+    println(`Found: {value}`);
 }
 
 // while let
@@ -482,7 +482,7 @@ As a statement, `if` does not require an `else` branch:
 
 ```nudl
 if should_log {
-    println(f"Value: {x}");
+    println(`Value: {x}`);
 }
 ```
 
@@ -507,15 +507,15 @@ for item in collection {
 }
 
 for (index, value) in collection.enumerate() {
-    println(f"[{index}] = {value}");
+    println(`[{index}] = {value}`);
 }
 
 for i in 0..10 {
-    println(f"{i}");
+    println(`{i}`);
 }
 
 for ch in "hello".chars() {
-    println(f"char: {ch}");
+    println(`char: {ch}`);
 }
 ```
 
@@ -576,7 +576,7 @@ label). `continue` skips to the next iteration.
 for i in 0..100 {
     if i % 2 == 0 { continue; }
     if i > 50 { break; }
-    println(f"{i}");
+    println(`{i}`);
 }
 ```
 

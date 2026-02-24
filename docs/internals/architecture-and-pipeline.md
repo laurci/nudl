@@ -120,15 +120,15 @@ range into the source) for diagnostics and LSP integration.
 | Category | Examples |
 |---|---|
 | Keywords | `fn`, `let`, `mut`, `struct`, `enum`, `interface`, `impl`, `match`, `if`, `else`, `for`, `while`, `loop`, `return`, `break`, `continue`, `comptime`, `pub`, `import`, `defer`, `weak`, `dyn`, `as` |
-| Literals | Integer (`42`, `0xFF`), float (`3.14`), string (`"hello"`), f-string (`f"x={x}"`), char (`'a'`), bool (`true`/`false`) |
+| Literals | Integer (`42`, `0xFF`), float (`3.14`), string (`"hello"`), template string (`` `x={x}` ``), char (`'a'`), bool (`true`/`false`) |
 | Identifiers | `foo`, `Point`, `T` |
 | Operators | `+`, `-`, `*`, `/`, `%`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `&&`, `\|\|`, `!`, `&`, `\|`, `^`, `<<`, `>>`, `=`, `+=`, `-=`, `..`, `..=`, `...`, `->`, `=>`, `?`, `\|>` |
 | Delimiters | `(`, `)`, `{`, `}`, `[`, `]`, `,`, `:`, `;`, `::`, `.` |
 | Special | `EOF`, `Newline` (significant in some contexts), `Comment` |
 
-**F-string handling:** The lexer recognizes `f"..."` prefixed strings and emits
-them as a sequence of `FStringStart`, literal segments, `FStringExpr` (the
-`{expr}` parts, which are sub-lexed), and `FStringEnd`. This keeps the parser
+**Template string handling:** The lexer recognizes backtick-delimited template strings and emits
+them as a sequence of `TemplateStringStart`, literal segments, `TemplateStringExpr` (the
+`{expr}` parts, which are sub-lexed), and `TemplateStringEnd`. This keeps the parser
 free of string-interpolation complexity.
 
 ### 2.2 Tokens to AST (Parser)
@@ -163,7 +163,7 @@ Item
   |- ActorDef       { name, generics, fields, methods }
 
 Expr
-  |- Literal        { kind: Int|Float|String|FString|Char|Bool }
+  |- Literal        { kind: Int|Float|String|TemplateString|Char|Bool }
   |- Ident          { name }
   |- Binary         { op, lhs, rhs }
   |- Unary          { op, operand }

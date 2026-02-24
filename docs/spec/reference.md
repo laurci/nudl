@@ -69,7 +69,7 @@ comptime fn gen_insert(T: type) {
     quote {
         impl ${T} {
             fn insert_sql() -> string {
-                f"INSERT INTO ${table} (${cols}) VALUES (${vals})"
+                `INSERT INTO ${table} (${cols}) VALUES (${vals})`
             }
         }
     }
@@ -128,8 +128,8 @@ interface Printable {
 }
 ```
 
-Used by `print`, `println`, and format string interpolation (`f"...{expr}..."`).
-When an expression appears inside `{}` in a format string, its `to_string()`
+Used by `print`, `println`, and template string interpolation (`` `...{expr}...` ``).
+When an expression appears inside `{}` in a template string, its `to_string()`
 method is called.
 
 All primitive types implement `Printable`. User-defined types must implement it
@@ -295,7 +295,7 @@ struct AppError {
 
 impl Error for AppError {
     fn message(self) -> string {
-        f"AppError({self.code}): {self.detail}"
+        `AppError({self.code}): {self.detail}`
     }
 }
 ```
@@ -670,7 +670,7 @@ enclosing scope by ARC reference.
 let name = "world";
 let greeting: Future<string> = async {
     let data = fetch_greeting().await;
-    f"{data}, {name}!"
+    `{data}, {name}!`
 };
 let message = greeting.await;
 ```
@@ -937,7 +937,7 @@ keyword expression, not an operator.
 
 ### Appendix C: Escape Sequences
 
-Valid escape sequences in string, format string, and character literals:
+Valid escape sequences in string, template string, and character literals:
 
 | Escape     | Character                | Unicode    |
 |------------|--------------------------|------------|
@@ -952,7 +952,9 @@ Valid escape sequences in string, format string, and character literals:
 | `\u{N..N}` | Unicode scalar (1-6 hex) | U+0000-U+10FFFF |
 
 The `\'` escape is valid only in character literals. The `\"` escape is valid
-only in string and format string literals.
+only in string literals. In template strings, use `\{` and `\}` to escape
+literal braces. The `` ` `` (backtick) character is escaped as `` \` `` in
+template string literals.
 
 ### Appendix D: Reserved Words
 

@@ -89,7 +89,7 @@ interface Index<Idx, Output> {
 }
 
 impl Printable for Point {
-    fn to_string(self) -> string { f"({self.x}, {self.y})" }
+    fn to_string(self) -> string { `({self.x}, {self.y})` }
 }
 ```
 
@@ -123,7 +123,7 @@ fn add(a: i32, b: i32) -> i32 {
 }
 
 fn greet(name: string) {
-    println(f"Hello, {name}!");  // return type omitted = ()
+    println(`Hello, {name}!`);  // return type omitted = ()
 }
 ```
 
@@ -156,7 +156,7 @@ fn make_adder(n: i32) -> (i32) -> i32 {
 }
 
 let add5 = make_adder(5);
-println(f"{add5(3)}");  // prints 8
+println(`{add5(3)}`);  // prints 8
 ```
 
 ---
@@ -180,15 +180,15 @@ match value {
     0 => "zero",                       // literal
     1 | 2 | 3 => "small",             // or-pattern
     4..=10 => "medium",                // range
-    n if n < 0 => f"negative: {n}",    // guard
-    n => f"large: {n}",                // binding
+    n if n < 0 => `negative: {n}`,      // guard
+    n => `large: {n}`,                  // binding
 }
 
 // Struct patterns
 match config {
     Config { tls: true, port: 443, .. } => "standard HTTPS",
-    Config { tls: true, port, .. } => f"HTTPS on port {port}",
-    Config { host, .. } => f"plaintext to {host}",
+    Config { tls: true, port, .. } => `HTTPS on port {port}`,
+    Config { host, .. } => `plaintext to {host}`,
 }
 ```
 
@@ -198,7 +198,7 @@ For single-pattern convenience without a full `match`:
 
 ```nudl
 if let Some(value) = maybe_value {
-    println(f"Got: {value}");
+    println(`Got: {value}`);
 }
 
 while let Some(item) = iter.next() {
@@ -301,7 +301,7 @@ type StringList = string[];                     // type alias
 
 ```nudl
 print("no newline");
-println(f"interpolated: {value}");
+println(`interpolated: {value}`);
 ```
 
 ### 10.2 Core Interfaces
@@ -328,7 +328,7 @@ let sub = greeting.substring(0, 5).unwrap();  // "Hello"
 let parts = greeting.split(", ");
 
 // String interpolation
-let msg = f"Welcome to {name} v{version}!";
+let msg = `Welcome to {name} v{version}!`;
 ```
 
 ### 10.4 Error and From Interfaces
@@ -347,7 +347,7 @@ error conversion with the `?` operator.
 let mut tags: Set<string> = Set::new();
 tags.insert("rust");
 tags.insert("nudl");
-println(f"{tags.len()}");  // 2
+println(`{tags.len()}`);  // 2
 ```
 
 ### 10.6 Option and Result Methods
