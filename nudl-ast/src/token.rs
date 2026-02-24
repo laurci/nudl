@@ -85,10 +85,10 @@ pub enum TokenKind {
     CaretEq,
     LtLtEq,
     GtGtEq,
-    Arrow,      // ->
-    FatArrow,   // =>
-    DotDot,     // ..
-    DotDotEq,   // ..=
+    Arrow,    // ->
+    FatArrow, // =>
+    DotDot,   // ..
+    DotDotEq, // ..=
 
     // Punctuation
     Dot,

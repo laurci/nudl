@@ -75,7 +75,10 @@ mod tests {
     #[test]
     fn source_map_line_col() {
         let mut sm = SourceMap::new();
-        let fid = sm.add_file("test.nudl".into(), "fn main() {\n    println(\"hi\");\n}\n".into());
+        let fid = sm.add_file(
+            "test.nudl".into(),
+            "fn main() {\n    println(\"hi\");\n}\n".into(),
+        );
         // 'f' is at offset 0 → line 1, col 1
         let (_, line, col) = sm.span_to_location(Span::new(fid, 0, 1));
         assert_eq!((line, col), (1, 1));

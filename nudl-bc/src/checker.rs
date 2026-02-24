@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
+use nudl_ast::ast::*;
 use nudl_core::diagnostic::DiagnosticBag;
 use nudl_core::span::{Span, Spanned};
 use nudl_core::types::{TypeId, TypeInterner, TypeKind};
-use nudl_ast::ast::*;
 
 use crate::checker_diagnostic::CheckerDiagnostic;
 
@@ -75,41 +75,45 @@ impl Checker {
         let raw_ptr_ty = self.types.raw_ptr();
         let u64_ty = self.types.u64();
 
-        self.functions.insert("__str_ptr".into(), FunctionSig {
-            name: "__str_ptr".into(),
-            params: vec![("s".into(), string_ty)],
-            return_type: raw_ptr_ty,
-            kind: FunctionKind::Builtin,
-        });
+        self.functions.insert(
+            "__str_ptr".into(),
+            FunctionSig {
+                name: "__str_ptr".into(),
+                params: vec![("s".into(), string_ty)],
+                return_type: raw_ptr_ty,
+                kind: FunctionKind::Builtin,
+            },
+        );
 
-        self.functions.insert("__str_len".into(), FunctionSig {
-            name: "__str_len".into(),
-            params: vec![("s".into(), string_ty)],
-            return_type: u64_ty,
-            kind: FunctionKind::Builtin,
-        });
+        self.functions.insert(
+            "__str_len".into(),
+            FunctionSig {
+                name: "__str_len".into(),
+                params: vec![("s".into(), string_ty)],
+                return_type: u64_ty,
+                kind: FunctionKind::Builtin,
+            },
+        );
     }
 
     fn resolve_type(&mut self, ty: &Spanned<TypeExpr>) -> TypeId {
         match &ty.node {
             TypeExpr::Unit => self.types.unit(),
-            TypeExpr::Named(name) => {
-                match name.as_str() {
-                    "i32" => self.types.i32(),
-                    "i64" => self.types.i64(),
-                    "u64" => self.types.u64(),
-                    "bool" => self.types.bool(),
-                    "string" => self.types.string(),
-                    "RawPtr" => self.types.raw_ptr(),
-                    _ => {
-                        self.diagnostics.add(&CheckerDiagnostic::UnknownType {
-                            span: ty.span,
-                            name: name.clone(),
-                        });
-                        self.types.error()
-                    }
+            TypeExpr::Named(name) => match name.as_str() {
+                "i32" => self.types.i32(),
+                "i64" => self.types.i64(),
+                "u64" => self.types.u64(),
+                "bool" => self.types.bool(),
+                "string" => self.types.string(),
+                "RawPtr" => self.types.raw_ptr(),
+                _ => {
+                    self.diagnostics.add(&CheckerDiagnostic::UnknownType {
+                        span: ty.span,
+                        name: name.clone(),
+                    });
+                    self.types.error()
                 }
-            }
+            },
         }
     }
 
@@ -127,13 +131,17 @@ impl Checker {
 
     fn collect_item(&mut self, item: &SpannedItem) {
         match &item.node {
-            Item::FnDef { name, params, return_type, .. } => {
+            Item::FnDef {
+                name,
+                params,
+                return_type,
+                ..
+            } => {
                 if name == "main" {
                     self.found_main = true;
                     if !params.is_empty() || return_type.is_some() {
-                        self.diagnostics.add(&CheckerDiagnostic::InvalidMainSignature {
-                            span: item.span,
-                        });
+                        self.diagnostics
+                            .add(&CheckerDiagnostic::InvalidMainSignature { span: item.span });
                     }
                 }
 
@@ -145,20 +153,25 @@ impl Checker {
                     return;
                 }
 
-                let resolved_params: Vec<(String, TypeId)> = params.iter()
+                let resolved_params: Vec<(String, TypeId)> = params
+                    .iter()
                     .map(|p| (p.name.clone(), self.resolve_type(&p.ty)))
                     .collect();
 
-                let ret_ty = return_type.as_ref()
+                let ret_ty = return_type
+                    .as_ref()
                     .map(|t| self.resolve_type(t))
                     .unwrap_or_else(|| self.types.unit());
 
-                self.functions.insert(name.clone(), FunctionSig {
-                    name: name.clone(),
-                    params: resolved_params,
-                    return_type: ret_ty,
-                    kind: FunctionKind::UserDefined,
-                });
+                self.functions.insert(
+                    name.clone(),
+                    FunctionSig {
+                        name: name.clone(),
+                        params: resolved_params,
+                        return_type: ret_ty,
+                        kind: FunctionKind::UserDefined,
+                    },
+                );
             }
             Item::ExternBlock { items, .. } => {
                 for extern_fn in items {
@@ -172,20 +185,27 @@ impl Checker {
                         continue;
                     }
 
-                    let resolved_params: Vec<(String, TypeId)> = decl.params.iter()
+                    let resolved_params: Vec<(String, TypeId)> = decl
+                        .params
+                        .iter()
                         .map(|p| (p.name.clone(), self.resolve_type(&p.ty)))
                         .collect();
 
-                    let ret_ty = decl.return_type.as_ref()
+                    let ret_ty = decl
+                        .return_type
+                        .as_ref()
                         .map(|t| self.resolve_type(t))
                         .unwrap_or_else(|| self.types.unit());
 
-                    self.functions.insert(decl.name.clone(), FunctionSig {
-                        name: decl.name.clone(),
-                        params: resolved_params,
-                        return_type: ret_ty,
-                        kind: FunctionKind::Extern,
-                    });
+                    self.functions.insert(
+                        decl.name.clone(),
+                        FunctionSig {
+                            name: decl.name.clone(),
+                            params: resolved_params,
+                            return_type: ret_ty,
+                            kind: FunctionKind::Extern,
+                        },
+                    );
                 }
             }
         }
@@ -216,7 +236,9 @@ impl Checker {
 
     fn check_stmt(&mut self, stmt: &SpannedStmt, locals: &mut HashMap<String, TypeId>) {
         match &stmt.node {
-            Stmt::Expr(expr) => { self.check_expr(expr, locals); }
+            Stmt::Expr(expr) => {
+                self.check_expr(expr, locals);
+            }
             Stmt::Let { name, value, .. } => {
                 let ty = self.check_expr(value, locals);
                 locals.insert(name.clone(), ty);
@@ -251,11 +273,12 @@ impl Checker {
                     if let Some(sig) = sig {
                         // Check argument count
                         if args.len() != sig.params.len() {
-                            self.diagnostics.add(&CheckerDiagnostic::ArgumentCountMismatch {
-                                span: expr.span,
-                                expected: sig.params.len().to_string(),
-                                found: args.len().to_string(),
-                            });
+                            self.diagnostics
+                                .add(&CheckerDiagnostic::ArgumentCountMismatch {
+                                    span: expr.span,
+                                    expected: sig.params.len().to_string(),
+                                    found: args.len().to_string(),
+                                });
                         } else {
                             // Check argument types
                             for (i, arg) in args.iter().enumerate() {
@@ -322,13 +345,19 @@ mod tests {
 
     #[test]
     fn extern_functions_registered() {
-        let (checked, diags) = check_source(r#"
+        let (checked, diags) = check_source(
+            r#"
 extern {
     fn write(fd: i32, buf: RawPtr, count: u64) -> i64;
 }
 fn main() {}
-"#);
-        assert!(!diags.has_errors(), "unexpected errors: {:?}", diags.reports());
+"#,
+        );
+        assert!(
+            !diags.has_errors(),
+            "unexpected errors: {:?}",
+            diags.reports()
+        );
         assert!(checked.functions.contains_key("write"));
         let sig = &checked.functions["write"];
         assert_eq!(sig.kind, FunctionKind::Extern);
@@ -337,48 +366,75 @@ fn main() {}
 
     #[test]
     fn undefined_function_error() {
-        let (_, diags) = check_source(r#"
+        let (_, diags) = check_source(
+            r#"
 fn main() {
     foo();
 }
-"#);
+"#,
+        );
         assert!(diags.has_errors());
-        assert!(diags.reports().iter().any(|r| r.message.contains("undefined function 'foo'")));
+        assert!(
+            diags
+                .reports()
+                .iter()
+                .any(|r| r.message.contains("undefined function 'foo'"))
+        );
     }
 
     #[test]
     fn argument_count_mismatch() {
-        let (_, diags) = check_source(r#"
+        let (_, diags) = check_source(
+            r#"
 fn greet(s: string) {}
 fn main() {
     greet("a", "b");
 }
-"#);
+"#,
+        );
         assert!(diags.has_errors());
-        assert!(diags.reports().iter().any(|r| r.message.contains("argument")));
+        assert!(
+            diags
+                .reports()
+                .iter()
+                .any(|r| r.message.contains("argument"))
+        );
     }
 
     #[test]
     fn type_mismatch() {
-        let (_, diags) = check_source(r#"
+        let (_, diags) = check_source(
+            r#"
 fn greet(s: string) {}
 fn main() {
     greet(42);
 }
-"#);
+"#,
+        );
         assert!(diags.has_errors());
-        assert!(diags.reports().iter().any(|r| r.message.contains("type mismatch")));
+        assert!(
+            diags
+                .reports()
+                .iter()
+                .any(|r| r.message.contains("type mismatch"))
+        );
     }
 
     #[test]
     fn builtins_recognized() {
-        let (checked, diags) = check_source(r#"
+        let (checked, diags) = check_source(
+            r#"
 fn main() {
     __str_ptr("hello");
     __str_len("hello");
 }
-"#);
-        assert!(!diags.has_errors(), "unexpected errors: {:?}", diags.reports());
+"#,
+        );
+        assert!(
+            !diags.has_errors(),
+            "unexpected errors: {:?}",
+            diags.reports()
+        );
         assert!(checked.functions.contains_key("__str_ptr"));
         assert!(checked.functions.contains_key("__str_len"));
         assert_eq!(checked.functions["__str_ptr"].kind, FunctionKind::Builtin);
@@ -388,18 +444,29 @@ fn main() {
     fn main_validation_preserved() {
         let (_, diags) = check_source("fn foo() {}");
         assert!(diags.has_errors());
-        assert!(diags.reports().iter().any(|r| r.message.contains("no 'main' function")));
+        assert!(
+            diags
+                .reports()
+                .iter()
+                .any(|r| r.message.contains("no 'main' function"))
+        );
     }
 
     #[test]
     fn user_defined_function_registered() {
-        let (checked, diags) = check_source(r#"
+        let (checked, diags) = check_source(
+            r#"
 fn print(s: string) {}
 fn main() {
     print("hello");
 }
-"#);
-        assert!(!diags.has_errors(), "unexpected errors: {:?}", diags.reports());
+"#,
+        );
+        assert!(
+            !diags.has_errors(),
+            "unexpected errors: {:?}",
+            diags.reports()
+        );
         assert!(checked.functions.contains_key("print"));
         let sig = &checked.functions["print"];
         assert_eq!(sig.kind, FunctionKind::UserDefined);
@@ -408,28 +475,43 @@ fn main() {
 
     #[test]
     fn duplicate_function_error() {
-        let (_, diags) = check_source(r#"
+        let (_, diags) = check_source(
+            r#"
 fn foo() {}
 fn foo() {}
 fn main() {}
-"#);
+"#,
+        );
         assert!(diags.has_errors());
-        assert!(diags.reports().iter().any(|r| r.message.contains("duplicate function")));
+        assert!(
+            diags
+                .reports()
+                .iter()
+                .any(|r| r.message.contains("duplicate function"))
+        );
     }
 
     #[test]
     fn unknown_type_error() {
-        let (_, diags) = check_source(r#"
+        let (_, diags) = check_source(
+            r#"
 fn foo(x: Blah) {}
 fn main() {}
-"#);
+"#,
+        );
         assert!(diags.has_errors());
-        assert!(diags.reports().iter().any(|r| r.message.contains("unknown type")));
+        assert!(
+            diags
+                .reports()
+                .iter()
+                .any(|r| r.message.contains("unknown type"))
+        );
     }
 
     #[test]
     fn target_program_passes() {
-        let (checked, diags) = check_source(r#"
+        let (checked, diags) = check_source(
+            r#"
 extern {
     fn write(fd: i32, buf: RawPtr, count: u64) -> i64;
 }
@@ -446,8 +528,13 @@ fn println(s: string) {
 fn main() {
     println("Hello, world!");
 }
-"#);
-        assert!(!diags.has_errors(), "unexpected errors: {:?}", diags.reports());
+"#,
+        );
+        assert!(
+            !diags.has_errors(),
+            "unexpected errors: {:?}",
+            diags.reports()
+        );
         assert_eq!(checked.functions["write"].kind, FunctionKind::Extern);
         assert_eq!(checked.functions["print"].kind, FunctionKind::UserDefined);
         assert_eq!(checked.functions["println"].kind, FunctionKind::UserDefined);

@@ -91,7 +91,9 @@ fn check_stdout(annotations: &TestAnnotations, result: &RunResult, failures: &mu
         let actual = result.stdout.trim_end();
 
         if actual != expected {
-            failures.push(format!("stdout mismatch:\n  expected: {expected}\n  actual:   {actual}"));
+            failures.push(format!(
+                "stdout mismatch:\n  expected: {expected}\n  actual:   {actual}"
+            ));
         }
     }
 

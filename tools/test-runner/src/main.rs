@@ -10,12 +10,15 @@ use std::time::Duration;
 use clap::Parser;
 
 use discovery::{discover_tests, filter_tests};
-use outcome::{evaluate, TestOutcome};
-use report::{print_summary, print_test_list, print_test_result, TestReport};
+use outcome::{TestOutcome, evaluate};
+use report::{TestReport, print_summary, print_test_list, print_test_result};
 use runner::run_test_with_timeout;
 
 #[derive(Parser)]
-#[command(name = "nudl-test", about = "End-to-end test runner for the nudl compiler")]
+#[command(
+    name = "nudl-test",
+    about = "End-to-end test runner for the nudl compiler"
+)]
 struct Cli {
     /// Substring filter(s) on test names (e.g. "functions" or "core-types/integers")
     filters: Vec<String>,

@@ -90,7 +90,9 @@ impl DiagnosticBag {
     }
 
     pub fn has_errors(&self) -> bool {
-        self.reports.iter().any(|r| r.info.severity == Severity::Error)
+        self.reports
+            .iter()
+            .any(|r| r.info.severity == Severity::Error)
     }
 
     pub fn reports(&self) -> &[DiagnosticReport] {

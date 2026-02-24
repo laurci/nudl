@@ -248,7 +248,13 @@ impl Parser {
         let end = self.expect(TokenKind::RBrace)?.span;
 
         // For simplicity in POC: no tail expression handling
-        Some(Spanned::new(Block { stmts, tail_expr: None }, start.merge(end)))
+        Some(Spanned::new(
+            Block {
+                stmts,
+                tail_expr: None,
+            },
+            start.merge(end),
+        ))
     }
 
     fn parse_stmt(&mut self) -> Option<SpannedStmt> {
@@ -285,7 +291,12 @@ impl Parser {
         self.eat(TokenKind::Semi);
 
         Some(Spanned::new(
-            Stmt::Let { name, ty, value, is_mut },
+            Stmt::Let {
+                name,
+                ty,
+                value,
+                is_mut,
+            },
             start.merge(end),
         ))
     }
@@ -324,15 +335,24 @@ impl Parser {
         match self.peek_kind() {
             TokenKind::IntLiteral => {
                 let tok = self.advance().clone();
-                Some(Spanned::new(Expr::Literal(Literal::Int(tok.text.clone())), tok.span))
+                Some(Spanned::new(
+                    Expr::Literal(Literal::Int(tok.text.clone())),
+                    tok.span,
+                ))
             }
             TokenKind::FloatLiteral => {
                 let tok = self.advance().clone();
-                Some(Spanned::new(Expr::Literal(Literal::Float(tok.text.clone())), tok.span))
+                Some(Spanned::new(
+                    Expr::Literal(Literal::Float(tok.text.clone())),
+                    tok.span,
+                ))
             }
             TokenKind::StringLiteral => {
                 let tok = self.advance().clone();
-                Some(Spanned::new(Expr::Literal(Literal::String(tok.text.clone())), tok.span))
+                Some(Spanned::new(
+                    Expr::Literal(Literal::String(tok.text.clone())),
+                    tok.span,
+                ))
             }
             TokenKind::CharLiteral => {
                 let tok = self.advance().clone();
@@ -382,7 +402,10 @@ impl Parser {
         let mut args = Vec::new();
         while self.peek_kind() != TokenKind::RParen && !self.at_eof() {
             if let Some(expr) = self.parse_expr() {
-                args.push(CallArg { name: None, value: expr });
+                args.push(CallArg {
+                    name: None,
+                    value: expr,
+                });
             }
             if !self.eat(TokenKind::Comma) {
                 break;
@@ -400,20 +423,35 @@ mod tests {
 
     fn parse(source: &str) -> Module {
         let (tokens, lex_diags) = Lexer::new(source, FileId(0)).tokenize();
-        assert!(!lex_diags.has_errors(), "lex errors: {:?}", lex_diags.reports());
+        assert!(
+            !lex_diags.has_errors(),
+            "lex errors: {:?}",
+            lex_diags.reports()
+        );
         let (module, parse_diags) = Parser::new(tokens).parse_module();
-        assert!(!parse_diags.has_errors(), "parse errors: {:?}", parse_diags.reports());
+        assert!(
+            !parse_diags.has_errors(),
+            "parse errors: {:?}",
+            parse_diags.reports()
+        );
         module
     }
 
     #[test]
     fn parse_hello_world() {
-        let module = parse(r#"fn main() {
+        let module = parse(
+            r#"fn main() {
     println("Hello, world!");
-}"#);
+}"#,
+        );
         assert_eq!(module.items.len(), 1);
         match &module.items[0].node {
-            Item::FnDef { name, params, return_type, .. } => {
+            Item::FnDef {
+                name,
+                params,
+                return_type,
+                ..
+            } => {
                 assert_eq!(name, "main");
                 assert!(params.is_empty());
                 assert!(return_type.is_none());
@@ -426,7 +464,12 @@ mod tests {
     fn parse_fn_with_params_and_return() {
         let module = parse("fn add(a: i32, b: i32) -> i32 { a }");
         match &module.items[0].node {
-            Item::FnDef { name, params, return_type, .. } => {
+            Item::FnDef {
+                name,
+                params,
+                return_type,
+                ..
+            } => {
                 assert_eq!(name, "add");
                 assert_eq!(params.len(), 2);
                 assert_eq!(params[0].name, "a");
@@ -439,9 +482,11 @@ mod tests {
 
     #[test]
     fn parse_extern_block() {
-        let module = parse(r#"extern "C" {
+        let module = parse(
+            r#"extern "C" {
     fn write(fd: i32, buf: RawPtr, len: u64) -> i64;
-}"#);
+}"#,
+        );
         match &module.items[0].node {
             Item::ExternBlock { library, items } => {
                 assert_eq!(library.as_deref(), Some("C"));

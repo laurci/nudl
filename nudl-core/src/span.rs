@@ -22,7 +22,11 @@ impl std::fmt::Debug for Span {
 
 impl Span {
     pub fn new(file_id: FileId, start: u32, end: u32) -> Self {
-        Self { file_id, start, end }
+        Self {
+            file_id,
+            start,
+            end,
+        }
     }
 
     pub fn dummy() -> Self {

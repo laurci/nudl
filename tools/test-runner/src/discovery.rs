@@ -22,7 +22,10 @@ pub fn discover_tests(tests_dir: &Path) -> Vec<TestCase> {
     let mut tests = Vec::new();
 
     let Ok(categories) = fs::read_dir(tests_dir) else {
-        eprintln!("warning: cannot read tests directory: {}", tests_dir.display());
+        eprintln!(
+            "warning: cannot read tests directory: {}",
+            tests_dir.display()
+        );
         return tests;
     };
 

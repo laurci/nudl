@@ -1,16 +1,16 @@
 use std::path::Path;
 
-use nudl_core::diagnostic::DiagnosticBag;
-use nudl_core::source::SourceMap;
 use nudl_ast::ast::*;
 use nudl_ast::lexer::Lexer;
 use nudl_ast::parser::Parser;
+use nudl_backend_arm64::codegen::{Codegen, CodegenResult};
 use nudl_bc::checker::Checker;
 use nudl_bc::ir::*;
 use nudl_bc::lower::Lowerer;
-use nudl_vm::Vm;
-use nudl_backend_arm64::codegen::{Codegen, CodegenResult};
+use nudl_core::diagnostic::DiagnosticBag;
+use nudl_core::source::SourceMap;
 use nudl_packer_macho::packer;
+use nudl_vm::Vm;
 
 #[derive(Default)]
 pub struct DumpOptions {
@@ -32,7 +32,10 @@ pub fn check(source_path: &Path, dump: &DumpOptions) -> PipelineResult {
         Ok(c) => c,
         Err(e) => {
             eprintln!("error: could not read '{}': {}", source_path.display(), e);
-            return PipelineResult { source_map, diagnostics };
+            return PipelineResult {
+                source_map,
+                diagnostics,
+            };
         }
     };
 
@@ -41,13 +44,19 @@ pub fn check(source_path: &Path, dump: &DumpOptions) -> PipelineResult {
     let (tokens, lex_diags) = Lexer::new(&content, file_id).tokenize();
     diagnostics.merge(lex_diags);
     if diagnostics.has_errors() {
-        return PipelineResult { source_map, diagnostics };
+        return PipelineResult {
+            source_map,
+            diagnostics,
+        };
     }
 
     let (module, parse_diags) = Parser::new(tokens).parse_module();
     diagnostics.merge(parse_diags);
     if diagnostics.has_errors() {
-        return PipelineResult { source_map, diagnostics };
+        return PipelineResult {
+            source_map,
+            diagnostics,
+        };
     }
 
     if dump.dump_ast {
@@ -62,7 +71,10 @@ pub fn check(source_path: &Path, dump: &DumpOptions) -> PipelineResult {
         eprintln!("{}", fmt_ir(&program));
     }
 
-    PipelineResult { source_map, diagnostics }
+    PipelineResult {
+        source_map,
+        diagnostics,
+    }
 }
 
 pub struct CompileResult {
@@ -79,7 +91,11 @@ pub fn build(source_path: &Path, output_path: &Path, dump: &DumpOptions) -> Comp
         Ok(c) => c,
         Err(e) => {
             eprintln!("error: could not read '{}': {}", source_path.display(), e);
-            return CompileResult { source_map, diagnostics, success: false };
+            return CompileResult {
+                source_map,
+                diagnostics,
+                success: false,
+            };
         }
     };
 
@@ -88,13 +104,21 @@ pub fn build(source_path: &Path, output_path: &Path, dump: &DumpOptions) -> Comp
     let (tokens, lex_diags) = Lexer::new(&content, file_id).tokenize();
     diagnostics.merge(lex_diags);
     if diagnostics.has_errors() {
-        return CompileResult { source_map, diagnostics, success: false };
+        return CompileResult {
+            source_map,
+            diagnostics,
+            success: false,
+        };
     }
 
     let (module, parse_diags) = Parser::new(tokens).parse_module();
     diagnostics.merge(parse_diags);
     if diagnostics.has_errors() {
-        return CompileResult { source_map, diagnostics, success: false };
+        return CompileResult {
+            source_map,
+            diagnostics,
+            success: false,
+        };
     }
 
     if dump.dump_ast {
@@ -104,7 +128,11 @@ pub fn build(source_path: &Path, output_path: &Path, dump: &DumpOptions) -> Comp
     let (checked, check_diags) = Checker::new().check(&module);
     diagnostics.merge(check_diags);
     if diagnostics.has_errors() {
-        return CompileResult { source_map, diagnostics, success: false };
+        return CompileResult {
+            source_map,
+            diagnostics,
+            success: false,
+        };
     }
 
     let program = Lowerer::new(checked).lower(&module);
@@ -120,10 +148,18 @@ pub fn build(source_path: &Path, output_path: &Path, dump: &DumpOptions) -> Comp
     }
 
     match packer::pack(&codegen_result, output_path) {
-        Ok(()) => CompileResult { source_map, diagnostics, success: true },
+        Ok(()) => CompileResult {
+            source_map,
+            diagnostics,
+            success: true,
+        },
         Err(e) => {
             eprintln!("error: {}", e);
-            CompileResult { source_map, diagnostics, success: false }
+            CompileResult {
+                source_map,
+                diagnostics,
+                success: false,
+            }
         }
     }
 }
@@ -136,7 +172,11 @@ pub fn run_vm(source_path: &Path, dump: &DumpOptions) -> CompileResult {
         Ok(c) => c,
         Err(e) => {
             eprintln!("error: could not read '{}': {}", source_path.display(), e);
-            return CompileResult { source_map, diagnostics, success: false };
+            return CompileResult {
+                source_map,
+                diagnostics,
+                success: false,
+            };
         }
     };
 
@@ -145,13 +185,21 @@ pub fn run_vm(source_path: &Path, dump: &DumpOptions) -> CompileResult {
     let (tokens, lex_diags) = Lexer::new(&content, file_id).tokenize();
     diagnostics.merge(lex_diags);
     if diagnostics.has_errors() {
-        return CompileResult { source_map, diagnostics, success: false };
+        return CompileResult {
+            source_map,
+            diagnostics,
+            success: false,
+        };
     }
 
     let (module, parse_diags) = Parser::new(tokens).parse_module();
     diagnostics.merge(parse_diags);
     if diagnostics.has_errors() {
-        return CompileResult { source_map, diagnostics, success: false };
+        return CompileResult {
+            source_map,
+            diagnostics,
+            success: false,
+        };
     }
 
     if dump.dump_ast {
@@ -161,7 +209,11 @@ pub fn run_vm(source_path: &Path, dump: &DumpOptions) -> CompileResult {
     let (checked, check_diags) = Checker::new().check(&module);
     diagnostics.merge(check_diags);
     if diagnostics.has_errors() {
-        return CompileResult { source_map, diagnostics, success: false };
+        return CompileResult {
+            source_map,
+            diagnostics,
+            success: false,
+        };
     }
 
     let program = Lowerer::new(checked).lower(&module);
@@ -172,10 +224,18 @@ pub fn run_vm(source_path: &Path, dump: &DumpOptions) -> CompileResult {
 
     let mut vm = Vm::new();
     match vm.run(&program) {
-        Ok(_) => CompileResult { source_map, diagnostics, success: true },
+        Ok(_) => CompileResult {
+            source_map,
+            diagnostics,
+            success: true,
+        },
         Err(e) => {
             eprintln!("vm error: {}", e);
-            CompileResult { source_map, diagnostics, success: false }
+            CompileResult {
+                source_map,
+                diagnostics,
+                success: false,
+            }
         }
     }
 }
@@ -199,17 +259,31 @@ fn indent(out: &mut String, level: usize) {
 
 fn fmt_ast_item(item: &Item, out: &mut String, level: usize) {
     match item {
-        Item::FnDef { name, params, return_type, body, is_pub } => {
+        Item::FnDef {
+            name,
+            params,
+            return_type,
+            body,
+            is_pub,
+        } => {
             indent(out, level);
-            if *is_pub { out.push_str("pub "); }
+            if *is_pub {
+                out.push_str("pub ");
+            }
             out.push_str(&format!("FnDef \"{}\" (", name));
             for (i, p) in params.iter().enumerate() {
-                if i > 0 { out.push_str(", "); }
+                if i > 0 {
+                    out.push_str(", ");
+                }
                 out.push_str(&format!("{}: {}", p.name, fmt_type_expr(&p.ty.node)));
             }
-            out.push_str(&format!(") -> {}:\n", return_type.as_ref()
-                .map(|t| fmt_type_expr(&t.node))
-                .unwrap_or_else(|| "()".into())));
+            out.push_str(&format!(
+                ") -> {}:\n",
+                return_type
+                    .as_ref()
+                    .map(|t| fmt_type_expr(&t.node))
+                    .unwrap_or_else(|| "()".into())
+            ));
             fmt_ast_block(&body.node, out, level + 1);
         }
         Item::ExternBlock { library, items } => {
@@ -224,12 +298,18 @@ fn fmt_ast_item(item: &Item, out: &mut String, level: usize) {
                 let decl = &item.node;
                 out.push_str(&format!("ExternFn \"{}\" (", decl.name));
                 for (i, p) in decl.params.iter().enumerate() {
-                    if i > 0 { out.push_str(", "); }
+                    if i > 0 {
+                        out.push_str(", ");
+                    }
                     out.push_str(&format!("{}: {}", p.name, fmt_type_expr(&p.ty.node)));
                 }
-                out.push_str(&format!(") -> {}\n", decl.return_type.as_ref()
-                    .map(|t| fmt_type_expr(&t.node))
-                    .unwrap_or_else(|| "()".into())));
+                out.push_str(&format!(
+                    ") -> {}\n",
+                    decl.return_type
+                        .as_ref()
+                        .map(|t| fmt_type_expr(&t.node))
+                        .unwrap_or_else(|| "()".into())
+                ));
             }
         }
     }
@@ -251,10 +331,17 @@ fn fmt_ast_stmt(stmt: &Stmt, out: &mut String, level: usize) {
             fmt_ast_expr(&expr.node, out, level);
             out.push('\n');
         }
-        Stmt::Let { name, ty, value, is_mut } => {
+        Stmt::Let {
+            name,
+            ty,
+            value,
+            is_mut,
+        } => {
             indent(out, level);
             out.push_str("Let ");
-            if *is_mut { out.push_str("mut "); }
+            if *is_mut {
+                out.push_str("mut ");
+            }
             out.push_str(name);
             if let Some(t) = ty {
                 out.push_str(&format!(": {}", fmt_type_expr(&t.node)));
@@ -271,15 +358,13 @@ fn fmt_ast_stmt(stmt: &Stmt, out: &mut String, level: usize) {
 
 fn fmt_ast_expr(expr: &Expr, out: &mut String, level: usize) {
     match expr {
-        Expr::Literal(lit) => {
-            match lit {
-                Literal::String(s) => out.push_str(&format!("Literal(String {:?})", s)),
-                Literal::Int(s) => out.push_str(&format!("Literal(Int {})", s)),
-                Literal::Float(s) => out.push_str(&format!("Literal(Float {})", s)),
-                Literal::Bool(b) => out.push_str(&format!("Literal(Bool {})", b)),
-                Literal::Char(c) => out.push_str(&format!("Literal(Char {:?})", c)),
-            }
-        }
+        Expr::Literal(lit) => match lit {
+            Literal::String(s) => out.push_str(&format!("Literal(String {:?})", s)),
+            Literal::Int(s) => out.push_str(&format!("Literal(Int {})", s)),
+            Literal::Float(s) => out.push_str(&format!("Literal(Float {})", s)),
+            Literal::Bool(b) => out.push_str(&format!("Literal(Bool {})", b)),
+            Literal::Char(c) => out.push_str(&format!("Literal(Char {:?})", c)),
+        },
         Expr::Ident(name) => {
             out.push_str(&format!("Ident \"{}\"", name));
         }
@@ -333,7 +418,9 @@ fn fmt_ir(program: &Program) -> String {
         if func.is_extern {
             out.push_str(&format!("function {}(", func_name));
             for (i, (pname, _pty)) in func.params.iter().enumerate() {
-                if i > 0 { out.push_str(", "); }
+                if i > 0 {
+                    out.push_str(", ");
+                }
                 out.push_str(&format!("{}", program.interner.resolve(*pname)));
             }
             out.push(')');
@@ -344,7 +431,9 @@ fn fmt_ir(program: &Program) -> String {
         } else {
             out.push_str(&format!("function {}(", func_name));
             for (i, (_pname, _pty)) in func.params.iter().enumerate() {
-                if i > 0 { out.push_str(", "); }
+                if i > 0 {
+                    out.push_str(", ");
+                }
                 out.push_str(&format!("r{}", i));
             }
             out.push_str("):\n");
@@ -367,7 +456,11 @@ fn fmt_ir(program: &Program) -> String {
     out
 }
 
-fn fmt_instruction(inst: &Instruction, out: &mut String, interner: &nudl_core::intern::StringInterner) {
+fn fmt_instruction(
+    inst: &Instruction,
+    out: &mut String,
+    interner: &nudl_core::intern::StringInterner,
+) {
     match inst {
         Instruction::Const(reg, val) => {
             out.push_str(&format!("r{} = Const(", reg.0));
@@ -399,13 +492,21 @@ fn fmt_instruction(inst: &Instruction, out: &mut String, interner: &nudl_core::i
         Instruction::Call(dst, func_ref, args) => {
             out.push_str(&format!("r{} = Call(", dst.0));
             match func_ref {
-                FunctionRef::Named(sym) => out.push_str(&format!("Named(\"{}\")", interner.resolve(*sym))),
-                FunctionRef::Extern(sym) => out.push_str(&format!("Extern(\"{}\")", interner.resolve(*sym))),
-                FunctionRef::Builtin(sym) => out.push_str(&format!("Builtin(\"{}\")", interner.resolve(*sym))),
+                FunctionRef::Named(sym) => {
+                    out.push_str(&format!("Named(\"{}\")", interner.resolve(*sym)))
+                }
+                FunctionRef::Extern(sym) => {
+                    out.push_str(&format!("Extern(\"{}\")", interner.resolve(*sym)))
+                }
+                FunctionRef::Builtin(sym) => {
+                    out.push_str(&format!("Builtin(\"{}\")", interner.resolve(*sym)))
+                }
             }
             out.push_str(", [");
             for (i, r) in args.iter().enumerate() {
-                if i > 0 { out.push_str(", "); }
+                if i > 0 {
+                    out.push_str(", ");
+                }
                 out.push_str(&format!("r{}", r.0));
             }
             out.push_str("])");
@@ -423,7 +524,9 @@ fn fmt_terminator(term: &Terminator, out: &mut String) {
     match term {
         Terminator::Return(reg) => out.push_str(&format!("Return(r{})", reg.0)),
         Terminator::Jump(block) => out.push_str(&format!("Jump(b{})", block.0)),
-        Terminator::Branch(cond, t, f) => out.push_str(&format!("Branch(r{}, b{}, b{})", cond.0, t.0, f.0)),
+        Terminator::Branch(cond, t, f) => {
+            out.push_str(&format!("Branch(r{}, b{}, b{})", cond.0, t.0, f.0))
+        }
         Terminator::Unreachable => out.push_str("Unreachable"),
     }
 }
@@ -455,8 +558,10 @@ fn fmt_asm(codegen: &CodegenResult) -> String {
     out.push_str(".text:\n");
     for func_sym in &codegen.function_symbols {
         let entry_marker = if func_sym.is_entry { " [entry]" } else { "" };
-        out.push_str(&format!("  {} (offset 0x{:x}, {} bytes){}:\n",
-            func_sym.name, func_sym.offset, func_sym.size, entry_marker));
+        out.push_str(&format!(
+            "  {} (offset 0x{:x}, {} bytes){}:\n",
+            func_sym.name, func_sym.offset, func_sym.size, entry_marker
+        ));
 
         let start = func_sym.offset as usize;
         let end = start + func_sym.size as usize;
@@ -466,16 +571,24 @@ fn fmt_asm(codegen: &CodegenResult) -> String {
             if chunk.len() == 4 {
                 let word = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
                 let offset = func_sym.offset + (i * 4) as u32;
-                out.push_str(&format!("    {:04x}: {:02x} {:02x} {:02x} {:02x}  {}",
-                    offset, chunk[0], chunk[1], chunk[2], chunk[3],
-                    disasm_arm64(word)));
+                out.push_str(&format!(
+                    "    {:04x}: {:02x} {:02x} {:02x} {:02x}  {}",
+                    offset,
+                    chunk[0],
+                    chunk[1],
+                    chunk[2],
+                    chunk[3],
+                    disasm_arm64(word)
+                ));
 
                 // Annotate relocations at this offset
                 for reloc in &codegen.relocations {
                     if reloc.offset == offset {
                         let target_str = match &reloc.target {
                             nudl_backend_arm64::codegen::RelocTarget::DataSection(off) => {
-                                let str_idx = codegen.string_offsets.iter()
+                                let str_idx = codegen
+                                    .string_offsets
+                                    .iter()
                                     .position(|&(o, _)| o == *off)
                                     .map(|i| format!("str[{}]", i))
                                     .unwrap_or_else(|| format!("data+0x{:x}", off));
@@ -516,7 +629,10 @@ fn fmt_asm(codegen: &CodegenResult) -> String {
                     format!("extern {}", codegen.extern_symbols[*idx])
                 }
             };
-            out.push_str(&format!("  0x{:04x}: {:10} -> {}\n", reloc.offset, kind_str, target_str));
+            out.push_str(&format!(
+                "  0x{:04x}: {:10} -> {}\n",
+                reloc.offset, kind_str, target_str
+            ));
         }
     }
 

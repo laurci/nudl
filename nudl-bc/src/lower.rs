@@ -46,7 +46,10 @@ impl Lowerer {
 
         // Pass 2: Lower user-defined functions
         for item in &module.items {
-            if let Item::FnDef { name, params, body, .. } = &item.node {
+            if let Item::FnDef {
+                name, params, body, ..
+            } = &item.node
+            {
                 let func = self.lower_function(name, params, body);
                 if name == "main" {
                     entry_function = Some(func.id);
@@ -71,7 +74,9 @@ impl Lowerer {
 
         let sig = self.function_sigs.get(name).unwrap().clone();
 
-        let params: Vec<(nudl_core::intern::Symbol, nudl_core::types::TypeId)> = sig.params.iter()
+        let params: Vec<(nudl_core::intern::Symbol, nudl_core::types::TypeId)> = sig
+            .params
+            .iter()
             .map(|(pname, pty)| (self.interner.intern(pname), *pty))
             .collect();
 
@@ -87,14 +92,21 @@ impl Lowerer {
         }
     }
 
-    fn lower_function(&mut self, name: &str, params: &[Param], body: &nudl_core::span::Spanned<Block>) -> Function {
+    fn lower_function(
+        &mut self,
+        name: &str,
+        params: &[Param],
+        body: &nudl_core::span::Spanned<Block>,
+    ) -> Function {
         let id = FunctionId(self.next_function_id);
         self.next_function_id += 1;
         let name_sym = self.interner.intern(name);
 
         let sig = self.function_sigs.get(name).unwrap().clone();
 
-        let ir_params: Vec<(nudl_core::intern::Symbol, nudl_core::types::TypeId)> = sig.params.iter()
+        let ir_params: Vec<(nudl_core::intern::Symbol, nudl_core::types::TypeId)> = sig
+            .params
+            .iter()
             .map(|(pname, pty)| (self.interner.intern(pname), *pty))
             .collect();
 
@@ -167,7 +179,9 @@ impl<'a> FunctionLowerCtx<'a> {
 
     fn lower_stmt(&mut self, stmt: &nudl_core::span::Spanned<Stmt>) {
         match &stmt.node {
-            Stmt::Expr(expr) => { self.lower_expr(expr); }
+            Stmt::Expr(expr) => {
+                self.lower_expr(expr);
+            }
             Stmt::Let { name, value, .. } => {
                 let reg = self.lower_expr(value);
                 self.locals.insert(name.clone(), reg);
@@ -204,20 +218,23 @@ impl<'a> FunctionLowerCtx<'a> {
                     idx
                 };
                 let reg = self.alloc_register();
-                self.instructions.push(Instruction::Const(reg, ConstValue::StringLiteral(idx)));
+                self.instructions
+                    .push(Instruction::Const(reg, ConstValue::StringLiteral(idx)));
                 reg
             }
 
             Expr::Literal(Literal::Int(s)) => {
                 let val: i32 = s.parse().unwrap_or(0);
                 let reg = self.alloc_register();
-                self.instructions.push(Instruction::Const(reg, ConstValue::I32(val)));
+                self.instructions
+                    .push(Instruction::Const(reg, ConstValue::I32(val)));
                 reg
             }
 
             Expr::Literal(Literal::Bool(b)) => {
                 let reg = self.alloc_register();
-                self.instructions.push(Instruction::Const(reg, ConstValue::Bool(*b)));
+                self.instructions
+                    .push(Instruction::Const(reg, ConstValue::Bool(*b)));
                 reg
             }
 
@@ -232,9 +249,7 @@ impl<'a> FunctionLowerCtx<'a> {
                 }
             }
 
-            Expr::Return(Some(inner)) => {
-                self.lower_expr(inner)
-            }
+            Expr::Return(Some(inner)) => self.lower_expr(inner),
 
             _ => {
                 let reg = self.alloc_register();
@@ -268,9 +283,7 @@ impl<'a> FunctionLowerCtx<'a> {
 
     fn lower_generic_call(&mut self, name: &str, args: &[CallArg], is_extern: bool) -> Register {
         // Lower all arguments
-        let arg_regs: Vec<Register> = args.iter()
-            .map(|arg| self.lower_expr(&arg.value))
-            .collect();
+        let arg_regs: Vec<Register> = args.iter().map(|arg| self.lower_expr(&arg.value)).collect();
 
         let sym = self.interner.intern(name);
 
@@ -281,7 +294,8 @@ impl<'a> FunctionLowerCtx<'a> {
         };
 
         let dst = self.alloc_register();
-        self.instructions.push(Instruction::Call(dst, func_ref, arg_regs));
+        self.instructions
+            .push(Instruction::Call(dst, func_ref, arg_regs));
         dst
     }
 }
@@ -289,10 +303,10 @@ impl<'a> FunctionLowerCtx<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::checker::Checker;
     use nudl_ast::lexer::Lexer;
     use nudl_ast::parser::Parser;
     use nudl_core::span::FileId;
-    use crate::checker::Checker;
 
     fn lower_source(source: &str) -> Program {
         let (tokens, _) = Lexer::new(source, FileId(0)).tokenize();
@@ -304,7 +318,8 @@ mod tests {
 
     #[test]
     fn lower_target_program() {
-        let program = lower_source(r#"
+        let program = lower_source(
+            r#"
 extern {
     fn write(fd: i32, buf: RawPtr, count: u64) -> i64;
 }
@@ -321,10 +336,16 @@ fn println(s: string) {
 fn main() {
     println("Hello, world!");
 }
-"#);
+"#,
+        );
 
         // 4 functions: write (extern), print, println, main
-        assert_eq!(program.functions.len(), 4, "expected 4 functions, got {}", program.functions.len());
+        assert_eq!(
+            program.functions.len(),
+            4,
+            "expected 4 functions, got {}",
+            program.functions.len()
+        );
 
         // write should be extern
         let write_fn = &program.functions[0];
@@ -332,10 +353,18 @@ fn main() {
         assert_eq!(write_fn.extern_symbol.as_deref(), Some("write"));
 
         // String constants should include "Hello, world!" and "\n"
-        assert!(program.string_constants.contains(&"Hello, world!".to_string()),
-            "missing 'Hello, world!' in {:?}", program.string_constants);
-        assert!(program.string_constants.contains(&"\n".to_string()),
-            "missing '\\n' in {:?}", program.string_constants);
+        assert!(
+            program
+                .string_constants
+                .contains(&"Hello, world!".to_string()),
+            "missing 'Hello, world!' in {:?}",
+            program.string_constants
+        );
+        assert!(
+            program.string_constants.contains(&"\n".to_string()),
+            "missing '\\n' in {:?}",
+            program.string_constants
+        );
 
         // Entry function should be main
         assert!(program.entry_function.is_some());
@@ -345,19 +374,27 @@ fn main() {
         assert!(!print_fn.is_extern);
         assert_eq!(print_fn.params.len(), 1);
         let block = &print_fn.blocks[0];
-        let has_str_ptr = block.instructions.iter().any(|i| matches!(i, Instruction::StringPtr(_, _)));
-        let has_str_len = block.instructions.iter().any(|i| matches!(i, Instruction::StringLen(_, _)));
+        let has_str_ptr = block
+            .instructions
+            .iter()
+            .any(|i| matches!(i, Instruction::StringPtr(_, _)));
+        let has_str_len = block
+            .instructions
+            .iter()
+            .any(|i| matches!(i, Instruction::StringLen(_, _)));
         assert!(has_str_ptr, "print should have StringPtr instruction");
         assert!(has_str_len, "print should have StringLen instruction");
     }
 
     #[test]
     fn lower_has_return() {
-        let program = lower_source(r#"
+        let program = lower_source(
+            r#"
 fn main() {
     __str_ptr("hi");
 }
-"#);
+"#,
+        );
         let main_func = program.functions.iter().find(|f| !f.is_extern).unwrap();
         let block = &main_func.blocks[0];
         assert!(matches!(block.terminator, Terminator::Return(_)));
@@ -365,12 +402,14 @@ fn main() {
 
     #[test]
     fn extern_function_lowered() {
-        let program = lower_source(r#"
+        let program = lower_source(
+            r#"
 extern {
     fn write(fd: i32, buf: RawPtr, count: u64) -> i64;
 }
 fn main() {}
-"#);
+"#,
+        );
         let write_fn = program.functions.iter().find(|f| f.is_extern).unwrap();
         assert!(write_fn.blocks.is_empty());
         assert_eq!(write_fn.extern_symbol.as_deref(), Some("write"));
@@ -378,12 +417,14 @@ fn main() {}
 
     #[test]
     fn params_assigned_to_registers() {
-        let program = lower_source(r#"
+        let program = lower_source(
+            r#"
 fn greet(s: string) {}
 fn main() {
     greet("hello");
 }
-"#);
+"#,
+        );
         let greet_fn = &program.functions[0];
         assert_eq!(greet_fn.params.len(), 1);
         // param register 0 is used (next_register starts at 1 for the body)
@@ -391,13 +432,22 @@ fn main() {
 
     #[test]
     fn string_dedup() {
-        let program = lower_source(r#"
+        let program = lower_source(
+            r#"
 fn main() {
     __str_ptr("same");
     __str_ptr("same");
 }
-"#);
+"#,
+        );
         // "same" should appear only once
-        assert_eq!(program.string_constants.iter().filter(|s| *s == "same").count(), 1);
+        assert_eq!(
+            program
+                .string_constants
+                .iter()
+                .filter(|s| *s == "same")
+                .count(),
+            1
+        );
     }
 }

@@ -1,4 +1,4 @@
-use nudl_core::intern::{Symbol, StringInterner};
+use nudl_core::intern::{StringInterner, Symbol};
 use nudl_core::types::TypeId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -34,9 +34,9 @@ pub enum Instruction {
     StringConstPtr(Register, u32), // register, string_constant_index (legacy, kept for compat)
     StringConstLen(Register, u32), // register, string_constant_index (legacy, kept for compat)
     /// Extract pointer from a string value (works for both literals and params)
-    StringPtr(Register, Register),  // dst, src_string
+    StringPtr(Register, Register), // dst, src_string
     /// Extract length from a string value
-    StringLen(Register, Register),  // dst, src_string
+    StringLen(Register, Register), // dst, src_string
     Call(Register, FunctionRef, Vec<Register>),
     Copy(Register, Register),
     Nop,

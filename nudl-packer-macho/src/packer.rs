@@ -1,10 +1,10 @@
 use std::path::Path;
 use std::process::Command;
 
-use object::write::{Object, Symbol, SymbolSection, Relocation as ObjRelocation};
+use object::write::{Object, Relocation as ObjRelocation, Symbol, SymbolSection};
 use object::{
-    Architecture, BinaryFormat, Endianness, RelocationFlags, SectionKind,
-    SymbolFlags, SymbolKind, SymbolScope,
+    Architecture, BinaryFormat, Endianness, RelocationFlags, SectionKind, SymbolFlags, SymbolKind,
+    SymbolScope,
 };
 
 use nudl_backend_arm64::codegen::{CodegenResult, RelocKind, RelocTarget};
@@ -50,7 +50,11 @@ pub fn pack(codegen: &CodegenResult, output: &Path) -> Result<(), PackError> {
 }
 
 fn write_object(codegen: &CodegenResult, obj_path: &Path) -> Result<(), PackError> {
-    let mut obj = Object::new(BinaryFormat::MachO, Architecture::Aarch64, Endianness::Little);
+    let mut obj = Object::new(
+        BinaryFormat::MachO,
+        Architecture::Aarch64,
+        Endianness::Little,
+    );
 
     // Create __TEXT,__text section
     let text_section = obj.section_id(object::write::StandardSection::Text);
@@ -148,24 +152,31 @@ fn write_object(codegen: &CodegenResult, obj_path: &Path) -> Result<(), PackErro
 
         let (symbol, addend) = match &reloc.target {
             RelocTarget::DataSection(offset) => {
-                let str_idx = codegen.string_offsets.iter().position(|&(o, _)| o == *offset)
+                let str_idx = codegen
+                    .string_offsets
+                    .iter()
+                    .position(|&(o, _)| o == *offset)
                     .expect("relocation targets unknown data offset");
                 (string_symbol_ids[str_idx], 0i64)
             }
-            RelocTarget::ExternSymbol(idx) => {
-                (extern_symbol_ids[*idx], 0)
-            }
+            RelocTarget::ExternSymbol(idx) => (extern_symbol_ids[*idx], 0),
         };
 
-        obj.add_relocation(text_section, ObjRelocation {
-            offset: code_offset + reloc.offset as u64,
-            symbol,
-            addend,
-            flags,
-        }).map_err(|e| PackError::ObjectWrite(e.to_string()))?;
+        obj.add_relocation(
+            text_section,
+            ObjRelocation {
+                offset: code_offset + reloc.offset as u64,
+                symbol,
+                addend,
+                flags,
+            },
+        )
+        .map_err(|e| PackError::ObjectWrite(e.to_string()))?;
     }
 
-    let data = obj.write().map_err(|e| PackError::ObjectWrite(e.to_string()))?;
+    let data = obj
+        .write()
+        .map_err(|e| PackError::ObjectWrite(e.to_string()))?;
     std::fs::write(obj_path, data)?;
 
     Ok(())
@@ -198,9 +209,9 @@ mod tests {
 
     use nudl_ast::lexer::Lexer;
     use nudl_ast::parser::Parser;
+    use nudl_backend_arm64::codegen::Codegen;
     use nudl_bc::checker::Checker;
     use nudl_bc::lower::Lowerer;
-    use nudl_backend_arm64::codegen::Codegen;
     use nudl_core::span::FileId;
 
     fn compile_and_run(source: &str) -> (String, bool) {
@@ -230,7 +241,8 @@ mod tests {
 
     #[test]
     fn pack_and_run_hello_world() {
-        let (stdout, success) = compile_and_run(r#"
+        let (stdout, success) = compile_and_run(
+            r#"
 extern {
     fn write(fd: i32, buf: RawPtr, count: u64) -> i64;
 }
@@ -247,7 +259,8 @@ fn println(s: string) {
 fn main() {
     println("Hello, world!");
 }
-"#);
+"#,
+        );
 
         assert_eq!(stdout, "Hello, world!\n");
         assert!(success, "binary should exit with 0");

@@ -69,9 +69,7 @@ impl<'a> Lexer<'a> {
             }
 
             // Skip line comments
-            if self.pos + 1 < self.source.len()
-                && &self.source[self.pos..self.pos + 2] == "//"
-            {
+            if self.pos + 1 < self.source.len() && &self.source[self.pos..self.pos + 2] == "//" {
                 while self.pos < self.source.len() && self.source.as_bytes()[self.pos] != b'\n' {
                     self.pos += 1;
                 }
@@ -79,9 +77,7 @@ impl<'a> Lexer<'a> {
             }
 
             // Skip block comments (nested)
-            if self.pos + 1 < self.source.len()
-                && &self.source[self.pos..self.pos + 2] == "/*"
-            {
+            if self.pos + 1 < self.source.len() && &self.source[self.pos..self.pos + 2] == "/*" {
                 let start = self.pos;
                 self.pos += 2;
                 let mut depth = 1;
@@ -101,9 +97,10 @@ impl<'a> Lexer<'a> {
                     if self.pos < self.source.len() {
                         self.pos += 1;
                     }
-                    self.diagnostics.add(&LexerDiagnostic::UnterminatedBlockComment {
-                        span: self.span(start, self.pos),
-                    });
+                    self.diagnostics
+                        .add(&LexerDiagnostic::UnterminatedBlockComment {
+                            span: self.span(start, self.pos),
+                        });
                 }
                 continue;
             }
@@ -153,17 +150,39 @@ impl<'a> Lexer<'a> {
                 }
                 Some('"') => {
                     self.advance();
-                    return Token::new(TokenKind::StringLiteral, self.span(start, self.pos), &value);
+                    return Token::new(
+                        TokenKind::StringLiteral,
+                        self.span(start, self.pos),
+                        &value,
+                    );
                 }
                 Some('\\') => {
                     self.advance();
                     match self.peek() {
-                        Some('n') => { self.advance(); value.push('\n'); }
-                        Some('t') => { self.advance(); value.push('\t'); }
-                        Some('\\') => { self.advance(); value.push('\\'); }
-                        Some('"') => { self.advance(); value.push('"'); }
-                        Some('0') => { self.advance(); value.push('\0'); }
-                        Some('r') => { self.advance(); value.push('\r'); }
+                        Some('n') => {
+                            self.advance();
+                            value.push('\n');
+                        }
+                        Some('t') => {
+                            self.advance();
+                            value.push('\t');
+                        }
+                        Some('\\') => {
+                            self.advance();
+                            value.push('\\');
+                        }
+                        Some('"') => {
+                            self.advance();
+                            value.push('"');
+                        }
+                        Some('0') => {
+                            self.advance();
+                            value.push('\0');
+                        }
+                        Some('r') => {
+                            self.advance();
+                            value.push('\r');
+                        }
                         Some(ch) => {
                             let esc_start = self.pos - 1;
                             self.advance();
@@ -177,7 +196,11 @@ impl<'a> Lexer<'a> {
                             self.diagnostics.add(&LexerDiagnostic::UnterminatedString {
                                 span: self.span(start, self.pos),
                             });
-                            return Token::new(TokenKind::Error, self.span(start, self.pos), &value);
+                            return Token::new(
+                                TokenKind::Error,
+                                self.span(start, self.pos),
+                                &value,
+                            );
                         }
                     }
                 }
@@ -195,11 +218,26 @@ impl<'a> Lexer<'a> {
             Some('\\') => {
                 self.advance();
                 match self.peek() {
-                    Some('n') => { self.advance(); '\n' }
-                    Some('t') => { self.advance(); '\t' }
-                    Some('\\') => { self.advance(); '\\' }
-                    Some('\'') => { self.advance(); '\'' }
-                    Some('0') => { self.advance(); '\0' }
+                    Some('n') => {
+                        self.advance();
+                        '\n'
+                    }
+                    Some('t') => {
+                        self.advance();
+                        '\t'
+                    }
+                    Some('\\') => {
+                        self.advance();
+                        '\\'
+                    }
+                    Some('\'') => {
+                        self.advance();
+                        '\''
+                    }
+                    Some('0') => {
+                        self.advance();
+                        '\0'
+                    }
                     Some(c) => {
                         self.advance();
                         self.diagnostics.add(&LexerDiagnostic::InvalidEscape {
@@ -216,7 +254,10 @@ impl<'a> Lexer<'a> {
                     }
                 }
             }
-            Some(c) => { self.advance(); c }
+            Some(c) => {
+                self.advance();
+                c
+            }
             None => {
                 self.diagnostics.add(&LexerDiagnostic::UnterminatedString {
                     span: self.span(start, self.pos),
@@ -227,7 +268,11 @@ impl<'a> Lexer<'a> {
         if self.peek() == Some('\'') {
             self.advance();
         }
-        Token::new(TokenKind::CharLiteral, self.span(start, self.pos), ch.to_string())
+        Token::new(
+            TokenKind::CharLiteral,
+            self.span(start, self.pos),
+            ch.to_string(),
+        )
     }
 
     fn lex_number(&mut self, start: usize) -> Token {
@@ -236,15 +281,20 @@ impl<'a> Lexer<'a> {
             if let Some(next) = self.peek_at(1) {
                 match next {
                     'x' | 'X' => {
-                        self.advance(); self.advance();
-                        while self.peek().is_some_and(|c| c.is_ascii_hexdigit() || c == '_') {
+                        self.advance();
+                        self.advance();
+                        while self
+                            .peek()
+                            .is_some_and(|c| c.is_ascii_hexdigit() || c == '_')
+                        {
                             self.advance();
                         }
                         let text = &self.source[start..self.pos];
                         return Token::new(TokenKind::IntLiteral, self.span(start, self.pos), text);
                     }
                     'o' | 'O' => {
-                        self.advance(); self.advance();
+                        self.advance();
+                        self.advance();
                         while self.peek().is_some_and(|c| c.is_ascii_digit() || c == '_') {
                             self.advance();
                         }
@@ -252,8 +302,12 @@ impl<'a> Lexer<'a> {
                         return Token::new(TokenKind::IntLiteral, self.span(start, self.pos), text);
                     }
                     'b' | 'B' => {
-                        self.advance(); self.advance();
-                        while self.peek().is_some_and(|c| c == '0' || c == '1' || c == '_') {
+                        self.advance();
+                        self.advance();
+                        while self
+                            .peek()
+                            .is_some_and(|c| c == '0' || c == '1' || c == '_')
+                        {
                             self.advance();
                         }
                         let text = &self.source[start..self.pos];
@@ -292,12 +346,19 @@ impl<'a> Lexer<'a> {
         }
 
         let text = &self.source[start..self.pos];
-        let kind = if is_float { TokenKind::FloatLiteral } else { TokenKind::IntLiteral };
+        let kind = if is_float {
+            TokenKind::FloatLiteral
+        } else {
+            TokenKind::IntLiteral
+        };
         Token::new(kind, self.span(start, self.pos), text)
     }
 
     fn lex_ident(&mut self, start: usize) -> Token {
-        while self.peek().is_some_and(|c| c.is_ascii_alphanumeric() || c == '_') {
+        while self
+            .peek()
+            .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
             self.advance();
         }
         let text = &self.source[start..self.pos];
@@ -305,7 +366,11 @@ impl<'a> Lexer<'a> {
         // Check for bool literals first
         if text == "true" || text == "false" {
             return Token::new(
-                if text == "true" { TokenKind::True } else { TokenKind::False },
+                if text == "true" {
+                    TokenKind::True
+                } else {
+                    TokenKind::False
+                },
                 self.span(start, self.pos),
                 text,
             );
@@ -348,23 +413,74 @@ impl<'a> Lexer<'a> {
                     (TokenKind::GtGt, ">>")
                 }
             }
-            ('=', Some('=')) => { self.advance(); (TokenKind::EqEq, "==") }
-            ('!', Some('=')) => { self.advance(); (TokenKind::BangEq, "!=") }
-            ('<', Some('=')) => { self.advance(); (TokenKind::LtEq, "<=") }
-            ('>', Some('=')) => { self.advance(); (TokenKind::GtEq, ">=") }
-            ('&', Some('&')) => { self.advance(); (TokenKind::AmpAmp, "&&") }
-            ('|', Some('|')) => { self.advance(); (TokenKind::PipePipe, "||") }
-            ('+', Some('=')) => { self.advance(); (TokenKind::PlusEq, "+=") }
-            ('-', Some('=')) => { self.advance(); (TokenKind::MinusEq, "-=") }
-            ('*', Some('=')) => { self.advance(); (TokenKind::StarEq, "*=") }
-            ('/', Some('=')) => { self.advance(); (TokenKind::SlashEq, "/=") }
-            ('%', Some('=')) => { self.advance(); (TokenKind::PercentEq, "%=") }
-            ('&', Some('=')) => { self.advance(); (TokenKind::AmpEq, "&=") }
-            ('|', Some('=')) => { self.advance(); (TokenKind::PipeEq, "|=") }
-            ('^', Some('=')) => { self.advance(); (TokenKind::CaretEq, "^=") }
-            ('-', Some('>')) => { self.advance(); (TokenKind::Arrow, "->") }
-            ('=', Some('>')) => { self.advance(); (TokenKind::FatArrow, "=>") }
-            (':', Some(':')) => { self.advance(); (TokenKind::ColonColon, "::") }
+            ('=', Some('=')) => {
+                self.advance();
+                (TokenKind::EqEq, "==")
+            }
+            ('!', Some('=')) => {
+                self.advance();
+                (TokenKind::BangEq, "!=")
+            }
+            ('<', Some('=')) => {
+                self.advance();
+                (TokenKind::LtEq, "<=")
+            }
+            ('>', Some('=')) => {
+                self.advance();
+                (TokenKind::GtEq, ">=")
+            }
+            ('&', Some('&')) => {
+                self.advance();
+                (TokenKind::AmpAmp, "&&")
+            }
+            ('|', Some('|')) => {
+                self.advance();
+                (TokenKind::PipePipe, "||")
+            }
+            ('+', Some('=')) => {
+                self.advance();
+                (TokenKind::PlusEq, "+=")
+            }
+            ('-', Some('=')) => {
+                self.advance();
+                (TokenKind::MinusEq, "-=")
+            }
+            ('*', Some('=')) => {
+                self.advance();
+                (TokenKind::StarEq, "*=")
+            }
+            ('/', Some('=')) => {
+                self.advance();
+                (TokenKind::SlashEq, "/=")
+            }
+            ('%', Some('=')) => {
+                self.advance();
+                (TokenKind::PercentEq, "%=")
+            }
+            ('&', Some('=')) => {
+                self.advance();
+                (TokenKind::AmpEq, "&=")
+            }
+            ('|', Some('=')) => {
+                self.advance();
+                (TokenKind::PipeEq, "|=")
+            }
+            ('^', Some('=')) => {
+                self.advance();
+                (TokenKind::CaretEq, "^=")
+            }
+            ('-', Some('>')) => {
+                self.advance();
+                (TokenKind::Arrow, "->")
+            }
+            ('=', Some('>')) => {
+                self.advance();
+                (TokenKind::FatArrow, "=>")
+            }
+            (':', Some(':')) => {
+                self.advance();
+                (TokenKind::ColonColon, "::")
+            }
 
             // Single-char
             ('(', _) => (TokenKind::LParen, "("),
@@ -413,7 +529,11 @@ mod tests {
 
     fn lex(source: &str) -> Vec<Token> {
         let (tokens, diags) = Lexer::new(source, FileId(0)).tokenize();
-        assert!(!diags.has_errors(), "unexpected errors: {:?}", diags.reports());
+        assert!(
+            !diags.has_errors(),
+            "unexpected errors: {:?}",
+            diags.reports()
+        );
         tokens
     }
 
@@ -431,11 +551,11 @@ mod tests {
             kinds,
             vec![
                 TokenKind::Fn,
-                TokenKind::Ident,       // main
+                TokenKind::Ident, // main
                 TokenKind::LParen,
                 TokenKind::RParen,
                 TokenKind::LBrace,
-                TokenKind::Ident,       // println
+                TokenKind::Ident, // println
                 TokenKind::LParen,
                 TokenKind::StringLiteral,
                 TokenKind::RParen,
@@ -445,7 +565,10 @@ mod tests {
             ]
         );
         // Verify string literal value
-        let str_tok = tokens.iter().find(|t| t.kind == TokenKind::StringLiteral).unwrap();
+        let str_tok = tokens
+            .iter()
+            .find(|t| t.kind == TokenKind::StringLiteral)
+            .unwrap();
         assert_eq!(str_tok.text, "Hello, world!");
     }
 
@@ -469,12 +592,18 @@ mod tests {
         assert_eq!(
             kinds,
             vec![
-                TokenKind::Arrow, TokenKind::FatArrow,
-                TokenKind::EqEq, TokenKind::BangEq,
-                TokenKind::LtEq, TokenKind::GtEq,
-                TokenKind::AmpAmp, TokenKind::PipePipe,
-                TokenKind::LtLt, TokenKind::GtGt,
-                TokenKind::ColonColon, TokenKind::DotDot,
+                TokenKind::Arrow,
+                TokenKind::FatArrow,
+                TokenKind::EqEq,
+                TokenKind::BangEq,
+                TokenKind::LtEq,
+                TokenKind::GtEq,
+                TokenKind::AmpAmp,
+                TokenKind::PipePipe,
+                TokenKind::LtLt,
+                TokenKind::GtGt,
+                TokenKind::ColonColon,
+                TokenKind::DotDot,
                 TokenKind::Eof,
             ]
         );

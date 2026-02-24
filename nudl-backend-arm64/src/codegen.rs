@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use nudl_bc::ir::*;
-use nudl_core::types::{TypeKind, TypeInterner};
+use nudl_core::types::{TypeInterner, TypeKind};
 
 /// Relocation kinds for ARM64
 #[derive(Debug, Clone)]
@@ -87,7 +87,10 @@ impl ParamLayout {
                 }
             }
         }
-        ParamLayout { entries, total_arm_regs: arm_reg }
+        ParamLayout {
+            entries,
+            total_arm_regs: arm_reg,
+        }
     }
 }
 
@@ -247,7 +250,12 @@ impl Codegen {
             let callee_reg = callee_saved_base + i;
             let slot_offset = (1 + i / 2) * 16;
             if i + 1 < num_callee_saved {
-                self.emit_u32(encode_stp_offset(callee_reg, callee_reg + 1, 29, slot_offset));
+                self.emit_u32(encode_stp_offset(
+                    callee_reg,
+                    callee_reg + 1,
+                    29,
+                    slot_offset,
+                ));
             } else {
                 self.emit_u32(encode_str_offset(callee_reg, 29, slot_offset));
             }
@@ -263,7 +271,10 @@ impl Codegen {
         for (param_idx, &(first_arm, count)) in layout.entries.iter().enumerate() {
             let callee_first = callee_saved_base + first_arm;
             if count == 2 {
-                reg_info.insert(param_idx as u32, RegInfo::StringParam(callee_first, callee_first + 1));
+                reg_info.insert(
+                    param_idx as u32,
+                    RegInfo::StringParam(callee_first, callee_first + 1),
+                );
             } else {
                 reg_info.insert(param_idx as u32, RegInfo::General(callee_first));
             }
@@ -274,7 +285,9 @@ impl Codegen {
         let mut alloc_temp = || -> u32 {
             let r = next_temp;
             next_temp += 1;
-            if next_temp > 15 { next_temp = 9; }
+            if next_temp > 15 {
+                next_temp = 9;
+            }
             r
         };
 
@@ -376,13 +389,14 @@ impl Codegen {
                         };
 
                         // Get callee's param layout
-                        let callee_layout = callee_func_id
-                            .and_then(|fid| ctx.layouts.get(&fid));
+                        let callee_layout = callee_func_id.and_then(|fid| ctx.layouts.get(&fid));
 
                         // Marshal arguments
                         if let Some(cl) = callee_layout {
                             for (i, arg_reg) in args.iter().enumerate() {
-                                if i >= cl.entries.len() { break; }
+                                if i >= cl.entries.len() {
+                                    break;
+                                }
                                 let (first_arm, count) = cl.entries[i];
                                 match reg_info.get(&arg_reg.0) {
                                     Some(RegInfo::StringLiteral(idx)) if count == 2 => {
@@ -508,7 +522,12 @@ impl Codegen {
                         let callee_reg = callee_saved_base + i;
                         let slot_offset = (1 + i / 2) * 16;
                         if i + 1 < num_callee_saved {
-                            self.emit_u32(encode_ldp_offset(callee_reg, callee_reg + 1, 29, slot_offset));
+                            self.emit_u32(encode_ldp_offset(
+                                callee_reg,
+                                callee_reg + 1,
+                                29,
+                                slot_offset,
+                            ));
                         } else {
                             self.emit_u32(encode_ldr_offset(callee_reg, 29, slot_offset));
                         }
@@ -638,7 +657,8 @@ mod tests {
 
     #[test]
     fn codegen_target_program() {
-        let result = generate_from_source(r#"
+        let result = generate_from_source(
+            r#"
 extern {
     fn write(fd: i32, buf: RawPtr, count: u64) -> i64;
 }
@@ -655,16 +675,24 @@ fn println(s: string) {
 fn main() {
     println("Hello, world!");
 }
-"#);
+"#,
+        );
 
         assert!(!result.code.is_empty());
         assert!(!result.data.is_empty());
 
         // 3 function symbols (print, println, main)
-        assert_eq!(result.function_symbols.len(), 3,
+        assert_eq!(
+            result.function_symbols.len(),
+            3,
             "expected 3 function symbols, got {}: {:?}",
             result.function_symbols.len(),
-            result.function_symbols.iter().map(|s| &s.name).collect::<Vec<_>>());
+            result
+                .function_symbols
+                .iter()
+                .map(|s| &s.name)
+                .collect::<Vec<_>>()
+        );
 
         assert!(result.extern_symbols.contains(&"write".to_string()));
         assert!(!result.relocations.is_empty());
@@ -673,7 +701,8 @@ fn main() {
 
     #[test]
     fn codegen_simple_main() {
-        let result = generate_from_source(r#"
+        let result = generate_from_source(
+            r#"
 extern {
     fn write(fd: i32, buf: RawPtr, count: u64) -> i64;
 }
@@ -681,7 +710,8 @@ extern {
 fn main() {
     write(1, __str_ptr("hi"), __str_len("hi"));
 }
-"#);
+"#,
+        );
         assert!(!result.code.is_empty());
         assert!(result.function_symbols.iter().any(|s| s.is_entry));
     }

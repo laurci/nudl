@@ -46,7 +46,10 @@ pub enum VmError {
     /// No entry function (main) found.
     NoEntryFunction,
     /// Invalid block index.
-    InvalidBlock { function_name: String, block_id: u32 },
+    InvalidBlock {
+        function_name: String,
+        block_id: u32,
+    },
     /// Stack overflow (too many nested calls).
     StackOverflow { depth: usize },
 }
@@ -54,20 +57,28 @@ pub enum VmError {
 impl fmt::Display for VmError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            VmError::ExternCallNotAllowed { function_name } =>
-                write!(f, "cannot call extern function '{}' in the VM", function_name),
-            VmError::UndefinedFunction { symbol } =>
-                write!(f, "undefined function (symbol {})", symbol.0),
-            VmError::StepLimitExceeded { limit } =>
-                write!(f, "execution exceeded step limit of {}", limit),
-            VmError::Unreachable =>
-                write!(f, "hit unreachable code"),
-            VmError::NoEntryFunction =>
-                write!(f, "no entry function (main) found"),
-            VmError::InvalidBlock { function_name, block_id } =>
-                write!(f, "invalid block b{} in function '{}'", block_id, function_name),
-            VmError::StackOverflow { depth } =>
-                write!(f, "stack overflow at depth {}", depth),
+            VmError::ExternCallNotAllowed { function_name } => write!(
+                f,
+                "cannot call extern function '{}' in the VM",
+                function_name
+            ),
+            VmError::UndefinedFunction { symbol } => {
+                write!(f, "undefined function (symbol {})", symbol.0)
+            }
+            VmError::StepLimitExceeded { limit } => {
+                write!(f, "execution exceeded step limit of {}", limit)
+            }
+            VmError::Unreachable => write!(f, "hit unreachable code"),
+            VmError::NoEntryFunction => write!(f, "no entry function (main) found"),
+            VmError::InvalidBlock {
+                function_name,
+                block_id,
+            } => write!(
+                f,
+                "invalid block b{} in function '{}'",
+                block_id, function_name
+            ),
+            VmError::StackOverflow { depth } => write!(f, "stack overflow at depth {}", depth),
         }
     }
 }
@@ -104,12 +115,16 @@ impl Vm {
         let entry_id = program.entry_function.ok_or(VmError::NoEntryFunction)?;
 
         // Build function lookup: Symbol -> index in program.functions
-        let func_map: HashMap<Symbol, usize> = program.functions.iter()
+        let func_map: HashMap<Symbol, usize> = program
+            .functions
+            .iter()
             .enumerate()
             .map(|(i, f)| (f.name, i))
             .collect();
 
-        let entry_idx = program.functions.iter()
+        let entry_idx = program
+            .functions
+            .iter()
             .position(|f| f.id == entry_id)
             .ok_or(VmError::NoEntryFunction)?;
 
@@ -128,12 +143,16 @@ impl Vm {
 
         // Check for extern function
         if func.is_extern {
-            return Err(VmError::ExternCallNotAllowed { function_name: func_name });
+            return Err(VmError::ExternCallNotAllowed {
+                function_name: func_name,
+            });
         }
 
         // Check call depth
         if self.call_depth >= MAX_CALL_DEPTH {
-            return Err(VmError::StackOverflow { depth: self.call_depth });
+            return Err(VmError::StackOverflow {
+                depth: self.call_depth,
+            });
         }
         self.call_depth += 1;
 
@@ -169,7 +188,9 @@ impl Vm {
             }
 
             if self.step_count > self.step_limit {
-                break Err(VmError::StepLimitExceeded { limit: self.step_limit });
+                break Err(VmError::StepLimitExceeded {
+                    limit: self.step_limit,
+                });
             }
 
             // Execute terminator
@@ -178,14 +199,22 @@ impl Vm {
                     break Ok(registers[reg.0 as usize].clone());
                 }
                 Terminator::Jump(target) => {
-                    block_idx = func.blocks.iter()
+                    block_idx = func
+                        .blocks
+                        .iter()
                         .position(|b| b.id == *target)
                         .unwrap_or(target.0 as usize);
                 }
                 Terminator::Branch(cond, then_block, else_block) => {
                     let cond_val = &registers[cond.0 as usize];
-                    let target = if is_truthy(cond_val) { then_block } else { else_block };
-                    block_idx = func.blocks.iter()
+                    let target = if is_truthy(cond_val) {
+                        then_block
+                    } else {
+                        else_block
+                    };
+                    block_idx = func
+                        .blocks
+                        .iter()
                         .position(|b| b.id == *target)
                         .unwrap_or(target.0 as usize);
                 }
@@ -236,7 +265,9 @@ impl Vm {
                 // Extract the length from a string value.
                 let val = match &registers[src.0 as usize] {
                     Value::String(idx) => {
-                        let len = program.string_constants.get(*idx as usize)
+                        let len = program
+                            .string_constants
+                            .get(*idx as usize)
                             .map(|s| s.len() as u64)
                             .unwrap_or(0);
                         Value::U64(len)
@@ -251,20 +282,24 @@ impl Vm {
             }
 
             Instruction::StringConstLen(dst, idx) => {
-                let len = program.string_constants.get(*idx as usize)
+                let len = program
+                    .string_constants
+                    .get(*idx as usize)
                     .map(|s| s.len() as u64)
                     .unwrap_or(0);
                 registers[dst.0 as usize] = Value::U64(len);
             }
 
             Instruction::Call(dst, func_ref, args) => {
-                let arg_values: Vec<Value> = args.iter()
+                let arg_values: Vec<Value> = args
+                    .iter()
                     .map(|r| registers[r.0 as usize].clone())
                     .collect();
 
                 match func_ref {
                     FunctionRef::Named(sym) => {
-                        let idx = func_map.get(sym)
+                        let idx = func_map
+                            .get(sym)
                             .ok_or(VmError::UndefinedFunction { symbol: *sym })?;
                         let result = self.execute_function(program, func_map, *idx, arg_values)?;
                         registers[dst.0 as usize] = result;
@@ -290,7 +325,9 @@ impl Vm {
                             "__str_len" => {
                                 let val = match arg_values.first() {
                                     Some(Value::String(idx)) => {
-                                        let len = program.string_constants.get(*idx as usize)
+                                        let len = program
+                                            .string_constants
+                                            .get(*idx as usize)
                                             .map(|s| s.len() as u64)
                                             .unwrap_or(0);
                                         Value::U64(len)
@@ -359,12 +396,14 @@ mod tests {
 
     #[test]
     fn run_function_call() {
-        let program = compile(r#"
+        let program = compile(
+            r#"
 fn greet(s: string) {}
 fn main() {
     greet("hello");
 }
-"#);
+"#,
+        );
         let mut vm = Vm::new();
         let result = vm.run(&program);
         assert!(result.is_ok());
@@ -372,7 +411,8 @@ fn main() {
 
     #[test]
     fn run_nested_calls() {
-        let program = compile(r#"
+        let program = compile(
+            r#"
 fn inner(s: string) {}
 fn outer(s: string) {
     inner(s);
@@ -380,7 +420,8 @@ fn outer(s: string) {
 fn main() {
     outer("hello");
 }
-"#);
+"#,
+        );
         let mut vm = Vm::new();
         let result = vm.run(&program);
         assert!(result.is_ok());
@@ -388,7 +429,8 @@ fn main() {
 
     #[test]
     fn extern_call_fails() {
-        let program = compile(r#"
+        let program = compile(
+            r#"
 extern {
     fn write(fd: i32, buf: RawPtr, count: u64) -> i64;
 }
@@ -398,7 +440,8 @@ fn print(s: string) {
 fn main() {
     print("hello");
 }
-"#);
+"#,
+        );
         let mut vm = Vm::new();
         let result = vm.run(&program);
         assert!(result.is_err());
@@ -415,7 +458,8 @@ fn main() {
         // Create a program that calls itself to blow the step limit
         // Since we don't have recursion in the test (main calls greet, greet doesn't recurse),
         // use a very low step limit
-        let program = compile(r#"
+        let program = compile(
+            r#"
 fn a(s: string) {}
 fn b(s: string) { a(s); }
 fn c(s: string) { b(s); }
@@ -423,21 +467,27 @@ fn d(s: string) { c(s); }
 fn main() {
     d("x");
 }
-"#);
+"#,
+        );
         let mut vm = Vm::with_step_limit(5);
         let result = vm.run(&program);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), VmError::StepLimitExceeded { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            VmError::StepLimitExceeded { .. }
+        ));
     }
 
     #[test]
     fn string_builtins_work() {
-        let program = compile(r#"
+        let program = compile(
+            r#"
 fn main() {
     __str_ptr("hello");
     __str_len("hello");
 }
-"#);
+"#,
+        );
         let mut vm = Vm::new();
         let result = vm.run(&program);
         assert!(result.is_ok());

@@ -10,11 +10,19 @@ pub enum CheckerDiagnostic {
 
     #[message("expected {expected} argument(s), found {found}")]
     #[severity(Error)]
-    ArgumentCountMismatch { span: Span, expected: String, found: String },
+    ArgumentCountMismatch {
+        span: Span,
+        expected: String,
+        found: String,
+    },
 
     #[message("type mismatch: expected '{expected}', found '{found}'")]
     #[severity(Error)]
-    TypeMismatch { span: Span, expected: String, found: String },
+    TypeMismatch {
+        span: Span,
+        expected: String,
+        found: String,
+    },
 
     #[message("'main' function must take no parameters and return ()")]
     #[severity(Error)]

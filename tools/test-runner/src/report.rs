@@ -80,11 +80,7 @@ pub fn print_summary(reports: &[TestReport], use_color: bool) {
             "FAILED"
         }
     } else {
-        if use_color {
-            "\x1b[32mok\x1b[0m"
-        } else {
-            "ok"
-        }
+        if use_color { "\x1b[32mok\x1b[0m" } else { "ok" }
     };
 
     println!(

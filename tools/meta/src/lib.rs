@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput, Data, Fields, Expr, Lit, Meta};
+use syn::{Data, DeriveInput, Expr, Fields, Lit, Meta, parse_macro_input};
 
 /// Derives the `Diagnostic` trait for enums annotated with diagnostic attributes.
 ///
@@ -97,10 +97,22 @@ fn get_section_attr(input: &DeriveInput) -> (proc_macro2::TokenStream, u32) {
             let ident: syn::Ident = attr.parse_args().expect("expected section identifier");
             let section_str = ident.to_string();
             return match section_str.as_str() {
-                "Lexer" => (quote! { ::nudl_core::diagnostic::DiagnosticSection::Lexer }, 100),
-                "Parser" => (quote! { ::nudl_core::diagnostic::DiagnosticSection::Parser }, 200),
-                "Checker" => (quote! { ::nudl_core::diagnostic::DiagnosticSection::Checker }, 400),
-                "Codegen" => (quote! { ::nudl_core::diagnostic::DiagnosticSection::Codegen }, 500),
+                "Lexer" => (
+                    quote! { ::nudl_core::diagnostic::DiagnosticSection::Lexer },
+                    100,
+                ),
+                "Parser" => (
+                    quote! { ::nudl_core::diagnostic::DiagnosticSection::Parser },
+                    200,
+                ),
+                "Checker" => (
+                    quote! { ::nudl_core::diagnostic::DiagnosticSection::Checker },
+                    400,
+                ),
+                "Codegen" => (
+                    quote! { ::nudl_core::diagnostic::DiagnosticSection::Codegen },
+                    500,
+                ),
                 _ => panic!("unknown section: {}", section_str),
             };
         }
@@ -131,7 +143,8 @@ fn get_message_attr(variant: &syn::Variant) -> String {
             let Meta::List(meta_list) = &attr.meta else {
                 panic!("expected #[message(\"...\")]");
             };
-            let expr: Expr = syn::parse2(meta_list.tokens.clone()).expect("expected string literal in message");
+            let expr: Expr =
+                syn::parse2(meta_list.tokens.clone()).expect("expected string literal in message");
             if let Expr::Lit(lit) = expr {
                 if let Lit::Str(s) = lit.lit {
                     return s.value();

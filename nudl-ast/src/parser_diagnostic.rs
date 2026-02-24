@@ -6,7 +6,11 @@ use nudl_core::span::Span;
 pub enum ParserDiagnostic {
     #[message("unexpected token: expected {expected}, found '{found}'")]
     #[severity(Error)]
-    UnexpectedToken { span: Span, expected: String, found: String },
+    UnexpectedToken {
+        span: Span,
+        expected: String,
+        found: String,
+    },
 
     #[message("unexpected end of file: expected {expected}")]
     #[severity(Error)]

@@ -5,12 +5,12 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
-use nudl_core::diagnostic::{DiagnosticBag, DiagnosticReport, Severity};
-use nudl_core::source::SourceMap;
-use nudl_core::span::FileId;
 use nudl_ast::lexer::Lexer;
 use nudl_ast::parser::Parser;
 use nudl_bc::checker::Checker;
+use nudl_core::diagnostic::{DiagnosticBag, DiagnosticReport, Severity};
+use nudl_core::source::SourceMap;
+use nudl_core::span::FileId;
 
 struct NudlLanguageServer {
     client: Client,
@@ -29,10 +29,7 @@ impl NudlLanguageServer {
         let mut source_map = SourceMap::new();
         let mut diagnostics = DiagnosticBag::new();
 
-        let file_id = source_map.add_file(
-            uri.path().into(),
-            content.to_string(),
-        );
+        let file_id = source_map.add_file(uri.path().into(), content.to_string());
 
         let (tokens, lex_diags) = Lexer::new(content, file_id).tokenize();
         diagnostics.merge(lex_diags);
@@ -51,7 +48,11 @@ impl NudlLanguageServer {
     }
 }
 
-fn convert_diagnostics(bag: &DiagnosticBag, source_map: &SourceMap, file_id: FileId) -> Vec<Diagnostic> {
+fn convert_diagnostics(
+    bag: &DiagnosticBag,
+    source_map: &SourceMap,
+    file_id: FileId,
+) -> Vec<Diagnostic> {
     let mut result = Vec::new();
 
     for report in bag.reports() {
@@ -88,7 +89,10 @@ fn report_range(report: &DiagnosticReport, source_map: &SourceMap, file_id: File
                 let offset = span.start.min(file.content.len().saturating_sub(1) as u32);
                 let (line, col) = file.line_col(offset);
                 let pos = Position::new(line - 1, col - 1);
-                return Range { start: pos, end: pos };
+                return Range {
+                    start: pos,
+                    end: pos,
+                };
             }
 
             let (start_line, start_col) = file.line_col(span.start);
@@ -177,9 +181,7 @@ impl LanguageServer for NudlLanguageServer {
         }
 
         // Clear diagnostics
-        self.client
-            .publish_diagnostics(uri, vec![], None)
-            .await;
+        self.client.publish_diagnostics(uri, vec![], None).await;
     }
 }
 
