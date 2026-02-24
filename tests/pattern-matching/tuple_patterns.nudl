@@ -3,13 +3,13 @@
 fn classify_point(point: (i32, i32)) -> string {
     match point {
         (0, 0) => "origin",
-        (x, 0) => f"on x-axis at {x}",
-        (0, y) => f"on y-axis at {y}",
-        (x, y) if x == y => f"on diagonal at ({x}, {y})",
-        (x, y) if x > 0 && y > 0 => f"quadrant I: ({x}, {y})",
-        (x, y) if x < 0 && y > 0 => f"quadrant II: ({x}, {y})",
-        (x, y) if x < 0 && y < 0 => f"quadrant III: ({x}, {y})",
-        (x, y) => f"quadrant IV: ({x}, {y})",
+        (x, 0) => `on x-axis at {x}`,
+        (0, y) => `on y-axis at {y}`,
+        (x, y) if x == y => `on diagonal at ({x}, {y})`,
+        (x, y) if x > 0 && y > 0 => `quadrant I: ({x}, {y})`,
+        (x, y) if x < 0 && y > 0 => `quadrant II: ({x}, {y})`,
+        (x, y) if x < 0 && y < 0 => `quadrant III: ({x}, {y})`,
+        (x, y) => `quadrant IV: ({x}, {y})`,
     }
 }
 
@@ -17,7 +17,7 @@ fn main() {
     // Basic tuple destructuring in match
     let point = (3, 4);
     match point {
-        (x, y) => println(f"Point: ({x}, {y})"),
+        (x, y) => println(`Point: ({x}, {y})`),
     }
 
     // Tuple matching with literal values
@@ -28,7 +28,7 @@ fn main() {
         (_, 2) => "something-two",
         _ => "other",
     };
-    println(f"Pair ({pair.0}, {pair.1}): {desc}");
+    println(`Pair ({pair.0}, {pair.1}): {desc}`);
 
     // Classify points using function
     println(classify_point((0, 0)));
@@ -47,47 +47,47 @@ fn main() {
         (0, 255, 0) => println("Pure green"),
         (0, 0, 255) => println("Pure blue"),
         (255, 128, 0) => println("Orange"),
-        (r, g, b) => println(f"Color: rgb({r}, {g}, {b})"),
+        (r, g, b) => println(`Color: rgb({r}, {g}, {b})`),
     }
 
     // Tuple destructuring in let binding
     let (a, b, c) = (10, 20, 30);
-    println(f"a={a}, b={b}, c={c}");
+    println(`a={a}, b={b}, c={c}`);
 
     // Nested tuple patterns
     let nested = ((1, 2), (3, 4));
     match nested {
-        ((a, b), (c, d)) => println(f"Nested: ({a},{b}), ({c},{d})"),
+        ((a, b), (c, d)) => println(`Nested: ({a},{b}), ({c},{d})`),
     }
 
     // Tuple patterns in for loop
     let pairs = [(1, "one"), (2, "two"), (3, "three")];
     for (num, name) in pairs {
-        println(f"  {num} = {name}");
+        println(`  {num} = {name}`);
     }
 
     // Mix of tuple and wildcard patterns
     let data = (true, 42, "hello");
     match data {
-        (true, n, _) if n > 10 => println(f"True with large number: {n}"),
-        (true, n, s) => println(f"True: {n}, {s}"),
+        (true, n, _) if n > 10 => println(`True with large number: {n}`),
+        (true, n, s) => println(`True: {n}, {s}`),
         (false, _, _) => println("False"),
     }
 
     // Tuple in Option
     let maybe_pair: Option<(i32, i32)> = Some((5, 10));
     match maybe_pair {
-        Some((x, y)) => println(f"Got pair: ({x}, {y})"),
+        Some((x, y)) => println(`Got pair: ({x}, {y})`),
         None => println("No pair"),
     }
 
     // Tuple with mixed types
     let record = ("Alice", 30, true);
     let (name, age, active) = record;
-    println(f"Name: {name}, Age: {age}, Active: {active}");
+    println(`Name: {name}, Age: {age}, Active: {active}`);
 
     // Two-element tuple with swap
     let (x, y) = (1, 2);
     let (y2, x2) = (x, y);
-    println(f"Swapped: x={x2}, y={y2}");
+    println(`Swapped: x={x2}, y={y2}`);
 }

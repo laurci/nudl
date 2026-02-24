@@ -70,65 +70,65 @@ fn second<A, B>(pair: Pair<A, B>) -> B {
 fn main() {
     // --- Simple type alias ---
     let count: Count = 42;
-    println(f"Count: {count}");
+    println(`Count: {count}`);
 
     // --- Collection aliases ---
     let names: StringList = ["alice", "bob", "charlie"];
-    println(f"Names: {names.len()} items");
+    println(`Names: {names.len()} items`);
 
     let numbers: IntArray = [1, 2, 3, 4, 5];
-    println(f"Numbers: {numbers.len()} items");
+    println(`Numbers: {numbers.len()} items`);
 
     // --- Map alias ---
     let mut headers: Headers = Map::new();
     headers.insert("Content-Type", "text/html");
     headers.insert("Accept", "application/json");
-    println(f"Headers count: {headers.len()}");
+    println(`Headers count: {headers.len()}`);
 
     // --- Tuple alias ---
     let origin: Coordinate = (0.0, 0.0);
     let pos: Coordinate = (3.14, 2.71);
-    println(f"Position: ({pos.0}, {pos.1})");
+    println(`Position: ({pos.0}, {pos.1})`);
 
     // --- Function type alias ---
     let is_even: Predicate = |n| n % 2 == 0;
     let is_positive: Predicate = |n| n > 0;
-    println(f"4 is even: {is_even(4)}");
-    println(f"-1 is positive: {is_positive(-1)}");
+    println(`4 is even: {is_even(4)}`);
+    println(`-1 is positive: {is_positive(-1)}`);
 
     // --- Using aliases with functions ---
     let counts: Count[] = [10, 20, 30, 40];
     let total = sum_counts(counts);
-    println(f"Total: {total}");
+    println(`Total: {total}`);
 
     let evens = apply_predicate(numbers, is_even);
-    println(f"Evens: {evens.len()} items");
+    println(`Evens: {evens.len()} items`);
 
     // --- Generic aliases ---
     let int_pair: Pair<i32, i32> = (1, 2);
     let mixed_pair: Pair<string, i32> = ("hello", 42);
-    println(f"Int pair: ({int_pair.0}, {int_pair.1})");
-    println(f"Mixed pair: ({mixed_pair.0}, {mixed_pair.1})");
+    println(`Int pair: ({int_pair.0}, {int_pair.1})`);
+    println(`Mixed pair: ({mixed_pair.0}, {mixed_pair.1})`);
 
     // --- Generic alias with make_pair ---
     let p = make_pair("key", 100);
-    println(f"Made pair: ({first(p)}, {second(p)})");
+    println(`Made pair: ({first(p)}, {second(p)})`);
 
     // --- List alias ---
     let int_list: List<i32> = [10, 20, 30];
     let str_list: List<string> = ["a", "b", "c"];
-    println(f"Int list: {int_list.len()}, Str list: {str_list.len()}");
+    println(`Int list: {int_list.len()}, Str list: {str_list.len()}`);
 
     // --- Partially applied generic aliases ---
     let sr: StringResult = Ok("success");
     match sr {
-        Ok(s) => println(f"StringResult: {s}"),
-        Err(e) => println(f"Error: {e}"),
+        Ok(s) => println(`StringResult: {s}`),
+        Err(e) => println(`Error: {e}`),
     }
 
     let io: IntOption = Some(99);
     match io {
-        Some(v) => println(f"IntOption: {v}"),
+        Some(v) => println(`IntOption: {v}`),
         None => println("None"),
     }
 
@@ -139,14 +139,14 @@ fn main() {
         Point { x: 2.0, y: 2.0 },
     ];
     for p in points {
-        println(f"  point: ({p.x}, {p.y})");
+        println(`  point: ({p.x}, {p.y})`);
     }
 
     // --- Aliases are fully transparent (interchangeable with original type) ---
     let c: Count = 5;
     let n: u64 = c;      // Count is just u64, so this works
     let c2: Count = n;   // and the reverse
-    println(f"Transparent: {c} == {n} == {c2}");
+    println(`Transparent: {c} == {n} == {c2}`);
 
     println("All type alias tests passed");
 }

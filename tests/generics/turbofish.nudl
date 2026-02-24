@@ -49,14 +49,14 @@ fn main() {
     let result = convert::<i32, string>(42);
 
     match x {
-        Ok(val) => println(f"parsed i32: {val}"),
-        Err(e) => println(f"error: {e}"),
+        Ok(val) => println(`parsed i32: {val}`),
+        Err(e) => println(`error: {e}`),
     }
 
     match y {
-        Ok(val) => println(f"parsed f64: {val}"),
-        Err(e) => println(f"error: {e}"),
+        Ok(val) => println(`parsed f64: {val}`),
+        Err(e) => println(`error: {e}`),
     }
 
-    println(f"empty string list len: {empty.len()}");
+    println(`empty string list len: {empty.len()}`);
 }

@@ -10,7 +10,7 @@ pub fn helper2() -> string {
 }
 
 pub fn format_name(first: string, last: string) -> string {
-    f"{first} {last}"
+    `{first} {last}`
 }
 
 pub struct Pair {

@@ -48,7 +48,7 @@ impl Point {
 
     // Method returning a string
     fn display(self) -> string {
-        f"({self.x}, {self.y})"
+        `({self.x}, {self.y})`
     }
 }
 
@@ -136,7 +136,7 @@ impl Color {
             Color::Red => "red",
             Color::Green => "green",
             Color::Blue => "blue",
-            Color::Custom(r, g, b) => f"rgb({r},{g},{b})",
+            Color::Custom(r, g, b) => `rgb({r},{g},{b})`,
         }
     }
 
@@ -151,61 +151,61 @@ impl Color {
 fn main() {
     // --- Static constructor methods ---
     let p1 = Point::new(3.0, 4.0);
-    println(f"p1: {p1.display()}");
+    println(`p1: {p1.display()}`);
 
     let origin = Point::origin();
-    println(f"origin: {origin.display()}");
+    println(`origin: {origin.display()}`);
 
     // --- Instance methods ---
     let dist = p1.distance_to(origin);
-    println(f"distance^2 from p1 to origin: {dist}");
+    println(`distance^2 from p1 to origin: {dist}`);
 
     let p2 = p1.offset(1.0, -1.0);
-    println(f"p1 offset by (1,-1): {p2.display()}");
+    println(`p1 offset by (1,-1): {p2.display()}`);
 
     // --- Mutable self methods ---
     let mut p3 = Point::new(0.0, 0.0);
     p3.translate(5.0, 10.0);
-    println(f"p3 after translate: {p3.display()}");
+    println(`p3 after translate: {p3.display()}`);
 
     // --- Circle static and instance methods ---
     let c = Circle::new(0.0, 0.0, 5.0);
-    println(f"Circle area: {c.area()}");
-    println(f"Circle circumference: {c.circumference()}");
+    println(`Circle area: {c.area()}`);
+    println(`Circle circumference: {c.circumference()}`);
 
     let unit = Circle::unit();
-    println(f"Unit circle area: {unit.area()}");
+    println(`Unit circle area: {unit.area()}`);
 
     // --- Method that calls other methods ---
     let inside = Point::new(1.0, 1.0);
     let outside = Point::new(10.0, 10.0);
-    println(f"(1,1) inside circle: {c.contains(inside)}");
-    println(f"(10,10) inside circle: {c.contains(outside)}");
+    println(`(1,1) inside circle: {c.contains(inside)}`);
+    println(`(10,10) inside circle: {c.contains(outside)}`);
 
     // --- Method chaining ---
     let big_circle = Circle::unit().scale(10.0);
-    println(f"Big circle area: {big_circle.area()}");
+    println(`Big circle area: {big_circle.area()}`);
 
     // --- Counter with mut self ---
     let mut counter = Counter::new(3);
-    println(f"Counter: {counter.get()}, maxed: {counter.is_maxed()}");
+    println(`Counter: {counter.get()}, maxed: {counter.is_maxed()}`);
 
     counter.increment();
     counter.increment();
     counter.increment();
-    println(f"After 3 increments: {counter.get()}, maxed: {counter.is_maxed()}");
+    println(`After 3 increments: {counter.get()}, maxed: {counter.is_maxed()}`);
 
     let could_increment = counter.increment();
-    println(f"4th increment succeeded: {could_increment}");
+    println(`4th increment succeeded: {could_increment}`);
 
     counter.reset();
-    println(f"After reset: {counter.get()}");
+    println(`After reset: {counter.get()}`);
 
     // --- Enum inherent methods ---
     let c1 = Color::red();
     let c2 = Color::rgb(128, 64, 32);
-    println(f"c1: {c1.name()}, primary: {c1.is_primary()}");
-    println(f"c2: {c2.name()}, primary: {c2.is_primary()}");
+    println(`c1: {c1.name()}, primary: {c1.is_primary()}`);
+    println(`c2: {c2.name()}, primary: {c2.is_primary()}`);
 
     println("All inherent method tests passed");
 }

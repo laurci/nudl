@@ -6,29 +6,29 @@
 fn repeat_string(s: string, times: i32 = 3) -> string {
     let mut result = "";
     for _ in 0..times {
-        result = f"{result}{s}";
+        result = `{result}{s}`;
     }
     result
 }
 
 // Function with multiple default parameters
 fn format_number(value: f64, precision: i32 = 2, prefix: string = "", suffix: string = "") -> string {
-    f"{prefix}{value}{suffix}"
+    `{prefix}{value}{suffix}`
 }
 
 // Required params before defaults (ordering rule)
 fn create_user(name: string, age: i32, role: string = "user", active: bool = true) -> string {
-    f"User({name}, age: {age}, role: {role}, active: {active})"
+    `User({name}, age: {age}, role: {role}, active: {active})`
 }
 
 // Default parameter using a constant expression
 fn connect(host: string, port: u16 = 8080, timeout_ms: u64 = 30000) -> string {
-    f"connecting to {host}:{port} (timeout: {timeout_ms}ms)"
+    `connecting to {host}:{port} (timeout: {timeout_ms}ms)`
 }
 
 // All parameters have defaults except the first
 fn log_message(msg: string, level: string = "INFO", timestamp: string = "now") -> string {
-    f"[{timestamp}] [{level}] {msg}"
+    `[{timestamp}] [{level}] {msg}`
 }
 
 // Default value is a computed expression
@@ -39,11 +39,11 @@ fn make_buffer(size: i32 = 1024) -> i32 {
 fn main() {
     // Call with all arguments provided
     let s1 = repeat_string("ha", times: 5);
-    println(f"repeat 5: {s1}");
+    println(`repeat 5: {s1}`);
 
     // Call omitting the default parameter
     let s2 = repeat_string("ho");
-    println(f"repeat default(3): {s2}");
+    println(`repeat default(3): {s2}`);
 
     // Multiple defaults: provide all
     let n1 = format_number(3.14, precision: 4, prefix: "$", suffix: "!");
@@ -84,8 +84,8 @@ fn main() {
 
     // Buffer with default
     let b1 = make_buffer();
-    println(f"buffer size: {b1}");
+    println(`buffer size: {b1}`);
 
     let b2 = make_buffer(4096);
-    println(f"buffer size: {b2}");
+    println(`buffer size: {b2}`);
 }

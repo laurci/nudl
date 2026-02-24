@@ -19,8 +19,8 @@ fn print_value<T: Printable>(value: T) {
 
 // Multiple bounds with +
 fn print_and_describe<T: Printable + Describable>(value: T) {
-    println(f"String: {value.to_string()}");
-    println(f"Description: {value.describe()}");
+    println(`String: {value.to_string()}`);
+    println(`Description: {value.describe()}`);
 }
 
 // Bound on generic struct
@@ -60,13 +60,13 @@ struct Item {
 
 impl Printable for Item {
     fn to_string(self) -> string {
-        f"Item({self.name})"
+        `Item({self.name})`
     }
 }
 
 impl Describable for Item {
     fn describe(self) -> string {
-        f"{self.name} weighing {self.weight}kg"
+        `{self.name} weighing {self.weight}kg`
     }
 }
 
@@ -80,12 +80,12 @@ fn main() {
 
     // Bound on struct
     let pair = SortedPair::new(10, 3);
-    println(f"sorted: ({pair.lo}, {pair.hi})");
+    println(`sorted: ({pair.lo}, {pair.hi})`);
 
     // Multiple bounds on function
     let nums = [5, 2, 8, 1, 9, 3];
     match largest_item(nums) {
-        Some(n) => println(f"largest: {n}"),
+        Some(n) => println(`largest: {n}`),
         None => println("empty list"),
     }
 }

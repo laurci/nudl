@@ -19,7 +19,7 @@ impl Vec2 {
 
 impl Printable for Vec2 {
     fn to_string(self) -> string {
-        f"({self.x}, {self.y})"
+        `({self.x}, {self.y})`
     }
 }
 
@@ -64,7 +64,7 @@ impl Particle {
 
 impl Printable for Particle {
     fn to_string(self) -> string {
-        f"{self.name}: pos={self.pos.to_string()}, vel={self.vel.to_string()}, bounces={self.bounces}"
+        `{self.name}: pos={self.pos.to_string()}, vel={self.vel.to_string()}, bounces={self.bounces}`
     }
 }
 
@@ -104,10 +104,10 @@ fn main() {
     // When the main loop mutates sim, observer sees the changes automatically.
     let observer = sim;
 
-    println(f"Starting simulation (dt={DELTA_T}, gravity={GRAVITY})");
-    println(f"Initial state:");
+    println(`Starting simulation (dt={DELTA_T}, gravity={GRAVITY})`);
+    println(`Initial state:`);
     for p in sim.particles {
-        println(f"  {p.to_string()}");
+        println(`  {p.to_string()}`);
     }
 
     // Run simulation
@@ -116,9 +116,9 @@ fn main() {
     }
 
     // observer sees the final state because it aliases sim
-    println(f"\nFinal state (after {observer.step_count} steps):");
+    println(`\nFinal state (after {observer.step_count} steps):`);
     for p in observer.particles {
-        println(f"  {p.to_string()}");
+        println(`  {p.to_string()}`);
     }
 
     // If we wanted an independent snapshot at some point,
@@ -135,7 +135,7 @@ fn main() {
     // snapshot is unaffected
     let snap_y = snapshot[0].pos.y;
     let live_y = sim2.particles[0].pos.y;
-    println(f"\nClone demo:");
-    println(f"  snapshot y: {snap_y} (frozen at creation time)");
-    println(f"  live y:     {live_y} (advanced by 3 ticks)");
+    println(`\nClone demo:`);
+    println(`  snapshot y: {snap_y} (frozen at creation time)`);
+    println(`  live y:     {live_y} (advanced by 3 ticks)`);
 }

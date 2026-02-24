@@ -49,9 +49,9 @@ fn main() {
     // Multiple type params with closure
     let names = ["Alice", "Bob"];
     let ages = [30, 25];
-    let pairs = zip_with(names, b_list: ages) { name, age -> f"{name}: {age}" };
+    let pairs = zip_with(names, b_list: ages) { name, age -> `{name}: {age}` };
 
-    println(f"identity(42) = {x}");
-    println(f"max(10, 20) = {m}");
-    println(f"first = {f}");
+    println(`identity(42) = {x}`);
+    println(`max(10, 20) = {m}`);
+    println(`first = {f}`);
 }

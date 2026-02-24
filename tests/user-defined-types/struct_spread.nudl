@@ -24,21 +24,21 @@ fn main() {
     // --- Basic spread: override one field ---
     let base = Point { x: 1.0, y: 2.0 };
     let moved = Point { ...base, x: 5.0 };
-    println(f"moved: ({moved.x}, {moved.y})");
+    println(`moved: ({moved.x}, {moved.y})`);
     // moved.x == 5.0, moved.y == 2.0 (from base)
 
     // --- Spread: override a different field ---
     let shifted = Point { ...base, y: 10.0 };
-    println(f"shifted: ({shifted.x}, {shifted.y})");
+    println(`shifted: ({shifted.x}, {shifted.y})`);
     // shifted.x == 1.0 (from base), shifted.y == 10.0
 
     // --- Spread with no overrides (copy all fields) ---
     let copy = Point { ...base };
-    println(f"copy: ({copy.x}, {copy.y})");
+    println(`copy: ({copy.x}, {copy.y})`);
 
     // --- Spread with all fields overridden ---
     let fresh = Point { ...base, x: 100.0, y: 200.0 };
-    println(f"fresh: ({fresh.x}, {fresh.y})");
+    println(`fresh: ({fresh.x}, {fresh.y})`);
 
     // --- Config spread: update one setting ---
     let default_config = Config {
@@ -49,25 +49,25 @@ fn main() {
     };
 
     let prod_config = Config { ...default_config, host: "prod.example.com", tls: true };
-    println(f"prod: {prod_config.host}:{prod_config.port} tls={prod_config.tls}");
+    println(`prod: {prod_config.host}:{prod_config.port} tls={prod_config.tls}`);
     // host overridden, port and timeout from default_config
 
     let custom_port = Config { ...default_config, port: 443 };
-    println(f"custom port: {custom_port.host}:{custom_port.port}");
+    println(`custom port: {custom_port.host}:{custom_port.port}`);
 
     // --- Chained spreads ---
     let base_color = Color { r: 255, g: 128, b: 64, a: 255 };
     let transparent = Color { ...base_color, a: 128 };
     let blue_transparent = Color { ...transparent, b: 200 };
-    println(f"blue transparent: r={blue_transparent.r} g={blue_transparent.g} b={blue_transparent.b} a={blue_transparent.a}");
+    println(`blue transparent: r={blue_transparent.r} g={blue_transparent.g} b={blue_transparent.b} a={blue_transparent.a}`);
 
     // --- Spread in function return ---
     let adjusted = with_alpha(base_color, 0);
-    println(f"adjusted: a={adjusted.a}");
+    println(`adjusted: a={adjusted.a}`);
 
     // --- Spread from function parameter ---
     let moved_point = offset(base, 10.0, 20.0);
-    println(f"offset: ({moved_point.x}, {moved_point.y})");
+    println(`offset: ({moved_point.x}, {moved_point.y})`);
 
     // --- Spread in a loop ---
     let origin = Point { x: 0.0, y: 0.0 };
@@ -77,12 +77,12 @@ fn main() {
         points.push(p);
     }
     for p in points {
-        println(f"  point: ({p.x}, {p.y})");
+        println(`  point: ({p.x}, {p.y})`);
     }
 
     // --- Original struct is unchanged after spread ---
-    println(f"base still: ({base.x}, {base.y})");
-    println(f"default_config still: {default_config.host}:{default_config.port}");
+    println(`base still: ({base.x}, {base.y})`);
+    println(`default_config still: {default_config.host}:{default_config.port}`);
 }
 
 fn with_alpha(color: Color, alpha: u8) -> Color {

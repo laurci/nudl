@@ -7,7 +7,7 @@ fn identity(x: i32) -> i32 {
 }
 
 fn concat(a: string, b: string) -> string {
-    f"{a}{b}"
+    `{a}{b}`
 }
 
 fn main() {

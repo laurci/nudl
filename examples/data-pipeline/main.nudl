@@ -56,13 +56,13 @@ fn main() {
         |> filter { it % 2 == 0 }
         |> map { it * 2 }
         |> fold(initial: 0) { acc, item -> acc + item };
-    println(f"Sum of doubled evens: {sum}");  // 60
+    println(`Sum of doubled evens: {sum}`);  // 60
 
     // Pipeline: squares of odd numbers
     let odd_squares = data
         |> filter { it % 2 != 0 }
         |> map { it * it };
-    println(f"Odd squares: {odd_squares}");  // [1, 9, 25, 49, 81]
+    println(`Odd squares: {odd_squares}`);  // [1, 9, 25, 49, 81]
 
     // Chained string pipeline
     let words = ["hello", "world", "foo", "bar", "baz", "qux"];
@@ -70,26 +70,26 @@ fn main() {
         |> filter { it.len() > 3 }
         |> map { it.to_upper() }
         |> fold(initial: "") { acc, word ->
-            if acc.len() == 0 { word } else { f"{acc}, {word}" }
+            if acc.len() == 0 { word } else { `{acc}, {word}` }
         };
-    println(f"Long words: {result}");  // HELLO, WORLD
+    println(`Long words: {result}`);  // HELLO, WORLD
 
     // Flat map: split sentences into words
     let sentences = ["hello world", "foo bar baz"];
     let all_words = sentences
         |> flat_map { it.split(" ") };
-    println(f"All words: {all_words}");
+    println(`All words: {all_words}`);
 
     // Zip with
     let xs = [1, 2, 3, 4];
     let ys = [10, 20, 30, 40];
     let products = zip_with(xs, b: ys) { a, b -> a * b };
-    println(f"Products: {products}");  // [10, 40, 90, 160]
+    println(`Products: {products}`);  // [10, 40, 90, 160]
 
     // Top 3 largest values
     let values = [42, 17, 93, 8, 55, 71, 3, 88];
     let top3 = values
         |> filter { it > 50 }
         |> take(3);
-    println(f"Top values > 50: {top3}");
+    println(`Top values > 50: {top3}`);
 }

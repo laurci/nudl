@@ -4,7 +4,7 @@
 comptime fn make_vector_type(comptime n: u32) {
     let names = ["x", "y", "z", "w"];
     let fields = names[0..n];
-    let type_name = f"Vec{n}";
+    let type_name = `Vec{n}`;
 
     // Generate the struct
     quote {
@@ -17,7 +17,7 @@ comptime fn make_vector_type(comptime n: u32) {
 comptime fn make_vector_ops(comptime n: u32) {
     let names = ["x", "y", "z", "w"];
     let fields = names[0..n];
-    let type_name = f"Vec{n}";
+    let type_name = `Vec{n}`;
 
     // Generate constructor
     quote {
@@ -60,7 +60,7 @@ comptime fn make_vector_ops(comptime n: u32) {
 comptime fn make_vector_add(comptime n: u32) {
     let names = ["x", "y", "z", "w"];
     let fields = names[0..n];
-    let type_name = f"Vec{n}";
+    let type_name = `Vec{n}`;
 
     quote {
         impl Add<${type_name}, ${type_name}> for ${type_name} {
@@ -87,10 +87,10 @@ comptime fn make_vector_add(comptime n: u32) {
             fn to_string(self) -> string {
                 let mut parts = "(";
                 ${for (i, name) in fields.enumerate() { quote {
-                    ${if i > 0 { quote { parts = f"{parts}, "; } }}
-                    parts = f"{parts}{self.${name}}";
+                    ${if i > 0 { quote { parts = `{parts}, `; } }}
+                    parts = `{parts}{self.${name}}`;
                 } }}
-                f"{parts})"
+                `{parts})`
             }
         }
     }
@@ -114,27 +114,27 @@ fn main() {
     let a2 = Vec2::new(3.0, 4.0);
     let b2 = Vec2::new(1.0, 2.0);
     let c2 = a2 + b2;
-    println(f"Vec2: {a2.to_string()} + {b2.to_string()} = {c2.to_string()}");
-    println(f"  dot: {a2.dot(b2)}");
-    println(f"  magnitude: {a2.magnitude()}");
+    println(`Vec2: {a2.to_string()} + {b2.to_string()} = {c2.to_string()}`);
+    println(`  dot: {a2.dot(b2)}`);
+    println(`  magnitude: {a2.magnitude()}`);
 
     // Vec3
     let a3 = Vec3::new(1.0, 2.0, 3.0);
     let b3 = Vec3::new(4.0, 5.0, 6.0);
     let c3 = a3 + b3;
-    println(f"\nVec3: {a3.to_string()} + {b3.to_string()} = {c3.to_string()}");
-    println(f"  dot: {a3.dot(b3)}");
-    println(f"  scaled x2: {a3.scale(2.0).to_string()}");
+    println(`\nVec3: {a3.to_string()} + {b3.to_string()} = {c3.to_string()}`);
+    println(`  dot: {a3.dot(b3)}`);
+    println(`  scaled x2: {a3.scale(2.0).to_string()}`);
 
     // Vec4
     let a4 = Vec4::new(1.0, 0.0, 0.0, 0.0);
     let b4 = Vec4::new(0.0, 1.0, 0.0, 0.0);
     let c4 = a4 + b4;
-    println(f"\nVec4: {a4.to_string()} + {b4.to_string()} = {c4.to_string()}");
-    println(f"  magnitude: {a4.magnitude()}");
+    println(`\nVec4: {a4.to_string()} + {b4.to_string()} = {c4.to_string()}`);
+    println(`  magnitude: {a4.magnitude()}`);
 
     // Zero vector
     let zero = Vec3::zero();
-    println(f"\nZero Vec3: {zero.to_string()}");
-    println(f"  magnitude: {zero.magnitude()}");
+    println(`\nZero Vec3: {zero.to_string()}`);
+    println(`  magnitude: {zero.magnitude()}`);
 }

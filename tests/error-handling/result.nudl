@@ -37,7 +37,7 @@ fn classify_division(a: f64, b: f64) -> string {
         Ok(value) if value > 0.0 => "positive result",
         Ok(value) if value == 0.0 => "zero",
         Ok(value) => "negative result",
-        Err(msg) => f"error: {msg}",
+        Err(msg) => `error: {msg}`,
     }
 }
 
@@ -48,37 +48,37 @@ fn main() {
 
     // --- Pattern matching on Result ---
     let msg1 = match ok_val {
-        Ok(v) => f"got value: {v}",
-        Err(e) => f"got error: {e}",
+        Ok(v) => `got value: {v}`,
+        Err(e) => `got error: {e}`,
     };
     // msg1 == "got value: 42"
 
     let msg2 = match err_val {
-        Ok(v) => f"got value: {v}",
-        Err(e) => f"got error: {e}",
+        Ok(v) => `got value: {v}`,
+        Err(e) => `got error: {e}`,
     };
     // msg2 == "got error: something went wrong"
 
     // --- Using Result-returning functions ---
     let result1 = divide(10.0, 3.0);
     match result1 {
-        Ok(v) => println(f"10 / 3 = {v}"),
-        Err(e) => println(f"Error: {e}"),
+        Ok(v) => println(`10 / 3 = {v}`),
+        Err(e) => println(`Error: {e}`),
     }
 
     let result2 = divide(5.0, 0.0);
     match result2 {
-        Ok(v) => println(f"5 / 0 = {v}"),
-        Err(e) => println(f"Error: {e}"),
+        Ok(v) => println(`5 / 0 = {v}`),
+        Err(e) => println(`Error: {e}`),
     }
 
     // --- if let with Result ---
     if let Ok(value) = divide(100.0, 4.0) {
-        println(f"100 / 4 = {value}");
+        println(`100 / 4 = {value}`);
     }
 
     if let Err(error) = divide(1.0, 0.0) {
-        println(f"Division failed: {error}");
+        println(`Division failed: {error}`);
     }
 
     // --- Result in collections ---
@@ -92,17 +92,17 @@ fn main() {
 
     for r in results {
         match r {
-            Ok(v) => println(f"  ok: {v}"),
-            Err(e) => println(f"  err: {e}"),
+            Ok(v) => println(`  ok: {v}`),
+            Err(e) => println(`  err: {e}`),
         }
     }
 
     // --- Nested Result values ---
     let nested: Result<Result<i32, string>, string> = Ok(Ok(42));
     match nested {
-        Ok(Ok(v)) => println(f"deeply nested value: {v}"),
-        Ok(Err(inner)) => println(f"inner error: {inner}"),
-        Err(outer) => println(f"outer error: {outer}"),
+        Ok(Ok(v)) => println(`deeply nested value: {v}`),
+        Ok(Err(inner)) => println(`inner error: {inner}`),
+        Err(outer) => println(`outer error: {outer}`),
     }
 
     // --- Result with different type parameters ---
@@ -111,8 +111,8 @@ fn main() {
     let tuple_result: Result<(i32, i32), string> = Ok((1, 2));
 
     match tuple_result {
-        Ok((a, b)) => println(f"tuple: ({a}, {b})"),
-        Err(e) => println(f"error: {e}"),
+        Ok((a, b)) => println(`tuple: ({a}, {b})`),
+        Err(e) => println(`error: {e}`),
     }
 
     // --- classify_division uses guards in match arms ---

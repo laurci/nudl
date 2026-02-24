@@ -75,7 +75,7 @@ comptime {
     for T in types {
         let name = type_name(T);
         let field_count = type_fields(T).len();
-        entries.push(f"{name}({field_count})");
+        entries.push(`{name}({field_count})`);
     }
     let registry = entries.join(", ");
     quote {
@@ -94,15 +94,15 @@ comptime {
         quote {
             impl Printable for ${T} {
                 fn to_string(self) -> string {
-                    let mut result = f"${name}(";
+                    let mut result = `${name}(`;
                     ${for (i, field) in fields.enumerate() {
                         let fname = field.name;
                         quote {
-                            ${if i > 0 { quote { result = f"{result}, "; } }}
-                            result = f"{result}${fname}={self.${fname}}";
+                            ${if i > 0 { quote { result = `{result}, `; } }}
+                            result = `{result}${fname}={self.${fname}}`;
                         }
                     }}
-                    f"{result})"
+                    `{result})`
                 }
             }
         }

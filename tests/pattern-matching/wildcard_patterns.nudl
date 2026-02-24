@@ -21,7 +21,7 @@ fn main() {
         1 => "one",
         _ => "something else",
     };
-    println(f"{x}: {desc}");
+    println(`{x}: {desc}`);
 
     // Wildcard in tuple patterns to ignore specific elements
     let triple = (1, 2, 3);
@@ -34,7 +34,7 @@ fn main() {
     let pair = ("hello", 42);
     match pair {
         (_, 42) => println("Second is 42"),
-        (_, n) => println(f"Second is {n}"),
+        (_, n) => println(`Second is {n}`),
     }
 
     // Multiple wildcards in a single pattern
@@ -51,13 +51,13 @@ fn main() {
         Direction::South => true,
         _ => false,
     };
-    println(f"North is vertical: {is_vertical}");
+    println(`North is vertical: {is_vertical}`);
 
     // Wildcard inside enum variant data
     let shape = Shape::Rectangle(10.0, 20.0);
     match shape {
         Shape::Circle(_) => println("It's a circle (radius ignored)"),
-        Shape::Rectangle(w, _) => println(f"Rectangle with width {w} (height ignored)"),
+        Shape::Rectangle(w, _) => println(`Rectangle with width {w} (height ignored)`),
         Shape::Triangle(_, _, _) => println("It's a triangle (all sides ignored)"),
     }
 
@@ -82,27 +82,27 @@ fn main() {
         _ if n % 2 == 0 => "even",
         _ => "odd",
     };
-    println(f"{n} is {parity}");
+    println(`{n} is {parity}`);
 
     // Wildcard in for loop (ignore loop variable)
     let mut count = 0;
     for _ in 0..5 {
         count += 1;
     }
-    println(f"Counted {count} iterations");
+    println(`Counted {count} iterations`);
 
     // Wildcard in let binding (discard value)
     let _ = 42;
     let (first, _) = (10, 20);
-    println(f"First: {first}");
+    println(`First: {first}`);
 
     let (_, second, _) = ("a", "b", "c");
-    println(f"Second: {second}");
+    println(`Second: {second}`);
 
     // Wildcard with nested patterns
     let data: Option<(i32, i32)> = Some((5, 10));
     match data {
-        Some((_, y)) => println(f"Second in tuple: {y}"),
+        Some((_, y)) => println(`Second in tuple: {y}`),
         None => println("No data"),
     }
 
@@ -113,5 +113,5 @@ fn main() {
         404 => "Not Found",
         _ => "Other",
     };
-    println(f"HTTP {code}: {response}");
+    println(`HTTP {code}: {response}`);
 }

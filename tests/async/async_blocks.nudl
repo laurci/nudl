@@ -8,7 +8,7 @@ async fn main() {
     // Basic async block — produces Future<string>
     let greeting: Future<string> = async {
         let name = fetch_name().await;
-        f"Hello, {name}!"
+        `Hello, {name}!`
     };
     let message = greeting.await;
     println(message);
@@ -17,13 +17,13 @@ async fn main() {
     let prefix = "Greetings";
     let custom: Future<string> = async {
         let name = fetch_name().await;
-        f"{prefix}, {name}!"  // captures prefix by ARC ref
+        `{prefix}, {name}!`  // captures prefix by ARC ref
     };
     println(custom.await);
 
     // Async block as expression
     let value = async { 42 }.await;
-    println(f"value: {value}");
+    println(`value: {value}`);
 
     // Async block with multiple statements
     let result = async {
@@ -31,7 +31,7 @@ async fn main() {
         let b = async { 20 }.await;
         a + b
     }.await;
-    println(f"result: {result}");
+    println(`result: {result}`);
 
     // Async block with control flow
     let computed = async {
@@ -41,7 +41,7 @@ async fn main() {
         }
         sum
     }.await;
-    println(f"sum 1..10: {computed}");
+    println(`sum 1..10: {computed}`);
 
     // Async block returning unit
     let unit_future: Future<()> = async {

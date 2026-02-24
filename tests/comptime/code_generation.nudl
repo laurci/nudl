@@ -80,7 +80,7 @@ comptime fn gen_eq(T: type) {
 // --- Generate a builder pattern ---
 comptime fn gen_builder(T: type) {
     let name = type_name(T);
-    let builder_name = f"{name}Builder";
+    let builder_name = `{name}Builder`;
     let fields = type_fields(T);
 
     quote {

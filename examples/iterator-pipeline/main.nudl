@@ -20,12 +20,12 @@ fn main() {
     println("Range 1..10:");
     let range = RangeIter::new(1, 10);
     let values = collect(range);
-    println(f"  {values}");
+    println(`  {values}`);
 
     // Range with step
     println("\nRange 0..20 step 3:");
     let stepped = RangeIter::with_step(0, end: 20, step: 3);
-    println(f"  {collect(stepped)}");
+    println(`  {collect(stepped)}`);
 
     // Chained iterators: filter + map + take
     println("\nPipeline: squares of even numbers from 1..20, take first 5:");
@@ -33,7 +33,7 @@ fn main() {
     let evens = filter_iter(pipeline) { it % 2 == 0 };
     let squares = map_iter(evens) { it * it };
     let first_five = take_iter(squares, count: 5);
-    println(f"  {collect(first_five)}");
+    println(`  {collect(first_five)}`);
 
     // Using pipe operator with iterators
     println("\nPipe operator: sum of cubes of odd numbers 1..10:");
@@ -42,20 +42,20 @@ fn main() {
         |> map_iter { it * it * it }
         |> collect
         |> fold(initial: 0i64) { acc, v -> acc + v };
-    println(f"  {sum}");
+    println(`  {sum}`);
 
     // Chain two ranges
     println("\nChained ranges:");
     let first = RangeIter::new(1, 4);
     let second = RangeIter::new(10, 14);
     let chained = ChainIter::new(first, second);
-    println(f"  {collect(chained)}");
+    println(`  {collect(chained)}`);
 
     // Fold: product of range
     println("\nProduct of 1..=5:");
     let range = RangeIter::new(1, 6);
     let product = fold_iter(range, initial: 1i64) { acc, v -> acc * v };
-    println(f"  {product}");
+    println(`  {product}`);
 
     // Fibonacci iterator
     println("\nFirst 10 Fibonacci numbers:");
@@ -68,7 +68,7 @@ fn main() {
         b = a + b;
         a = temp;
     }
-    println(f"  {fibs}");
+    println(`  {fibs}`);
 
     // Transform: string lengths
     println("\nWord lengths:");
@@ -78,6 +78,6 @@ fn main() {
         lengths.push((word, word.len()));
     }
     for (word, len) in lengths {
-        println(f"  '{word}' => {len} chars");
+        println(`  '{word}' => {len} chars`);
     }
 }

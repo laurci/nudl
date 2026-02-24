@@ -20,7 +20,7 @@ fn main() {
 
     // --- Upgrade a weak reference ---
     match r.upgrade() {
-        Some(node) => println(f"Value: {node.value}"),
+        Some(node) => println(`Value: {node.value}`),
         None => println("Object has been deallocated"),
     }
 
@@ -40,7 +40,7 @@ fn main() {
 
     // All upgrades should succeed while shared is alive
     match w_a.upgrade() {
-        Some(n) => println(f"w_a: {n.value}"),
+        Some(n) => println(`w_a: {n.value}`),
         None => println("w_a: gone"),
     }
 
@@ -65,7 +65,7 @@ fn main() {
     match first_child.parent {
         Some(weak_parent) => {
             match weak_parent.upgrade() {
-                Some(parent) => println(f"Parent value: {parent.value}"),
+                Some(parent) => println(`Parent value: {parent.value}`),
                 None => println("Parent deallocated"),
             }
         },
@@ -82,7 +82,7 @@ fn main() {
 
     // Upgrade should return None since the object was deallocated
     match dangling.upgrade() {
-        Some(n) => println(f"Still alive: {n.value}"),
+        Some(n) => println(`Still alive: {n.value}`),
         None => println("Correctly deallocated"),
     }
 }

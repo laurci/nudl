@@ -9,14 +9,14 @@ struct Page {
 
 impl Printable for Page {
     fn to_string(self) -> string {
-        f"Page({self.url}, {self.size} bytes)"
+        `Page({self.url}, {self.size} bytes)`
     }
 }
 
 async fn fetch_page(url: string) -> Result<Page, string> {
     let response = http_get(url).await?;
     if response.status() != 200 {
-        return Err(f"HTTP {response.status()} for {url}");
+        return Err(`HTTP {response.status()} for {url}`);
     }
     let body = response.body();
     Ok(Page {
@@ -31,16 +31,16 @@ async fn fetch_with_retry(url: string, max_attempts: i32) -> Result<Page, string
     for attempt in 1..=max_attempts {
         match fetch_page(url).await {
             Ok(page) => {
-                println(f"  [{url}] succeeded on attempt {attempt}");
+                println(`  [{url}] succeeded on attempt {attempt}`);
                 return Ok(page);
             },
             Err(e) => {
-                println(f"  [{url}] attempt {attempt} failed: {e}");
+                println(`  [{url}] attempt {attempt} failed: {e}`);
                 last_error = e;
             },
         }
     }
-    Err(f"all {max_attempts} attempts failed for {url}: {last_error}")
+    Err(`all {max_attempts} attempts failed for {url}: {last_error}`)
 }
 
 async fn fetch_all(urls: string[]) -> Result<Page[], string> {
@@ -85,19 +85,19 @@ async fn main() {
         Ok(pages) => {
             let mut total_size: u64 = 0;
             for (i, page) in pages.enumerate() {
-                println(f"  Page {i + 1}: {page.to_string()}");
+                println(`  Page {i + 1}: {page.to_string()}`);
                 total_size += page.size;
             }
-            println(f"  Total: {total_size} bytes across {pages.len()} pages");
+            println(`  Total: {total_size} bytes across {pages.len()} pages`);
         },
-        Err(e) => println(f"  Error: {e}"),
+        Err(e) => println(`  Error: {e}`),
     }
 
     // Fetch with retry
     println("\nFetching with retry:");
     match fetch_with_retry("https://example.com/flaky", max_attempts: 3).await {
-        Ok(page) => println(f"  Got: {page.to_string()}"),
-        Err(e) => println(f"  Failed: {e}"),
+        Ok(page) => println(`  Got: {page.to_string()}`),
+        Err(e) => println(`  Failed: {e}`),
     }
 
     // Race: first successful response wins
@@ -108,8 +108,8 @@ async fn main() {
         "https://mirror3.example.com/data",
     ];
     match fetch_first_success(mirrors).await {
-        Ok(page) => println(f"  First success: {page.to_string()}"),
-        Err(e) => println(f"  All failed: {e}"),
+        Ok(page) => println(`  First success: {page.to_string()}`),
+        Err(e) => println(`  All failed: {e}`),
     }
 
     // Individual spawned tasks
@@ -122,7 +122,7 @@ async fn main() {
 
     match (result1, result2) {
         (Ok(p1), Ok(p2)) =>
-            println(f"  Both succeeded: {p1.size + p2.size} total bytes"),
+            println(`  Both succeeded: {p1.size + p2.size} total bytes`),
         _ => println("  One or both failed"),
     }
 }

@@ -43,11 +43,11 @@ fn main() {
         Locked => "locked",
         _ => "unknown",
     };
-    println(f"Lock status: {status}");
+    println(`Lock status: {status}`);
 
     // --- Unit structs in collections ---
     let markers: Marker[] = [Marker, Marker, Marker];
-    println(f"Number of markers: {markers.len()}");
+    println(`Number of markers: {markers.len()}`);
 
     // --- Unit struct as function parameter ---
     println(describe_state(Connected));
@@ -74,7 +74,7 @@ fn main() {
     let ok_result: Result<Marker, string> = Ok(Marker);
     match ok_result {
         Ok(_) => println("Success with marker"),
-        Err(e) => println(f"Error: {e}"),
+        Err(e) => println(`Error: {e}`),
     }
 
     println("All unit struct tests passed");

@@ -54,15 +54,15 @@ impl<T: Printable> List<T> {
         loop {
             match current {
                 List::Cons { head, tail } => {
-                    if !first { result = f"{result}, "; }
-                    result = f"{result}{head.to_string()}";
+                    if !first { result = `{result}, `; }
+                    result = `{result}{head.to_string()}`;
                     first = false;
                     current = tail;
                 },
                 List::Nil => { break; },
             }
         }
-        f"{result}]"
+        `{result}]`
     }
 
     fn reverse(self) -> List<T> {
@@ -89,29 +89,29 @@ fn main() {
         .prepend(2)
         .prepend(1);
 
-    println(f"List: {list.to_string()}");
-    println(f"Length: {list.len()}");
+    println(`List: {list.to_string()}`);
+    println(`Length: {list.len()}`);
 
     // Head and tail
     match list.head() {
-        Some(h) => println(f"Head: {h}"),
+        Some(h) => println(`Head: {h}`),
         None => println("Empty list"),
     }
-    println(f"Tail: {list.tail().to_string()}");
+    println(`Tail: {list.tail().to_string()}`);
 
     // Shared tails via ARC — prepending two different heads onto the same tail
     let shared_tail = List::new().prepend(30).prepend(20).prepend(10);
     let branch_a = shared_tail.prepend(1);
     let branch_b = shared_tail.prepend(2);
-    println(f"\nShared tail: {shared_tail.to_string()}");
-    println(f"Branch A:    {branch_a.to_string()}");
-    println(f"Branch B:    {branch_b.to_string()}");
+    println(`\nShared tail: {shared_tail.to_string()}`);
+    println(`Branch A:    {branch_a.to_string()}`);
+    println(`Branch B:    {branch_b.to_string()}`);
 
     // Search
-    println(f"\nContains 3? {list.contains(3)}");
-    println(f"Contains 9? {list.contains(9)}");
+    println(`\nContains 3? {list.contains(3)}`);
+    println(`Contains 9? {list.contains(9)}`);
 
     // Reverse
     let reversed = list.reverse();
-    println(f"Reversed: {reversed.to_string()}");
+    println(`Reversed: {reversed.to_string()}`);
 }

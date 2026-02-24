@@ -74,10 +74,10 @@ fn main() {
     let name = "nudl-test";
     assert(name == APP_NAME, "string constant comparison");
 
-    // --- Constant in format string ---
-    let msg = f"app={APP_NAME}, retries={MAX_RETRIES}";
-    assert(msg.contains("nudl-test"), "format string with constant");
-    assert(msg.contains("3"), "format string with integer constant");
+    // --- Constant in template string ---
+    let msg = `app={APP_NAME}, retries={MAX_RETRIES}`;
+    assert(msg.contains("nudl-test"), "template string with constant");
+    assert(msg.contains("3"), "template string with integer constant");
 
     // --- Constants don't interfere with let bindings of same-ish names ---
     let max_retries = 10;

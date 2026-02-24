@@ -46,7 +46,7 @@ enum Holder<T> {
 impl<T: Printable> Holder<T> {
     fn describe(self) -> string {
         match self {
-            Holder::Value(v) => f"holding: {v.to_string()}",
+            Holder::Value(v) => `holding: {v.to_string()}`,
             Holder::Empty => "empty",
         }
     }
@@ -80,13 +80,13 @@ fn main() {
     let h2 = Holder::Value("hello");
     let h3: Holder<f64> = Holder::Empty;
 
-    println(f"double(21) = {a}");
-    println(f"double(1.5) = {b}");
-    println(f"int_stack len: {int_stack.len()}");
-    println(f"str_stack len: {str_stack.len()}");
-    println(f"max_int: {max_int}");
-    println(f"max_float: {max_float}");
-    println(f"h1: {h1.describe()}");
-    println(f"h2: {h2.describe()}");
-    println(f"h3: {h3.describe()}");
+    println(`double(21) = {a}`);
+    println(`double(1.5) = {b}`);
+    println(`int_stack len: {int_stack.len()}`);
+    println(`str_stack len: {str_stack.len()}`);
+    println(`max_int: {max_int}`);
+    println(`max_float: {max_float}`);
+    println(`h1: {h1.describe()}`);
+    println(`h2: {h2.describe()}`);
+    println(`h3: {h3.describe()}`);
 }

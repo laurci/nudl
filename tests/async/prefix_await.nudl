@@ -5,13 +5,13 @@ async fn compute(x: i32) -> i32 {
 }
 
 async fn fetch(url: string) -> string {
-    f"data from {url}"
+    `data from {url}`
 }
 
 async fn main() {
     // Prefix await — low precedence, captures entire following expression
     let result = await compute(21);
-    println(f"result: {result}");
+    println(`result: {result}`);
 
     // Simple prefix await
     let data = await fetch("https://example.com");
@@ -20,7 +20,7 @@ async fn main() {
     // Both forms produce the same result — postfix is preferred for chaining
     let a = compute(10).await;   // postfix
     let b = await compute(10);   // prefix — same result
-    println(f"a={a}, b={b}");
+    println(`a={a}, b={b}`);
 
     // Prefix await in variable binding
     let greeting = await async { "Hello from async block" };
@@ -29,5 +29,5 @@ async fn main() {
     // Prefix await captures entire expression due to low precedence:
     // await compute(5) is parsed as await (compute(5))
     let val = await compute(5);
-    println(f"val: {val}");
+    println(`val: {val}`);
 }

@@ -47,7 +47,7 @@ fn main() {
 
     // --- Closure with explicit return type ---
     let to_string = |n: i32| -> string {
-        f"{n}"
+        `{n}`
     };
 
     // --- Closure with multi-line body ---

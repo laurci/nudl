@@ -42,7 +42,7 @@ fn main() {
         Color::Green => "#00FF00",
         Color::Blue => "#0000FF",
     };
-    println(f"Color: {hex}");
+    println(`Color: {hex}`);
 
     // Exhaustive match on bool: both true and false covered
     let flag = true;
@@ -50,7 +50,7 @@ fn main() {
         true => "yes",
         false => "no",
     };
-    println(f"Flag: {label}");
+    println(`Flag: {label}`);
 
     // Exhaustive match on integer with wildcard fallback
     let n = 42;
@@ -59,7 +59,7 @@ fn main() {
         1 => "one",
         _ => "other",
     };
-    println(f"{n}: {desc}");
+    println(`{n}: {desc}`);
 
     // Exhaustive match with wildcard covering remaining enum variants
     let light = TrafficLight::Yellow;
@@ -68,7 +68,7 @@ fn main() {
         TrafficLight::Green => "go",
         _ => "caution",
     };
-    println(f"Traffic light: {action}");
+    println(`Traffic light: {action}`);
 
     // Exhaustive match on all coin variants
     let coins = [Coin::Penny, Coin::Nickel, Coin::Dime, Coin::Quarter];
@@ -79,13 +79,13 @@ fn main() {
             Coin::Dime => 10,
             Coin::Quarter => 25,
         };
-        println(f"  Coin value: {value}");
+        println(`  Coin value: {value}`);
     }
 
     // Exhaustive match on Option (built-in): Some and None
     let opt: Option<i32> = Some(10);
     let result = match opt {
-        Some(v) => f"has value: {v}",
+        Some(v) => `has value: {v}`,
         None => "empty",
     };
     println(result);
@@ -93,7 +93,7 @@ fn main() {
     // Exhaustive match on custom generic enum
     let val: Option2<string> = Option2::Some2("hello");
     let msg = match val {
-        Option2::Some2(s) => f"got: {s}",
+        Option2::Some2(s) => `got: {s}`,
         Option2::None2 => "nothing",
     };
     println(msg);
@@ -101,8 +101,8 @@ fn main() {
     // Exhaustive match on Result
     let res: Result<i32, string> = Ok(200);
     let status = match res {
-        Ok(code) => f"success: {code}",
-        Err(err) => f"error: {err}",
+        Ok(code) => `success: {code}`,
+        Err(err) => `error: {err}`,
     };
     println(status);
 
@@ -135,13 +135,13 @@ fn main() {
         11..=100 => "medium",
         _ => "large or negative",
     };
-    println(f"{x}: {bucket}");
+    println(`{x}: {bucket}`);
 
     // Exhaustive match on custom Result2
     let r: Result2<i32, string> = Result2::Ok2(42);
     let msg = match r {
-        Result2::Ok2(v) => f"Ok2({v})",
-        Result2::Err2(e) => f"Err2({e})",
+        Result2::Ok2(v) => `Ok2({v})`,
+        Result2::Err2(e) => `Err2({e})`,
     };
     println(msg);
 
@@ -153,7 +153,7 @@ fn main() {
         x if x < 0 => "negative",
         _ => "zero",
     };
-    println(f"{n}: {label}");
+    println(`{n}: {label}`);
 
     // Exhaustive match on deeply nested type
     let deep: Option<Option<Color>> = Some(Some(Color::Blue));

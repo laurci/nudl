@@ -32,7 +32,7 @@ impl<T: Printable> Wrapper<T> {
     }
 
     fn show(self) -> string {
-        f"Wrapper({self.value.to_string()})"
+        `Wrapper({self.value.to_string()})`
     }
 }
 
@@ -71,8 +71,8 @@ fn main() {
     let full: Box<i32> = Box::of(42);
     let empty: Box<string> = Box::empty();
 
-    println(f"pair: ({int_pair.first}, {int_pair.second})");
-    println(f"mixed: ({mixed.first}, {mixed.second})");
-    println(f"full is_empty: {full.is_empty()}");
-    println(f"empty is_empty: {empty.is_empty()}");
+    println(`pair: ({int_pair.first}, {int_pair.second})`);
+    println(`mixed: ({mixed.first}, {mixed.second})`);
+    println(`full is_empty: {full.is_empty()}`);
+    println(`empty is_empty: {empty.is_empty()}`);
 }

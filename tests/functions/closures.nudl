@@ -4,11 +4,11 @@
 fn main() {
     // Basic closure with type annotations
     let add = |a: i32, b: i32| -> i32 { a + b };
-    println(f"add(3, 4) = {add(3, 4)}");
+    println(`add(3, 4) = {add(3, 4)}`);
 
     // Closure with inferred types (single expression body)
     let double = |n| n * 2;
-    println(f"double(5) = {double(5)}");
+    println(`double(5) = {double(5)}`);
 
     // Closure with block body
     let clamp = |value: i32, min: i32, max: i32| -> i32 {
@@ -20,9 +20,9 @@ fn main() {
             value
         }
     };
-    println(f"clamp(15, 0, 10) = {clamp(15, 0, 10)}");
-    println(f"clamp(-5, 0, 10) = {clamp(-5, 0, 10)}");
-    println(f"clamp(5, 0, 10) = {clamp(5, 0, 10)}");
+    println(`clamp(15, 0, 10) = {clamp(15, 0, 10)}`);
+    println(`clamp(-5, 0, 10) = {clamp(-5, 0, 10)}`);
+    println(`clamp(5, 0, 10) = {clamp(5, 0, 10)}`);
 
     // Capture by ARC reference: closure shares variable with enclosing scope
     let mut counter = 0;
@@ -32,12 +32,12 @@ fn main() {
     increment();
     increment();
     increment();
-    println(f"counter after 3 increments = {counter}");
+    println(`counter after 3 increments = {counter}`);
 
     // Capture of immutable variable
     let multiplier = 10;
     let scale = |x| x * multiplier;
-    println(f"scale(7) = {scale(7)}");
+    println(`scale(7) = {scale(7)}`);
 
     // Multiple captures
     let base = 100;
@@ -46,9 +46,9 @@ fn main() {
         offset += 1;
         base + x + offset
     };
-    println(f"compute(5) = {compute(5)}");
-    println(f"compute(5) = {compute(5)}");
-    println(f"offset = {offset}");
+    println(`compute(5) = {compute(5)}`);
+    println(`compute(5) = {compute(5)}`);
+    println(`offset = {offset}`);
 
     // Closure returning closure (higher-order)
     let make_adder = |n: i32| -> (i32) -> i32 {
@@ -56,8 +56,8 @@ fn main() {
     };
     let add5 = make_adder(5);
     let add10 = make_adder(10);
-    println(f"add5(3) = {add5(3)}");
-    println(f"add10(3) = {add10(3)}");
+    println(`add5(3) = {add5(3)}`);
+    println(`add10(3) = {add10(3)}`);
 
     // Zero-parameter closure
     let greet = || "hello, world";
@@ -65,7 +65,7 @@ fn main() {
 
     // Closure assigned to typed variable
     let op: (i32, i32) -> i32 = |a, b| a + b;
-    println(f"op(10, 20) = {op(10, 20)}");
+    println(`op(10, 20) = {op(10, 20)}`);
 
     // Closure used in a loop
     let mut values: i32[] = [];
@@ -75,12 +75,12 @@ fn main() {
     for i in 0..5 {
         push_val(i * i);
     }
-    println(f"values = {values}");
+    println(`values = {values}`);
 
     // Closure capturing a string (reference type)
     let prefix = "item";
     let label = |n: i32| -> string {
-        f"{prefix}_{n}"
+        `{prefix}_{n}`
     };
-    println(f"label(3) = {label(3)}");
+    println(`label(3) = {label(3)}`);
 }

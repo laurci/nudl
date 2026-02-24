@@ -17,11 +17,11 @@ fn main() {
 
     // if/else as expression: both branches must have same type
     let abs_x = if x >= 0 { x } else { -x };
-    println(f"abs({x}) = {abs_x}");
+    println(`abs({x}) = {abs_x}`);
 
     let neg = -7;
     let abs_neg = if neg >= 0 { neg } else { -neg };
-    println(f"abs({neg}) = {abs_neg}");
+    println(`abs({neg}) = {abs_neg}`);
 
     // else-if chain as statement
     let score = 85;
@@ -47,7 +47,7 @@ fn main() {
     } else {
         "failing"
     };
-    println(f"score {score} is {category}");
+    println(`score {score} is {category}`);
 
     // Nested if/else expressions
     let a = 5;
@@ -63,16 +63,16 @@ fn main() {
     let mut message = "";
     if x > 5 {
         let doubled = x * 2;
-        message = f"doubled: {doubled}";
+        message = `doubled: {doubled}`;
     } else {
         let halved = x / 2;
-        message = f"halved: {halved}";
+        message = `halved: {halved}`;
     }
     println(message);
 
     // if expression assigning to let (both branches return same type)
     let sign = if x > 0 { 1 } else if x < 0 { -1 } else { 0 };
-    println(f"sign of {x} = {sign}");
+    println(`sign of {x} = {sign}`);
 
     // if with boolean variable
     let is_valid = true;
@@ -91,7 +91,7 @@ fn main() {
 
     // if/else expression used in function call
     let label = if x > 0 { "positive" } else { "non-positive" };
-    println(f"x is {label}");
+    println(`x is {label}`);
 
     // Chained conditions with complex expressions
     let temp = 72;
@@ -106,5 +106,5 @@ fn main() {
     } else {
         "freezing"
     };
-    println(f"{temp}F is {weather}");
+    println(`{temp}F is {weather}`);
 }

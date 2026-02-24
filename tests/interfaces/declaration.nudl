@@ -20,7 +20,7 @@ interface Summary {
     fn preview(self) -> string {
         let s = self.summarize();
         if s.len() > 20 {
-            f"{s.substring(0, 20)}..."
+            `{s.substring(0, 20)}...`
         } else {
             s
         }
@@ -34,7 +34,7 @@ interface Describable {
 
     // Default method using the required methods
     fn full_report(self) -> string {
-        f"Description: {self.describe()}\nShort: {self.short_description()}"
+        `Description: {self.describe()}\nShort: {self.short_description()}`
     }
 
     // Another default method
@@ -77,20 +77,20 @@ struct SimpleCounter {
 
 impl Printable for Article {
     fn to_string(self) -> string {
-        f"Article: {self.title} by {self.author}"
+        `Article: {self.title} by {self.author}`
     }
 }
 
 impl Summary for Article {
     fn summarize(self) -> string {
-        f"{self.title} by {self.author}: {self.content}"
+        `{self.title} by {self.author}: {self.content}`
     }
     // preview() is inherited as default
 }
 
 impl Describable for Article {
     fn describe(self) -> string {
-        f"An article titled '{self.title}' written by {self.author}"
+        `An article titled '{self.title}' written by {self.author}`
     }
 
     fn short_description(self) -> string {
@@ -101,7 +101,7 @@ impl Describable for Article {
 
 impl Printable for Circle {
     fn to_string(self) -> string {
-        f"Circle(r={self.radius})"
+        `Circle(r={self.radius})`
     }
 }
 
@@ -143,12 +143,12 @@ struct Tweet {
 
 impl Summary for Tweet {
     fn summarize(self) -> string {
-        f"@{self.user}: {self.body}"
+        `@{self.user}: {self.body}`
     }
 
     // Override the default preview method
     fn preview(self) -> string {
-        f"@{self.user}"
+        `@{self.user}`
     }
 }
 
@@ -165,8 +165,8 @@ fn main() {
     println(circle.to_string());
 
     // --- Shape interface ---
-    println(f"{circle.name()} area: {circle.area()}");
-    println(f"{circle.name()} perimeter: {circle.perimeter()}");
+    println(`{circle.name()} area: {circle.area()}`);
+    println(`{circle.name()} perimeter: {circle.perimeter()}`);
 
     // --- Summary with default method ---
     let long_article = Article {
@@ -174,33 +174,33 @@ fn main() {
         content: "Content here",
         author: "Author",
     };
-    println(f"Summarize: {long_article.summarize()}");
-    println(f"Preview (default): {long_article.preview()}");
+    println(`Summarize: {long_article.summarize()}`);
+    println(`Preview (default): {long_article.preview()}`);
     // preview should truncate to 20 chars + "..."
 
     // --- Summary with overridden default ---
     let tweet = Tweet { user: "nudl_lang", body: "Hello, world!" };
-    println(f"Tweet summarize: {tweet.summarize()}");
-    println(f"Tweet preview (overridden): {tweet.preview()}");
+    println(`Tweet summarize: {tweet.summarize()}`);
+    println(`Tweet preview (overridden): {tweet.preview()}`);
     // preview returns just "@nudl_lang" instead of the default
 
     // --- Describable with default methods ---
-    println(f"Describe: {article.describe()}");
-    println(f"Short: {article.short_description()}");
-    println(f"Full report: {article.full_report()}");
-    println(f"Is described: {article.is_described()}");
+    println(`Describe: {article.describe()}`);
+    println(`Short: {article.short_description()}`);
+    println(`Full report: {article.full_report()}`);
+    println(`Is described: {article.is_described()}`);
 
     // --- Counter with default increment_by ---
     let mut counter = SimpleCounter { value: 0 };
     counter.increment();
     counter.increment();
-    println(f"After 2 increments: {counter.count()}");    // 2
+    println(`After 2 increments: {counter.count()}`);    // 2
 
     counter.increment_by(5);   // uses the default method
-    println(f"After increment_by(5): {counter.count()}"); // 7
+    println(`After increment_by(5): {counter.count()}`); // 7
 
     counter.reset();
-    println(f"After reset: {counter.count()}");           // 0
+    println(`After reset: {counter.count()}`);           // 0
 
     println("All interface declaration tests passed");
 }

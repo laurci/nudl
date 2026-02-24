@@ -1,0 +1,72 @@
+// Test: Template string literals — `...`
+// Covers: interpolation {expr}, escaped braces \{ \}, nested template strings,
+//         expressions inside interpolation, Printable interface
+
+fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+fn main() {
+    // --- Basic interpolation ---
+    let name = "world";
+    let greeting = `hello, {name}`;
+
+    // --- Interpolation with expressions ---
+    let sum = `1 + 1 = {1 + 1}`;
+    let product = `3 * 4 = {3 * 4}`;
+
+    // --- Escaped braces ---
+    let literal_braces = `braces: \{ and \}`;
+    let mixed = `value: {42}, literal: \{not interpolated\}`;
+
+    // --- Nested template strings ---
+    let inner = `nested: {`inner {42}`}`;
+    let deep = `a {`b {`c`}`}`;
+
+    // --- Variable interpolation ---
+    let x = 10;
+    let y = 20;
+    let coords = `({x}, {y})`;
+
+    // --- Function call in interpolation ---
+    let result = `sum is {add(3, b: 4)}`;
+
+    // --- Multiple interpolations ---
+    let a = "first";
+    let b = "second";
+    let c = "third";
+    let all = `{a}, {b}, and {c}`;
+
+    // --- Interpolation with boolean ---
+    let flag = true;
+    let bool_str = `flag is {flag}`;
+
+    // --- Interpolation with numeric types ---
+    let int_val: i32 = 42;
+    let float_val: f64 = 3.14;
+    let formatted = `int={int_val}, float={float_val}`;
+
+    // --- Complex expressions ---
+    let conditional = `sign: {if x > 0 { "positive" } else { "non-positive" }}`;
+    let arithmetic = `result: {(x + y) * 2}`;
+
+    // --- Empty interpolation body (just a variable) ---
+    let msg = "ok";
+    let wrapped = `[{msg}]`;
+
+    // --- Adjacent interpolations ---
+    let first = "abc";
+    let second = "def";
+    let adjacent = `{first}{second}`;
+
+    // --- Template string with no interpolation (still valid, just a string) ---
+    let plain = `no interpolation here`;
+
+    // --- Template string with escape sequences ---
+    let with_escapes = `tab:\there, newline:\n{name}`;
+
+    // --- Interpolation at start and end ---
+    let at_start = `{name} is here`;
+    let at_end = `hello {name}`;
+    let both = `{name}{name}`;
+}

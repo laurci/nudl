@@ -91,31 +91,31 @@ async fn main() {
     counter.increment().await;
     counter.increment().await;
     let val = counter.get().await;
-    println(f"Counter: {val}");  // 3
+    println(`Counter: {val}`);  // 3
 
     counter.add(5).await;
-    println(f"After add(5): {counter.get().await}");  // 8
+    println(`After add(5): {counter.get().await}`);  // 8
 
     // Logger actor
     let logger = Logger::new();
     logger.log("first message").await;
     logger.log("second message").await;
-    println(f"Log count: {logger.count().await}");
+    println(`Log count: {logger.count().await}`);
 
     // Bank account with Result returns
     let account = BankAccount::new("Alice", initial_balance: 100.0);
     match account.deposit(50.0).await {
-        Ok(balance) => println(f"Balance after deposit: {balance}"),
-        Err(e) => println(f"Error: {e}"),
+        Ok(balance) => println(`Balance after deposit: {balance}`),
+        Err(e) => println(`Error: {e}`),
     }
 
     match account.withdraw(200.0).await {
-        Ok(balance) => println(f"Balance after withdrawal: {balance}"),
-        Err(e) => println(f"Error: {e}"),
+        Ok(balance) => println(`Balance after withdrawal: {balance}`),
+        Err(e) => println(`Error: {e}`),
     }
 
     // Actors are ARC'd — assignment shares the same instance
     let alias = counter;
     alias.increment().await;
-    println(f"Counter via alias: {counter.get().await}");
+    println(`Counter via alias: {counter.get().await}`);
 }

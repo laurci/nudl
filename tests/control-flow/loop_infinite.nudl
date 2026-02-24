@@ -9,7 +9,7 @@ fn main() {
             break;
         }
     }
-    println(f"Loop ran {count} times");
+    println(`Loop ran {count} times`);
 
     // Loop as expression: break with a value
     let result = loop {
@@ -18,7 +18,7 @@ fn main() {
             break count;
         }
     };
-    println(f"Loop returned: {result}");
+    println(`Loop returned: {result}`);
 
     // Loop with break value: finding first match
     let numbers = [3, 7, 1, 9, 4, 6, 2];
@@ -32,7 +32,7 @@ fn main() {
         }
         idx += 1;
     };
-    println(f"First even number: {first_even}");
+    println(`First even number: {first_even}`);
 
     // Loop with complex break condition
     let mut a = 1;
@@ -45,7 +45,7 @@ fn main() {
             break b;
         }
     };
-    println(f"First Fibonacci over 100: {fib_over_100}");
+    println(`First Fibonacci over 100: {fib_over_100}`);
 
     // Nested loop with inner break
     let mut outer_count = 0;
@@ -62,7 +62,7 @@ fn main() {
             break;
         }
     }
-    println(f"Outer loop ran {outer_count} times");
+    println(`Outer loop ran {outer_count} times`);
 
     // Loop as expression assigned to variable with string value
     let mut attempts = 0;
@@ -72,7 +72,7 @@ fn main() {
             break "success";
         }
     };
-    println(f"Status after {attempts} attempts: {status}");
+    println(`Status after {attempts} attempts: {status}`);
 
     // Loop with continue-like behavior (using if to skip)
     let mut sum = 0;
@@ -88,7 +88,7 @@ fn main() {
         }
         sum += i;
     }
-    println(f"Sum (skipping multiples of 3, 1..20): {sum}");
+    println(`Sum (skipping multiples of 3, 1..20): {sum}`);
 
     // Loop returning a computed value
     let mut n = 1;
@@ -98,14 +98,14 @@ fn main() {
             break n;
         }
     };
-    println(f"First power of 2 >= 1000: {power_of_two}");
+    println(`First power of 2 >= 1000: {power_of_two}`);
 
     // Loop expression used directly in a function call argument
     let mut counter = 0;
-    println(f"Loop value: {loop {
+    println(`Loop value: {loop {
         counter += 1;
         if counter == 5 {
             break counter * 10;
         }
-    }}");
+    }}`);
 }

@@ -9,8 +9,8 @@ async fn simulate_chat(room: ChatRoom) {
     room.join("bob").await;
     room.join("charlie").await;
 
-    println(f"Room '{room.room_name().await}' has {room.member_count().await} members");
-    println(f"Members: {room.members_list().await}");
+    println(`Room '{room.room_name().await}' has {room.member_count().await} members`);
+    println(`Members: {room.members_list().await}`);
 
     // Send messages
     room.send_message("alice", content: "Hello everyone!").await;
@@ -22,25 +22,25 @@ async fn simulate_chat(room: ChatRoom) {
     // Try sending from non-member
     match room.send_message("dave", content: "Can I join?").await {
         Ok(()) => println("dave sent a message"),
-        Err(e) => println(f"Error: {e}"),
+        Err(e) => println(`Error: {e}`),
     }
 
     // Show recent messages
-    println(f"\nRecent messages (last 5):");
+    println(`\nRecent messages (last 5):`);
     let recent = room.recent_messages(5).await;
     for msg in recent {
-        println(f"  {msg.to_string()}");
+        println(`  {msg.to_string()}`);
     }
 
     // Charlie leaves
     room.leave("charlie").await;
-    println(f"\nAfter charlie leaves: {room.member_count().await} members");
+    println(`\nAfter charlie leaves: {room.member_count().await} members`);
 
     // Show all messages including system messages
-    println(f"\nAll messages ({room.message_count().await} total):");
+    println(`\nAll messages ({room.message_count().await} total):`);
     let all = room.recent_messages(100).await;
     for msg in all {
-        println(f"  {msg.to_string()}");
+        println(`  {msg.to_string()}`);
     }
 }
 
@@ -55,9 +55,9 @@ async fn main() {
     dev_room.send_message("alice", content: "Let's discuss the new feature").await;
     dev_room.send_message("bob", content: "Ready when you are").await;
 
-    println(f"\n--- {dev_room.room_name().await} ---");
+    println(`\n--- {dev_room.room_name().await} ---`);
     let msgs = dev_room.recent_messages(10).await;
     for msg in msgs {
-        println(f"  {msg.to_string()}");
+        println(`  {msg.to_string()}`);
     }
 }

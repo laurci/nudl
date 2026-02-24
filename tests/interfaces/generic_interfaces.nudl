@@ -104,7 +104,7 @@ struct IntToString;
 
 impl Converter<i32, string> for IntToString {
     fn convert(self, value: i32) -> string {
-        f"{value}"
+        `{value}`
     }
 }
 
@@ -170,63 +170,63 @@ fn main() {
     let mut range = RangeIter::new(0, 5);
     println("Range 0..5:");
     while let Some(n) = range.next() {
-        println(f"  {n}");
+        println(`  {n}`);
     }
 
     // --- ArrayIter implementing Iterator<string> ---
     let mut arr_iter = ArrayIter::new(["alpha", "beta", "gamma"]);
     println("Array items:");
     while let Some(s) = arr_iter.next() {
-        println(f"  {s}");
+        println(`  {s}`);
     }
 
     // --- FibIter implementing Iterator<i64> ---
     let mut fib = FibIter::new(8);
     println("Fibonacci (first 8):");
     while let Some(n) = fib.next() {
-        println(f"  {n}");
+        println(`  {n}`);
     }
 
     // --- collect_all with different iterators ---
     let range_items = collect_all(RangeIter::new(10, 15));
-    println(f"Collected range: {range_items.len()} items");
+    println(`Collected range: {range_items.len()} items`);
 
     let fib_items = collect_all(FibIter::new(6));
-    println(f"Collected fib: {fib_items.len()} items");
+    println(`Collected fib: {fib_items.len()} items`);
 
     // --- count_items ---
     let n = count_items(RangeIter::new(0, 100));
-    println(f"Count of 0..100: {n}");
+    println(`Count of 0..100: {n}`);
 
     // --- Converter<i32, string> ---
     let conv = IntToString;
     let s = conv.convert(42);
-    println(f"42 as string: \"{s}\"");
+    println(`42 as string: "{s}"`);
 
     // --- Converter<f64, f64> ---
     let temp_conv = CelsiusToFahrenheit;
     let f = temp_conv.convert(100.0);
-    println(f"100C in F: {f}");
+    println(`100C in F: {f}`);
     let f2 = temp_conv.convert(0.0);
-    println(f"0C in F: {f2}");
+    println(`0C in F: {f2}`);
 
     // --- Container<i32> ---
     let mut buf = IntBuffer::new();
-    println(f"Empty buffer, is_empty: {buf.is_empty()}");   // true (default method)
+    println(`Empty buffer, is_empty: {buf.is_empty()}`);   // true (default method)
 
     buf.push(10);
     buf.push(20);
     buf.push(30);
-    println(f"Buffer length: {buf.len()}");
-    println(f"Buffer is_empty: {buf.is_empty()}");          // false
+    println(`Buffer length: {buf.len()}`);
+    println(`Buffer is_empty: {buf.is_empty()}`);          // false
 
     match buf.get(1) {
-        Some(v) => println(f"buf[1] = {v}"),               // 20
+        Some(v) => println(`buf[1] = {v}`),               // 20
         None => println("out of bounds"),
     }
 
     match buf.get(99) {
-        Some(v) => println(f"buf[99] = {v}"),
+        Some(v) => println(`buf[99] = {v}`),
         None => println("buf[99] out of bounds"),           // this branch
     }
 

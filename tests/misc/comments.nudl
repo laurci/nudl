@@ -23,7 +23,7 @@ fn /* comments can appear */ main(/* even here */) {
 
     // Comments don't affect code
     let sum = x /* first operand */ + /* operator */ y /* second operand */;
-    println(f"sum = {sum}");
+    println(`sum = {sum}`);
 
     // Comments at the end of statements
     let a = 1; // first
@@ -33,7 +33,7 @@ fn /* comments can appear */ main(/* even here */) {
     /* Block comment between statements */
 
     let result = a + b + c;
-    println(f"result = {result}");
+    println(`result = {result}`);
 
     // Deeply nested block comments
     /* level 1

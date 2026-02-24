@@ -30,7 +30,7 @@ impl Builder {
 
     fn describe(self) -> string {
         let scheme = if self.tls { "https" } else { "http" };
-        f"{scheme}://{self.name}:{self.port} (timeout: {self.timeout}ms)"
+        `{scheme}://{self.name}:{self.port} (timeout: {self.timeout}ms)`
     }
 }
 
@@ -74,5 +74,5 @@ fn main() {
     let numbers = [3, 1, 4, 1, 5, 9, 2, 6, 5];
     let count = numbers
         .len();
-    println(f"count: {count}");
+    println(`count: {count}`);
 }

@@ -44,8 +44,8 @@ fn area(shape: Shape) -> f64 {
 
 fn describe_token(tok: Token) -> string {
     match tok {
-        Token::Number(n) => f"number({n})",
-        Token::Text(s) => f"text(\"{s}\")",
+        Token::Number(n) => `number({n})`,
+        Token::Text(s) => `text("{s}")`,
         Token::Plus => "plus",
         Token::Minus => "minus",
         Token::Eof => "eof",
@@ -60,30 +60,30 @@ fn main() {
 
     // --- Pattern matching to extract data ---
     match circle {
-        Shape::Circle(r) => println(f"Circle with radius {r}"),
+        Shape::Circle(r) => println(`Circle with radius {r}`),
         _ => println("Not a circle"),
     }
 
     match square {
-        Shape::Square(side) => println(f"Square with side {side}"),
+        Shape::Square(side) => println(`Square with side {side}`),
         _ => println("Not a square"),
     }
 
     match triangle {
-        Shape::Triangle(a, b, c) => println(f"Triangle with sides {a}, {b}, {c}"),
+        Shape::Triangle(a, b, c) => println(`Triangle with sides {a}, {b}, {c}`),
         _ => println("Not a triangle"),
     }
 
     // --- Using area function ---
-    println(f"Circle area: {area(circle)}");
-    println(f"Square area: {area(square)}");
+    println(`Circle area: {area(circle)}`);
+    println(`Square area: {area(square)}`);
 
     // --- Data variant as a constructor function ---
     // Shape::Circle has type (f64) -> Shape — can be used as a first-class function
     let make_shape: (f64) -> Shape = Shape::Circle;
     let from_fn = make_shape(5.0);
     match from_fn {
-        Shape::Circle(r) => println(f"  from function: circle r={r}"),
+        Shape::Circle(r) => println(`  from function: circle r={r}`),
         _ => {},
     }
 
@@ -92,7 +92,7 @@ fn main() {
     let circles: Shape[] = radii.iter().map(Shape::Circle).collect();
     for c in circles {
         match c {
-            Shape::Circle(r) => println(f"  circle r={r}, area={area(c)}"),
+            Shape::Circle(r) => println(`  circle r={r}, area={area(c)}`),
             _ => {},
         }
     }
@@ -105,13 +105,13 @@ fn main() {
         Token::Eof,
     ];
     for tok in tokens {
-        println(f"  token: {describe_token(tok)}");
+        println(`  token: {describe_token(tok)}`);
     }
 
     // --- Wrapper with single data variant ---
     let w = Wrapper::Value(100);
     match w {
-        Wrapper::Value(v) => println(f"Wrapped value: {v}"),
+        Wrapper::Value(v) => println(`Wrapped value: {v}`),
     }
 
     // --- Message enum with reference-type payloads ---
@@ -122,9 +122,9 @@ fn main() {
     ];
     for msg in msgs {
         match msg {
-            Message::Text(s) => println(f"  text: {s}"),
-            Message::Numbers(nums) => println(f"  numbers: {nums.len()} items"),
-            Message::Pair(key, val) => println(f"  pair: {key}={val}"),
+            Message::Text(s) => println(`  text: {s}`),
+            Message::Numbers(nums) => println(`  numbers: {nums.len()} items`),
+            Message::Pair(key, val) => println(`  pair: {key}={val}`),
         }
     }
 
@@ -143,13 +143,13 @@ fn main() {
             Shape::Square(side) => "small square",
             _ => "other",
         };
-        println(f"  {desc}");
+        println(`  {desc}`);
     }
 
     // --- Nested data variant matching ---
     let opt_shape: Option<Shape> = Some(Shape::Circle(7.0));
     match opt_shape {
-        Some(Shape::Circle(r)) => println(f"Optional circle with r={r}"),
+        Some(Shape::Circle(r)) => println(`Optional circle with r={r}`),
         Some(_) => println("Some other shape"),
         None => println("No shape"),
     }

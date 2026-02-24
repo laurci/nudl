@@ -45,15 +45,15 @@ fn main() {
     let mut stack: Stack<i32> = Stack::new();
     for i in 1..=5 {
         stack.push(i);
-        println(f"  Pushed {i}: {stack.to_string()}");
+        println(`  Pushed {i}: {stack.to_string()}`);
     }
 
-    println(f"  Peek: {stack.peek()}");
+    println(`  Peek: {stack.peek()}`);
 
     while let Some(value) = stack.pop() {
-        println(f"  Popped: {value}");
+        println(`  Popped: {value}`);
     }
-    println(f"  Empty? {stack.is_empty()}");
+    println(`  Empty? {stack.is_empty()}`);
 
     // Queue demo
     println("\n=== Queue ===");
@@ -61,27 +61,27 @@ fn main() {
     let tasks = ["compile", "test", "deploy", "monitor"];
     for task in tasks {
         queue.enqueue(task);
-        println(f"  Enqueued '{task}': {queue.to_string()}");
+        println(`  Enqueued '{task}': {queue.to_string()}`);
     }
 
-    println(f"  Front: {queue.front()}");
+    println(`  Front: {queue.front()}`);
 
     while let Some(task) = queue.dequeue() {
-        println(f"  Processing: '{task}' (remaining: {queue.len()})");
+        println(`  Processing: '{task}' (remaining: {queue.len()})`);
     }
 
     // Reverse using stack
     println("\n=== Reverse ===");
     let numbers = [1, 2, 3, 4, 5];
     let reversed = reverse_with_stack(numbers);
-    println(f"  Original: {numbers}");
-    println(f"  Reversed: {reversed}");
+    println(`  Original: {numbers}`);
+    println(`  Reversed: {reversed}`);
 
     // Balanced parentheses checker
     println("\n=== Balanced Parentheses ===");
     let tests = ["(())", "({[]})", "(()", "([)]", ""];
     for test in tests {
         let label = if test.len() == 0 { "(empty)" } else { test };
-        println(f"  '{label}' => {is_balanced(test)}");
+        println(`  '{label}' => {is_balanced(test)}`);
     }
 }

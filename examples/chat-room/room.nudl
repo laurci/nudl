@@ -9,7 +9,7 @@ pub struct Message {
 
 impl Printable for Message {
     fn to_string(self) -> string {
-        f"[{self.timestamp}] {self.sender}: {self.content}"
+        `[{self.timestamp}] {self.sender}: {self.content}`
     }
 }
 
@@ -33,7 +33,7 @@ pub actor ChatRoom {
             return false;
         }
         self.members.push(username);
-        self.broadcast_system(f"{username} has joined the room");
+        self.broadcast_system(`{username} has joined the room`);
         true
     }
 
@@ -41,7 +41,7 @@ pub actor ChatRoom {
         for (i, member) in self.members.enumerate() {
             if member == username {
                 self.members.remove(i);
-                self.broadcast_system(f"{username} has left the room");
+                self.broadcast_system(`{username} has left the room`);
                 return true;
             }
         }
@@ -50,7 +50,7 @@ pub actor ChatRoom {
 
     pub fn send_message(mut self, sender: string, content: string) -> Result<(), string> {
         if !self.members.contains(sender) {
-            return Err(f"'{sender}' is not a member of '{self.name}'");
+            return Err(`'{sender}' is not a member of '{self.name}'`);
         }
         let msg = Message {
             sender,

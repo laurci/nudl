@@ -40,7 +40,7 @@ fn sum_first_n(comptime n: u32) -> i32 {
 
 // --- Comptime string parameter ---
 fn labeled_value(comptime label: string, value: i32) -> string {
-    f"{label}: {value}"
+    `{label}: {value}`
 }
 
 fn main() {

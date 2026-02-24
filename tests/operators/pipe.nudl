@@ -11,7 +11,7 @@ fn add(a: i32, b: i32) -> i32 {
 }
 
 fn format_num(n: i32, prefix: string) -> string {
-    f"{prefix}{n}"
+    `{prefix}{n}`
 }
 
 fn filter(items: i32[], predicate: (i32) -> bool) -> i32[] {
@@ -41,7 +41,7 @@ fn fold(items: i32[], initial: i32, combine: (i32, i32) -> i32) -> i32 {
 }
 
 fn send(data: string, method: string) -> string {
-    f"{method}: {data}"
+    `{method}: {data}`
 }
 
 fn main() {
@@ -104,7 +104,7 @@ fn main() {
 
     impl Formatter {
         fn format(self, value: i32) -> string {
-            f"{self.prefix}{value}"
+            `{self.prefix}{value}`
         }
     }
 

@@ -8,10 +8,10 @@ fn main() {
     'outer: for i in 0..5 {
         for j in 0..5 {
             if i + j > 5 {
-                println(f"  Breaking outer at i={i}, j={j}");
+                println(`  Breaking outer at i={i}, j={j}`);
                 break 'outer;
             }
-            println(f"  ({i}, {j})");
+            println(`  ({i}, {j})`);
         }
     }
 
@@ -23,7 +23,7 @@ fn main() {
                 // Skip the rest of inner loop and go to next outer iteration
                 continue 'outer;
             }
-            println(f"  ({i}, {j})");
+            println(`  ({i}, {j})`);
         }
     }
 
@@ -34,7 +34,7 @@ fn main() {
         let mut y = 0;
         while y < 10 {
             if x * y == 42 {
-                println(f"  Found: x={x}, y={y}, product=42");
+                println(`  Found: x={x}, y={y}, product=42`);
                 break 'search;
             }
             y += 1;
@@ -61,7 +61,7 @@ fn main() {
             break 'find (-1, -1);
         }
     };
-    println(f"  Found at ({result.0}, {result.1})");
+    println(`  Found at ({result.0}, {result.1})`);
 
     // Multiple labels on nested loops
     println("Triple nested with labels:");
@@ -74,7 +74,7 @@ fn main() {
                 if b > 1 && c > 1 {
                     continue 'level2;
                 }
-                println(f"  ({a}, {b}, {c})");
+                println(`  ({a}, {b}, {c})`);
             }
         }
     }
@@ -92,7 +92,7 @@ fn main() {
             break 'main_loop -1;
         }
     };
-    println(f"Found value: {found_value}");
+    println(`Found value: {found_value}`);
 
     // Continue 'outer in a while-for combination
     println("While-for with continue 'outer:");
@@ -103,7 +103,7 @@ fn main() {
                 row += 1;
                 continue 'rows;
             }
-            println(f"  row={row}, col={col}");
+            println(`  row={row}, col={col}`);
         }
         row += 1;
     }

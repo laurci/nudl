@@ -10,7 +10,7 @@ fn parse_number(input: string) -> Result<i32, string> {
     } else if input == "0" {
         Ok(0)
     } else {
-        Err(f"cannot parse '{input}' as i32")
+        Err(`cannot parse '{input}' as i32`)
     }
 }
 
@@ -18,7 +18,7 @@ fn read_file(path: string) -> Result<string, string> {
     if path == "config.txt" {
         Ok("port=8080")
     } else {
-        Err(f"file not found: {path}")
+        Err(`file not found: {path}`)
     }
 }
 
@@ -35,7 +35,7 @@ fn extract_value(content: string, key: string) -> Result<string, string> {
     if content == "port=8080" && key == "port" {
         Ok("8080")
     } else {
-        Err(f"key '{key}' not found in content")
+        Err(`key '{key}' not found in content`)
     }
 }
 
@@ -122,7 +122,7 @@ fn read_data(path: string) -> Result<string, string> {
     if path == "data.txt" {
         Ok("42")
     } else {
-        Err(f"file not found: {path}")
+        Err(`file not found: {path}`)
     }
 }
 
@@ -130,7 +130,7 @@ fn parse_i32(s: string) -> Result<i32, string> {
     if s == "42" {
         Ok(42)
     } else {
-        Err(f"invalid number: {s}")
+        Err(`invalid number: {s}`)
     }
 }
 
@@ -143,48 +143,48 @@ fn load_number(path: string) -> Result<i32, AppError> {
 fn main() {
     // --- ? on Result: success path ---
     match process_two_numbers("42", "0") {
-        Ok(sum) => println(f"Sum: {sum}"),           // Sum: 42
-        Err(e) => println(f"Error: {e}"),
+        Ok(sum) => println(`Sum: {sum}`),           // Sum: 42
+        Err(e) => println(`Error: {e}`),
     }
 
     // --- ? on Result: first argument fails ---
     match process_two_numbers("bad", "42") {
-        Ok(sum) => println(f"Sum: {sum}"),
-        Err(e) => println(f"Error: {e}"),           // Error: cannot parse 'bad'
+        Ok(sum) => println(`Sum: {sum}`),
+        Err(e) => println(`Error: {e}`),           // Error: cannot parse 'bad'
     }
 
     // --- ? on Result: second argument fails ---
     match process_two_numbers("42", "bad") {
-        Ok(sum) => println(f"Sum: {sum}"),
-        Err(e) => println(f"Error: {e}"),           // Error: cannot parse 'bad'
+        Ok(sum) => println(`Sum: {sum}`),
+        Err(e) => println(`Error: {e}`),           // Error: cannot parse 'bad'
     }
 
     // --- Chained ? calls ---
     match get_port() {
-        Ok(port) => println(f"Port: {port}"),
-        Err(e) => println(f"Error: {e}"),
+        Ok(port) => println(`Port: {port}`),
+        Err(e) => println(`Error: {e}`),
     }
 
     // --- ? in a loop ---
     match sum_all(["42", "0", "42"]) {
-        Ok(total) => println(f"Total: {total}"),     // Total: 84
-        Err(e) => println(f"Error: {e}"),
+        Ok(total) => println(`Total: {total}`),     // Total: 84
+        Err(e) => println(`Error: {e}`),
     }
 
     match sum_all(["42", "bad", "0"]) {
-        Ok(total) => println(f"Total: {total}"),
-        Err(e) => println(f"Error: {e}"),           // Error on "bad"
+        Ok(total) => println(`Total: {total}`),
+        Err(e) => println(`Error: {e}`),           // Error on "bad"
     }
 
     // --- ? on Option: success path ---
     match get_user_domain("alice") {
-        Some(domain) => println(f"Domain: {domain}"),   // example.com
+        Some(domain) => println(`Domain: {domain}`),   // example.com
         None => println("Not found"),
     }
 
     // --- ? on Option: user not found ---
     match get_user_domain("charlie") {
-        Some(domain) => println(f"Domain: {domain}"),
+        Some(domain) => println(`Domain: {domain}`),
         None => println("Not found"),               // charlie doesn't exist
     }
 
@@ -192,7 +192,7 @@ fn main() {
     match find_all_emails(["alice", "bob"]) {
         Some(emails) => {
             for email in emails {
-                println(f"  email: {email}");
+                println(`  email: {email}`);
             }
         },
         None => println("Some users not found"),
@@ -205,25 +205,25 @@ fn main() {
 
     // --- Complex calculation with ? ---
     match complex_calculation(100.0, 5.0, 2.0) {
-        Ok(v) => println(f"Result: {v}"),            // 10.0
-        Err(e) => println(f"Error: {e}"),
+        Ok(v) => println(`Result: {v}`),            // 10.0
+        Err(e) => println(`Error: {e}`),
     }
 
     match complex_calculation(100.0, 0.0, 2.0) {
-        Ok(v) => println(f"Result: {v}"),
-        Err(e) => println(f"Error: {e}"),           // division by zero
+        Ok(v) => println(`Result: {v}`),
+        Err(e) => println(`Error: {e}`),           // division by zero
     }
 
     // --- map_err for error type conversion ---
     match load_number("data.txt") {
-        Ok(n) => println(f"Loaded number: {n}"),     // 42
-        Err(AppError::IoError(e)) => println(f"IO error: {e}"),
-        Err(AppError::ParseError(e)) => println(f"Parse error: {e}"),
+        Ok(n) => println(`Loaded number: {n}`),     // 42
+        Err(AppError::IoError(e)) => println(`IO error: {e}`),
+        Err(AppError::ParseError(e)) => println(`Parse error: {e}`),
     }
 
     match load_number("missing.txt") {
-        Ok(n) => println(f"Loaded: {n}"),
-        Err(AppError::IoError(e)) => println(f"IO error: {e}"),   // file not found
-        Err(AppError::ParseError(e)) => println(f"Parse error: {e}"),
+        Ok(n) => println(`Loaded: {n}`),
+        Err(AppError::IoError(e)) => println(`IO error: {e}`),   // file not found
+        Err(AppError::ParseError(e)) => println(`Parse error: {e}`),
     }
 }

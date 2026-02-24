@@ -62,7 +62,7 @@ fn main() {
         3 => "three",
         _ => "other",
     };
-    println(f"{x} is {name}");
+    println(`{x} is {name}`);
 
     // Match as expression producing a value
     let code = 404;
@@ -73,7 +73,7 @@ fn main() {
         500 => "Internal Server Error",
         _ => "Unknown",
     };
-    println(f"HTTP {code}: {status}");
+    println(`HTTP {code}: {status}`);
 
     // Match on enum variants (exhaustive)
     let color = Color::Green;
@@ -82,24 +82,24 @@ fn main() {
         Color::Green => "#00FF00",
         Color::Blue => "#0000FF",
     };
-    println(f"Color hex: {hex}");
+    println(`Color hex: {hex}`);
 
     // Match on enum with function
     let penny = Coin::Penny;
     let nickel = Coin::Nickel;
     let dime = Coin::Dime;
     let quarter = Coin::Quarter;
-    println(f"Penny = {coin_value(penny)} cents");
-    println(f"Nickel = {coin_value(nickel)} cents");
-    println(f"Dime = {coin_value(dime)} cents");
-    println(f"Quarter = {coin_value(quarter)} cents");
+    println(`Penny = {coin_value(penny)} cents`);
+    println(`Nickel = {coin_value(nickel)} cents`);
+    println(`Dime = {coin_value(dime)} cents`);
+    println(`Quarter = {coin_value(quarter)} cents`);
 
     // Match with wildcard for remaining variants
     let day = Weekday::Saturday;
-    println(f"{day_name(day)} is weekend: {is_weekend(day)}");
+    println(`{day_name(day)} is weekend: {is_weekend(day)}`);
 
     let weekday = Weekday::Wednesday;
-    println(f"{day_name(weekday)} is weekend: {is_weekend(weekday)}");
+    println(`{day_name(weekday)} is weekend: {is_weekend(weekday)}`);
 
     // Match on boolean
     let flag = true;
@@ -107,7 +107,7 @@ fn main() {
         true => "yes",
         false => "no",
     };
-    println(f"flag = {label}");
+    println(`flag = {label}`);
 
     // Match with block bodies
     let n = 42;
@@ -118,11 +118,11 @@ fn main() {
         },
         1 => "unity",
         _ => {
-            let msg = f"number {n}";
+            let msg = `number {n}`;
             msg
         },
     };
-    println(f"description: {description}");
+    println(`description: {description}`);
 
     // Match on negative numbers
     let temp = -5;
@@ -136,13 +136,13 @@ fn main() {
             }
         },
     };
-    println(f"{temp} degrees: {state}");
+    println(`{temp} degrees: {state}`);
 
     // All weekdays exhaustive match
     for day in [Weekday::Monday, Weekday::Tuesday, Weekday::Wednesday,
                 Weekday::Thursday, Weekday::Friday, Weekday::Saturday,
                 Weekday::Sunday] {
         let kind = if is_weekend(day) { "weekend" } else { "weekday" };
-        println(f"{day_name(day)} is a {kind}");
+        println(`{day_name(day)} is a {kind}`);
     }
 }

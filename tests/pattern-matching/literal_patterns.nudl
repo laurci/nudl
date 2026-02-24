@@ -36,12 +36,12 @@ fn check_bool(b: bool) -> string {
 
 fn main() {
     // Integer literal patterns
-    println(f"0 -> {describe_number(0)}");
-    println(f"1 -> {describe_number(1)}");
-    println(f"42 -> {describe_number(42)}");
-    println(f"100 -> {describe_number(100)}");
-    println(f"-1 -> {describe_number(-1)}");
-    println(f"7 -> {describe_number(7)}");
+    println(`0 -> {describe_number(0)}`);
+    println(`1 -> {describe_number(1)}`);
+    println(`42 -> {describe_number(42)}`);
+    println(`100 -> {describe_number(100)}`);
+    println(`-1 -> {describe_number(-1)}`);
+    println(`7 -> {describe_number(7)}`);
 
     // Match on integer directly in main
     let code = 200;
@@ -56,19 +56,19 @@ fn main() {
         500 => "Internal Server Error",
         _ => "Unknown",
     };
-    println(f"HTTP {code}: {status}");
+    println(`HTTP {code}: {status}`);
 
     // Char literal patterns
-    println(f"'a' -> {classify_char('a')}");
-    println(f"'z' -> {classify_char('z')}");
-    println(f"'A' -> {classify_char('A')}");
-    println(f"'0' -> {classify_char('0')}");
-    println(f"' ' -> {classify_char(' ')}");
-    println(f"'x' -> {classify_char('x')}");
+    println(`'a' -> {classify_char('a')}`);
+    println(`'z' -> {classify_char('z')}`);
+    println(`'A' -> {classify_char('A')}`);
+    println(`'0' -> {classify_char('0')}`);
+    println(`' ' -> {classify_char(' ')}`);
+    println(`'x' -> {classify_char('x')}`);
 
     // Bool literal patterns (exhaustive without wildcard)
-    println(f"true -> {check_bool(true)}");
-    println(f"false -> {check_bool(false)}");
+    println(`true -> {check_bool(true)}`);
+    println(`false -> {check_bool(false)}`);
 
     // String literal patterns
     let command = "quit";
@@ -79,7 +79,7 @@ fn main() {
         "status" => "all systems go",
         _ => "unknown command",
     };
-    println(f"Command '{command}': {action}");
+    println(`Command '{command}': {action}`);
 
     // Match with multiple string patterns
     let day = "Monday";
@@ -93,7 +93,7 @@ fn main() {
         "Friday" => "weekday",
         _ => "unknown",
     };
-    println(f"{day} is a {kind}");
+    println(`{day} is a {kind}`);
 
     // Nested match with literals
     let x = 5;
@@ -106,7 +106,7 @@ fn main() {
         10 => "ten",
         _ => "not ten",
     };
-    println(f"x is {x_desc}, y is {y_desc}");
+    println(`x is {x_desc}, y is {y_desc}`);
 
     // Match on literal in a loop
     for i in 0..5 {
@@ -118,6 +118,6 @@ fn main() {
             4 => "fifth",
             _ => "unknown",
         };
-        println(f"  {i}: {label}");
+        println(`  {i}: {label}`);
     }
 }

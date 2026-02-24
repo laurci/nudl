@@ -58,21 +58,21 @@ fn main() {
     let point = Point { x: 5.0, y: 10.0 };
     match point {
         Point { x: 0.0, y: 0.0 } => println("origin"),
-        Point { x, y } => println(f"({x}, {y})"),
+        Point { x, y } => println(`({x}, {y})`),
     }
 
     // --- Enum destructuring ---
     let shape = Shape::Circle(5.0);
     match shape {
-        Shape::Circle(radius) => println(f"radius: {radius}"),
-        Shape::Rectangle { width, height } => println(f"{width}x{height}"),
+        Shape::Circle(radius) => println(`radius: {radius}`),
+        Shape::Rectangle { width, height } => println(`{width}x{height}`),
         Shape::Point => println("point"),
     }
 
     // --- Destructuring in for loop ---
     let pairs: (i32, string)[] = [(1, "one"), (2, "two"), (3, "three")];
     for (num, name) in pairs {
-        println(f"{num}: {name}");
+        println(`{num}: {name}`);
     }
 
     // --- Mutable destructuring ---
@@ -82,7 +82,7 @@ fn main() {
     // --- Destructuring with if-let ---
     let maybe: Option<(i32, string)> = Some((42, "found"));
     if let Some((value, desc)) = maybe {
-        println(f"{desc}: {value}");
+        println(`{desc}: {value}`);
     }
 
     // --- Destructuring single-element tuple ---

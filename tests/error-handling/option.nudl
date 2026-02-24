@@ -53,20 +53,20 @@ fn main() {
 
     // --- Pattern matching on Option ---
     let msg1 = match some_val {
-        Some(v) => f"found: {v}",
+        Some(v) => `found: {v}`,
         None => "nothing",
     };
     // msg1 == "found: 42"
 
     let msg2 = match none_val {
-        Some(v) => f"found: {v}",
+        Some(v) => `found: {v}`,
         None => "nothing",
     };
     // msg2 == "nothing"
 
     // --- if let with Option ---
     if let Some(value) = some_val {
-        println(f"Unwrapped: {value}");
+        println(`Unwrapped: {value}`);
     }
 
     if let Some(_) = none_val {
@@ -79,45 +79,45 @@ fn main() {
     let mut items: i32[] = [10, 20, 30];
     let mut idx = 0;
     while let Some(item) = get_at_i32(items, idx) {
-        println(f"item[{idx}] = {item}");
+        println(`item[{idx}] = {item}`);
         idx += 1;
     }
 
     // --- find_first_even ---
     let evens = find_first_even([1, 3, 5, 7, 8, 10]);
     match evens {
-        Some(n) => println(f"First even: {n}"),     // 8
+        Some(n) => println(`First even: {n}`),     // 8
         None => println("No even numbers"),
     }
 
     let no_evens = find_first_even([1, 3, 5, 7]);
     match no_evens {
-        Some(n) => println(f"First even: {n}"),
+        Some(n) => println(`First even: {n}`),
         None => println("No even numbers found"),   // this branch
     }
 
     // --- Safe array access ---
     let names: string[] = ["alice", "bob", "charlie"];
     match get_at(names, 1) {
-        Some(name) => println(f"Found: {name}"),     // "bob"
+        Some(name) => println(`Found: {name}`),     // "bob"
         None => println("Index out of bounds"),
     }
     match get_at(names, 99) {
-        Some(name) => println(f"Found: {name}"),
+        Some(name) => println(`Found: {name}`),
         None => println("Index out of bounds"),      // this branch
     }
 
     // --- Nested Options ---
     let nested: Option<Option<i32>> = Some(Some(42));
     match nested {
-        Some(Some(v)) => println(f"Deeply nested: {v}"),
+        Some(Some(v)) => println(`Deeply nested: {v}`),
         Some(None) => println("Inner is None"),
         None => println("Outer is None"),
     }
 
     let nested_none: Option<Option<i32>> = Some(None);
     match nested_none {
-        Some(Some(v)) => println(f"Deeply nested: {v}"),
+        Some(Some(v)) => println(`Deeply nested: {v}`),
         Some(None) => println("Inner is None"),      // this branch
         None => println("Outer is None"),
     }
@@ -128,33 +128,33 @@ fn main() {
     let tuple_opt: Option<(i32, string)> = Some((1, "one"));
 
     match tuple_opt {
-        Some((n, s)) => println(f"tuple: ({n}, {s})"),
+        Some((n, s)) => println(`tuple: ({n}, {s})`),
         None => println("no tuple"),
     }
 
     // --- Combining options ---
     let combined = both_present(Some(10), Some(20));
     match combined {
-        Some((a, b)) => println(f"Both: {a}, {b}"),
+        Some((a, b)) => println(`Both: {a}, {b}`),
         None => println("At least one missing"),
     }
 
     let partial = both_present(Some(10), None);
     match partial {
-        Some((a, b)) => println(f"Both: {a}, {b}"),
+        Some((a, b)) => println(`Both: {a}, {b}`),
         None => println("At least one missing"),    // this branch
     }
 
     // --- double_if_present ---
     let doubled = double_if_present(Some(21));
     match doubled {
-        Some(v) => println(f"Doubled: {v}"),        // 42
+        Some(v) => println(`Doubled: {v}`),        // 42
         None => println("Nothing to double"),
     }
 
     let no_double = double_if_present(None);
     match no_double {
-        Some(v) => println(f"Doubled: {v}"),
+        Some(v) => println(`Doubled: {v}`),
         None => println("Nothing to double"),       // this branch
     }
 
@@ -162,7 +162,7 @@ fn main() {
     let options: Option<i32>[] = [Some(1), None, Some(3), None, Some(5)];
     for opt in options {
         match opt {
-            Some(v) => println(f"  value: {v}"),
+            Some(v) => println(`  value: {v}`),
             None => println("  absent"),
         }
     }

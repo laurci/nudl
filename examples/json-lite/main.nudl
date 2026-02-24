@@ -27,7 +27,7 @@ fn main() {
 
     // Compact serialization
     println("Compact JSON:");
-    println(f"  {serialize(json)}");
+    println(`  {serialize(json)}`);
 
     // Pretty-printed
     println("\nPretty JSON:");
@@ -36,14 +36,14 @@ fn main() {
     // Accessing nested values
     println("\nAccessing values:");
     match json.get("name") {
-        Some(name) => println(f"  name: {name.to_string()} (type: {name.type_name()})"),
+        Some(name) => println(`  name: {name.to_string()} (type: {name.type_name()})`),
         None => println("  name: not found"),
     }
 
     match json.get("age") {
         Some(age) => match age.as_number() {
-            Some(n) => println(f"  age: {n}"),
-            None => println(f"  age: not a number"),
+            Some(n) => println(`  age: {n}`),
+            None => println(`  age: not a number`),
         },
         None => println("  age: not found"),
     }
@@ -51,7 +51,7 @@ fn main() {
     // Nested access
     match json.get("address") {
         Some(addr) => match addr.get("city") {
-            Some(city) => println(f"  address.city: {city.to_string()}"),
+            Some(city) => println(`  address.city: {city.to_string()}`),
             None => println("  address.city: not found"),
         },
         None => println("  address: not found"),
@@ -60,7 +60,7 @@ fn main() {
     // Array access
     match json.get("tags") {
         Some(tags) => match tags.at(0) {
-            Some(first_tag) => println(f"  tags[0]: {first_tag.to_string()}"),
+            Some(first_tag) => println(`  tags[0]: {first_tag.to_string()}`),
             None => println("  tags[0]: empty array"),
         },
         None => println("  tags: not found"),
@@ -68,7 +68,7 @@ fn main() {
 
     // Null check
     match json.get("notes") {
-        Some(notes) => println(f"  notes is null: {notes.is_null()}"),
+        Some(notes) => println(`  notes is null: {notes.is_null()}`),
         None => println("  notes: not found"),
     }
 
@@ -80,11 +80,11 @@ fn main() {
         JsonValue::Number(4.0),
         JsonValue::Number(5.0),
     ]);
-    println(f"\nNumbers: {serialize(numbers)}");
+    println(`\nNumbers: {serialize(numbers)}`);
 
     // Empty structures
     let empty_obj = JsonValue::Object(Map::new());
     let empty_arr = JsonValue::Array([]);
-    println(f"Empty object: {serialize(empty_obj)}");
-    println(f"Empty array: {serialize(empty_arr)}");
+    println(`Empty object: {serialize(empty_obj)}`);
+    println(`Empty array: {serialize(empty_arr)}`);
 }

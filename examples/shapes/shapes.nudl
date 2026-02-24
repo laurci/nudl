@@ -40,7 +40,7 @@ impl Sub<Vec2, Vec2> for Vec2 {
 
 impl Printable for Vec2 {
     fn to_string(self) -> string {
-        f"({self.x}, {self.y})"
+        `({self.x}, {self.y})`
     }
 }
 
@@ -83,13 +83,13 @@ impl Printable for Shape {
     fn to_string(self) -> string {
         match self {
             Shape::Circle { center, radius } =>
-                f"Circle(center={center.to_string()}, r={radius})",
+                `Circle(center={center.to_string()}, r={radius})`,
             Shape::Rectangle { origin, width, height } =>
-                f"Rect(origin={origin.to_string()}, {width}x{height})",
+                `Rect(origin={origin.to_string()}, {width}x{height})`,
             Shape::Triangle { a, b, c } =>
-                f"Triangle({a.to_string()}, {b.to_string()}, {c.to_string()})",
+                `Triangle({a.to_string()}, {b.to_string()}, {c.to_string()})`,
             Shape::Point(p) =>
-                f"Point({p.to_string()})",
+                `Point({p.to_string()})`,
         }
     }
 }

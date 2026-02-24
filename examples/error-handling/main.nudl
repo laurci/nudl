@@ -11,9 +11,9 @@ impl Printable for ParseError {
     fn to_string(self) -> string {
         match self {
             ParseError::EmptyInput => "empty input",
-            ParseError::InvalidFormat(msg) => f"invalid format: {msg}",
+            ParseError::InvalidFormat(msg) => `invalid format: {msg}`,
             ParseError::OutOfRange { value, min, max } =>
-                f"value {value} out of range [{min}, {max}]",
+                `value {value} out of range [{min}, {max}]`,
         }
     }
 }
@@ -40,7 +40,7 @@ struct HostPort {
 
 impl Printable for HostPort {
     fn to_string(self) -> string {
-        f"{self.host}:{self.port}"
+        `{self.host}:{self.port}`
     }
 }
 
@@ -48,7 +48,7 @@ fn parse_host_port(input: string) -> Result<HostPort, ParseError> {
     let parts = input.split(":");
     if parts.len() != 2 {
         return Err(ParseError::InvalidFormat(
-            f"expected 'host:port', got '{input}'"
+            `expected 'host:port', got '{input}'`
         ));
     }
     let host = parts[0];
@@ -71,8 +71,8 @@ fn parse_multiple_addresses(inputs: string[]) -> Result<HostPort[], ParseError> 
 fn main() {
     // Successful parse
     match parse_port("8080") {
-        Ok(port) => println(f"Port: {port}"),
-        Err(e) => println(f"Error: {e.to_string()}"),
+        Ok(port) => println(`Port: {port}`),
+        Err(e) => println(`Error: {e.to_string()}`),
     }
 
     // Various error cases
@@ -81,8 +81,8 @@ fn main() {
     for input in test_cases {
         let label = if input.len() == 0 { "(empty)" } else { input };
         match parse_port(input) {
-            Ok(port) => println(f"  '{label}' => port {port}"),
-            Err(e) => println(f"  '{label}' => error: {e.to_string()}"),
+            Ok(port) => println(`  '{label}' => port {port}`),
+            Err(e) => println(`  '{label}' => error: {e.to_string()}`),
         }
     }
 
@@ -97,8 +97,8 @@ fn main() {
     ];
     for input in addr_tests {
         match parse_host_port(input) {
-            Ok(addr) => println(f"  '{input}' => {addr.to_string()}"),
-            Err(e) => println(f"  '{input}' => error: {e.to_string()}"),
+            Ok(addr) => println(`  '{input}' => {addr.to_string()}`),
+            Err(e) => println(`  '{input}' => error: {e.to_string()}`),
         }
     }
 
@@ -108,15 +108,15 @@ fn main() {
     match parse_multiple_addresses(good_batch) {
         Ok(addrs) => {
             for addr in addrs {
-                println(f"  {addr.to_string()}");
+                println(`  {addr.to_string()}`);
             }
         },
-        Err(e) => println(f"  Error: {e.to_string()}"),
+        Err(e) => println(`  Error: {e.to_string()}`),
     }
 
     let bad_batch = ["web1:80", "oops", "db:5432"];
     match parse_multiple_addresses(bad_batch) {
-        Ok(addrs) => println(f"  Got {addrs.len()} addresses"),
-        Err(e) => println(f"  Error: {e.to_string()}"),
+        Ok(addrs) => println(`  Got {addrs.len()} addresses`),
+        Err(e) => println(`  Error: {e.to_string()}`),
     }
 }

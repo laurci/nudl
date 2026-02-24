@@ -8,7 +8,7 @@ fn parse_i32(s: string) -> Result<i32, string> {
         "42" => Ok(42),
         "0" => Ok(0),
         "100" => Ok(100),
-        _ => Err(f"cannot parse '{s}' as i32"),
+        _ => Err(`cannot parse '{s}' as i32`),
     }
 }
 
@@ -53,7 +53,7 @@ fn complex_result(input: string) -> Result<string, string> {
     let n = parse_i32(input)?;
     let doubled = n * 2;
     let halved = divide(doubled as f64, b: 2.0)?;
-    Ok(f"result: {halved}")
+    Ok(`result: {halved}`)
 }
 
 // --- Multiple ? in sequence ---
@@ -75,15 +75,15 @@ fn main() {
     // --- Test ? on Result with Ok value ---
     let ok_result = parse_and_double("42");
     match ok_result {
-        Ok(v) => println(f"Ok: {v}"),
-        Err(e) => println(f"Err: {e}"),
+        Ok(v) => println(`Ok: {v}`),
+        Err(e) => println(`Err: {e}`),
     }
 
     // --- Test ? on Result with Err value ---
     let err_result = parse_and_double("invalid");
     match err_result {
-        Ok(v) => println(f"Ok: {v}"),
-        Err(e) => println(f"Err: {e}"),
+        Ok(v) => println(`Ok: {v}`),
+        Err(e) => println(`Err: {e}`),
     }
 
     // --- Test chained ? ---
@@ -97,8 +97,8 @@ fn main() {
 
     // --- Using match on Result/Option from ? functions ---
     match multi_step("42", s2: "0", s3: "100") {
-        Ok(total) => println(f"Total: {total}"),
-        Err(e) => println(f"Failed: {e}"),
+        Ok(total) => println(`Total: {total}`),
+        Err(e) => println(`Failed: {e}`),
     }
 
     // --- Direct use of Ok/Err and Some/None ---

@@ -66,31 +66,31 @@ fn main() {
     let today = Day::Wednesday;
 
     // --- Match on unit variants ---
-    println(f"Direction: {direction_to_string(d)}");
+    println(`Direction: {direction_to_string(d)}`);
 
     let action = match light {
         TrafficLight::Red => "stop",
         TrafficLight::Yellow => "caution",
         TrafficLight::Green => "go",
     };
-    println(f"Light says: {action}");
+    println(`Light says: {action}`);
 
     // --- Using or-patterns with unit variants ---
     let is_wknd = is_weekend(today);
-    println(f"Wednesday is weekend: {is_wknd}");
+    println(`Wednesday is weekend: {is_wknd}`);
 
     let sat = is_weekend(Day::Saturday);
-    println(f"Saturday is weekend: {sat}");
+    println(`Saturday is weekend: {sat}`);
 
     // --- Cycling through states ---
     let mut current = TrafficLight::Red;
-    println(f"Start: red");
+    println(`Start: red`);
     current = next_light(current);
-    println(f"Next: green");
+    println(`Next: green`);
     current = next_light(current);
-    println(f"Next: yellow");
+    println(`Next: yellow`);
     current = next_light(current);
-    println(f"Next: red");
+    println(`Next: red`);
 
     // --- Opposite direction ---
     let dirs: Direction[] = [
@@ -101,7 +101,7 @@ fn main() {
     ];
     for dir in dirs {
         let opp = opposite(dir);
-        println(f"  Opposite of {direction_to_string(dir)} is {direction_to_string(opp)}");
+        println(`  Opposite of {direction_to_string(dir)} is {direction_to_string(opp)}`);
     }
 
     // --- Unit variants in collections ---
@@ -124,19 +124,19 @@ fn main() {
             weekdays += 1;
         }
     }
-    println(f"Weekdays: {weekdays}, Weekends: {weekends}");
+    println(`Weekdays: {weekdays}, Weekends: {weekends}`);
 
     // --- Unit variants in if-let (though more useful with data variants) ---
     let maybe_dir: Option<Direction> = Some(Direction::East);
     if let Some(dir) = maybe_dir {
-        println(f"Got direction: {direction_to_string(dir)}");
+        println(`Got direction: {direction_to_string(dir)}`);
     }
 
     // --- Unit variants in Result ---
     let result: Result<Direction, string> = Ok(Direction::West);
     match result {
-        Ok(dir) => println(f"Success: {direction_to_string(dir)}"),
-        Err(e) => println(f"Error: {e}"),
+        Ok(dir) => println(`Success: {direction_to_string(dir)}`),
+        Err(e) => println(`Error: {e}`),
     }
 
     println("All unit enum tests passed");

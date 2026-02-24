@@ -16,7 +16,7 @@ fn create_zeros(comptime size: u32) -> [f64; size] {
 comptime {
     let names: string[] = [];
     for i in 0..DIMENSIONS {
-        names.push(f"{PREFIX}_{i}");
+        names.push(`{PREFIX}_{i}`);
     }
     quote {
         struct Generated {
@@ -53,7 +53,7 @@ fn main() {
     assert(doubled == 6, "DIMENSIONS * 2 should be 6");
 
     // --- Constant string in comptime ---
-    let msg = comptime { f"name={PREFIX}, dims={DIMENSIONS}" };
+    let msg = comptime { `name={PREFIX}, dims={DIMENSIONS}` };
     assert(msg == "name=field, dims=3", "comptime format with constants");
 
     println("const_comptime: all assertions passed");

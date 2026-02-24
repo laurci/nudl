@@ -37,14 +37,14 @@ struct Rectangle {
 // Point implements Printable
 impl Printable for Point {
     fn to_string(self) -> string {
-        f"({self.x}, {self.y})"
+        `({self.x}, {self.y})`
     }
 }
 
 // Circle implements Printable and Area
 impl Printable for Circle {
     fn to_string(self) -> string {
-        f"Circle(center={self.center.to_string()}, r={self.radius})"
+        `Circle(center={self.center.to_string()}, r={self.radius})`
     }
 }
 
@@ -57,7 +57,7 @@ impl Area for Circle {
 // Rectangle implements Printable and Area
 impl Printable for Rectangle {
     fn to_string(self) -> string {
-        f"Rect(origin={self.origin.to_string()}, {self.width}x{self.height})"
+        `Rect(origin={self.origin.to_string()}, {self.width}x{self.height})`
     }
 }
 
@@ -76,7 +76,7 @@ struct Vector2 {
 
 impl Printable for Vector2 {
     fn to_string(self) -> string {
-        f"<{self.x}, {self.y}>"
+        `<{self.x}, {self.y}>`
     }
 }
 
@@ -114,21 +114,21 @@ fn print_value<T: Printable>(item: T) {
 }
 
 fn print_area<T: Area + Printable>(shape: T) {
-    println(f"{shape.to_string()} has area {shape.area()}");
+    println(`{shape.to_string()} has area {shape.area()}`);
 }
 
 fn main() {
     // --- Point: Printable ---
     let p = Point { x: 3.0, y: 4.0 };
-    println(f"Point: {p.to_string()}");
+    println(`Point: {p.to_string()}`);
 
     // --- Circle: Printable + Area ---
     let c = Circle {
         center: Point { x: 0.0, y: 0.0 },
         radius: 5.0,
     };
-    println(f"Circle: {c.to_string()}");
-    println(f"Circle area: {c.area()}");
+    println(`Circle: {c.to_string()}`);
+    println(`Circle area: {c.area()}`);
 
     // --- Rectangle: Printable + Area ---
     let r = Rectangle {
@@ -136,20 +136,20 @@ fn main() {
         width: 10.0,
         height: 5.0,
     };
-    println(f"Rectangle: {r.to_string()}");
-    println(f"Rectangle area: {r.area()}");
+    println(`Rectangle: {r.to_string()}`);
+    println(`Rectangle area: {r.area()}`);
 
     // --- Vector2: multiple interfaces ---
     let v = Vector2 { x: 3.0, y: 4.0 };
-    println(f"Vector: {v.to_string()}");
-    println(f"Vector magnitude^2: {v.area()}");
+    println(`Vector: {v.to_string()}`);
+    println(`Vector magnitude^2: {v.area()}`);
 
     let scaled = v.scale(2.0);
-    println(f"Scaled: {scaled.to_string()}");
+    println(`Scaled: {scaled.to_string()}`);
 
     let v2 = Vector2 { x: 1.0, y: 1.0 };
     let cmp = v.compare_to(v2);
-    println(f"Compare v to v2: {cmp}");   // v > v2, so 1
+    println(`Compare v to v2: {cmp}`);   // v > v2, so 1
 
     // --- Calling interface methods through functions ---
     print_value(p);
@@ -163,7 +163,7 @@ fn main() {
     // --- Interface methods on mutable bindings ---
     let mut mv = Vector2 { x: 1.0, y: 0.0 };
     let mv_scaled = mv.scale(10.0);
-    println(f"Scaled mutable: {mv_scaled.to_string()}");
+    println(`Scaled mutable: {mv_scaled.to_string()}`);
 
     println("All interface implementation tests passed");
 }

@@ -34,7 +34,7 @@ struct FileHandle {
 
 impl Drop for FileHandle {
     fn drop(mut self) {
-        self.log.order.push(f"close:{self.path}");
+        self.log.order.push(`close:{self.path}`);
     }
 }
 
@@ -46,7 +46,7 @@ struct Parent {
 
 impl Drop for Parent {
     fn drop(mut self) {
-        self.log.order.push(f"parent:{self.name}");
+        self.log.order.push(`parent:{self.name}`);
         // child's drop will be called automatically after Parent's drop
     }
 }

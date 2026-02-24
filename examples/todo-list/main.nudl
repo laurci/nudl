@@ -4,12 +4,12 @@
 import todo::{TodoList, Status};
 
 fn print_todos(label: string, todos: Todo[]) {
-    println(f"\n{label}:");
+    println(`\n{label}:`);
     if todos.len() == 0 {
         println("  (none)");
     } else {
         for item in todos {
-            println(f"  {item.to_string()}");
+            println(`  {item.to_string()}`);
         }
     }
 }
@@ -26,7 +26,7 @@ fn main() {
     list.add("Update documentation");
 
     // Show all
-    println(f"Total tasks: {list.len()}");
+    println(`Total tasks: {list.len()}`);
     print_todos("All tasks", list.items);
 
     // Start and complete some tasks
@@ -61,5 +61,5 @@ fn main() {
     } else {
         0
     };
-    println(f"\nProgress: {completed}/{total} ({pct}% complete)");
+    println(`\nProgress: {completed}/{total} ({pct}% complete)`);
 }

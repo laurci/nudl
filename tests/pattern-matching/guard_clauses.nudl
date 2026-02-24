@@ -7,10 +7,10 @@ fn main() {
     // Basic guard on binding pattern
     let x = 42;
     let desc = match x {
-        n if n < 0 => f"{n} is negative",
-        n if n == 0 => f"{n} is zero",
-        n if n > 100 => f"{n} is large",
-        n => f"{n} is a small positive",
+        n if n < 0 => `{n} is negative`,
+        n if n == 0 => `{n} is zero`,
+        n if n > 100 => `{n} is large`,
+        n => `{n} is a small positive`,
     };
     println(desc);
 
@@ -22,21 +22,21 @@ fn main() {
         n if n >= 100 => "100 or more",
         _ => "negative",
     };
-    println(f"{value}: {range}");
+    println(`{value}: {range}`);
 
     // Guard on tuple patterns
     let point = (3, 4);
     let quadrant = match point {
         (0, 0) => "origin",
-        (x, y) if x > 0 && y > 0 => f"quadrant I ({x}, {y})",
-        (x, y) if x < 0 && y > 0 => f"quadrant II ({x}, {y})",
-        (x, y) if x < 0 && y < 0 => f"quadrant III ({x}, {y})",
-        (x, y) if x > 0 && y < 0 => f"quadrant IV ({x}, {y})",
-        (x, 0) => f"on x-axis at {x}",
-        (0, y) => f"on y-axis at {y}",
+        (x, y) if x > 0 && y > 0 => `quadrant I ({x}, {y})`,
+        (x, y) if x < 0 && y > 0 => `quadrant II ({x}, {y})`,
+        (x, y) if x < 0 && y < 0 => `quadrant III ({x}, {y})`,
+        (x, y) if x > 0 && y < 0 => `quadrant IV ({x}, {y})`,
+        (x, 0) => `on x-axis at {x}`,
+        (0, y) => `on y-axis at {y}`,
         _ => "unknown",
     };
-    println(f"Point: {quadrant}");
+    println(`Point: {quadrant}`);
 
     // Guard on enum patterns
     enum Shape {
@@ -46,22 +46,22 @@ fn main() {
 
     let shape = Shape::Circle(15.0);
     let desc = match shape {
-        Shape::Circle(r) if r > 10.0 => f"large circle (r={r})",
-        Shape::Circle(r) if r > 5.0 => f"medium circle (r={r})",
-        Shape::Circle(r) => f"small circle (r={r})",
-        Shape::Rectangle(w, h) if w == h => f"square ({w}x{h})",
-        Shape::Rectangle(w, h) if w > h => f"wide rectangle ({w}x{h})",
-        Shape::Rectangle(w, h) => f"tall rectangle ({w}x{h})",
+        Shape::Circle(r) if r > 10.0 => `large circle (r={r})`,
+        Shape::Circle(r) if r > 5.0 => `medium circle (r={r})`,
+        Shape::Circle(r) => `small circle (r={r})`,
+        Shape::Rectangle(w, h) if w == h => `square ({w}x{h})`,
+        Shape::Rectangle(w, h) if w > h => `wide rectangle ({w}x{h})`,
+        Shape::Rectangle(w, h) => `tall rectangle ({w}x{h})`,
     };
     println(desc);
 
     // Guard on Option
     let opt: Option<i32> = Some(42);
     let msg = match opt {
-        Some(v) if v > 100 => f"large value: {v}",
-        Some(v) if v > 0 => f"positive value: {v}",
+        Some(v) if v > 100 => `large value: {v}`,
+        Some(v) if v > 0 => `positive value: {v}`,
         Some(v) if v == 0 => "zero",
-        Some(v) => f"negative value: {v}",
+        Some(v) => `negative value: {v}`,
         None => "no value",
     };
     println(msg);
@@ -71,18 +71,18 @@ fn main() {
     let data = [10, 30, 50, 70, 90];
     for item in data {
         let label = match item {
-            n if n >= threshold => f"{n} (above threshold)",
-            n => f"{n} (below threshold)",
+            n if n >= threshold => `{n} (above threshold)`,
+            n => `{n} (below threshold)`,
         };
-        println(f"  {label}");
+        println(`  {label}`);
     }
 
     // Guard with string comparison
     let name = "Alice";
     let greeting = match name {
-        s if s.len() > 10 => f"Hello, {s} (what a long name!)",
-        s if s.starts_with("A") => f"Hello, {s} (A-name!)",
-        s => f"Hello, {s}",
+        s if s.len() > 10 => `Hello, {s} (what a long name!)`,
+        s if s.starts_with("A") => `Hello, {s} (A-name!)`,
+        s => `Hello, {s}`,
     };
     println(greeting);
 
@@ -92,25 +92,25 @@ fn main() {
         _ if n % 2 == 0 => "even",
         _ => "odd",
     };
-    println(f"{n} is {parity}");
+    println(`{n} is {parity}`);
 
     // Guard with logical OR in condition
     let code = 301;
     let status = match code {
         c if c == 200 || c == 201 => "success",
-        c if c >= 300 && c < 400 => f"redirect ({c})",
-        c if c >= 400 && c < 500 => f"client error ({c})",
-        c if c >= 500 => f"server error ({c})",
-        c => f"other ({c})",
+        c if c >= 300 && c < 400 => `redirect ({c})`,
+        c if c >= 400 && c < 500 => `client error ({c})`,
+        c if c >= 500 => `server error ({c})`,
+        c => `other ({c})`,
     };
-    println(f"HTTP {code}: {status}");
+    println(`HTTP {code}: {status}`);
 
     // Guard on nested patterns
     let data: Option<(i32, i32)> = Some((3, 7));
     let result = match data {
-        Some((x, y)) if x + y > 10 => f"sum > 10: ({x}, {y})",
-        Some((x, y)) if x == y => f"equal: ({x}, {y})",
-        Some((x, y)) => f"other: ({x}, {y})",
+        Some((x, y)) if x + y > 10 => `sum > 10: ({x}, {y})`,
+        Some((x, y)) if x == y => `equal: ({x}, {y})`,
+        Some((x, y)) => `other: ({x}, {y})`,
         None => "nothing",
     };
     println(result);
@@ -121,8 +121,8 @@ fn main() {
             n if n % 15 == 0 => "FizzBuzz",
             n if n % 3 == 0 => "Fizz",
             n if n % 5 == 0 => "Buzz",
-            n => f"{n}",
+            n => `{n}`,
         };
-        println(f"  {i}: {fizzbuzz}");
+        println(`  {i}: {fizzbuzz}`);
     }
 }

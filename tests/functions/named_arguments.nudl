@@ -13,28 +13,28 @@ fn power(base: f64, exponent: i32) -> f64 {
 
 // Three-param function: first positional, second and third named
 fn make_greeting(name: string, prefix: string, suffix: string) -> string {
-    f"{prefix} {name}{suffix}"
+    `{prefix} {name}{suffix}`
 }
 
 // Function where the first parameter can also be named explicitly
 fn send(url: string, method: string, body: string) -> string {
-    f"{method} {url} -> {body}"
+    `{method} {url} -> {body}`
 }
 
 // Function with many named parameters
 fn create_rect(x: f64, y: f64, width: f64, height: f64) -> string {
-    f"Rect({x}, {y}, {width}, {height})"
+    `Rect({x}, {y}, {width}, {height})`
 }
 
 // Demonstrating that first param name is optional at call site
 fn greet_person(name: string, greeting: string) -> string {
-    f"{greeting}, {name}!"
+    `{greeting}, {name}!`
 }
 
 fn main() {
     // First param positional, second named
     let p = power(2.0, exponent: 10);
-    println(f"2^10 = {p}");
+    println(`2^10 = {p}`);
 
     // First param positional, rest named
     let g = make_greeting("Alice", prefix: "Dear", suffix: "!");

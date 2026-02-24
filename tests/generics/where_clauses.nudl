@@ -20,7 +20,7 @@ where
 {
     let copy = input.clone();
     let result = transform(input);
-    f"Input: {copy.to_string()}, Output: {result.to_string()}"
+    `Input: {copy.to_string()}, Output: {result.to_string()}`
 }
 
 // Where clause with multiple predicates
@@ -29,7 +29,7 @@ where
     A: Printable + Summary,
     B: Printable + Summary,
 {
-    f"{a.summarize()} & {b.summarize()}"
+    `{a.summarize()} & {b.summarize()}`
 }
 
 // Where clause on struct impl
@@ -46,7 +46,7 @@ where
         for item in self.items {
             parts.push(item.to_string());
         }
-        f"[{parts.join(", ")}]"
+        `[{parts.join(", ")}]`
     }
 
     fn first_clone(self) -> Option<T> {
@@ -68,7 +68,7 @@ where
         for item in self.items {
             parts.push(item.to_string());
         }
-        f"Container([{parts.join(", ")}])"
+        `Container([{parts.join(", ")}])`
     }
 }
 
@@ -86,9 +86,9 @@ impl Printable for Article {
 impl Summary for Article {
     fn summarize(self) -> string {
         if self.body.len() > 20 {
-            f"{self.title}: {self.body.substring(0, 20)}..."
+            `{self.title}: {self.body.substring(0, 20)}...`
         } else {
-            f"{self.title}: {self.body}"
+            `{self.title}: {self.body}`
         }
     }
 }

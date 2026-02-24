@@ -63,14 +63,14 @@ impl Printable for Todo {
         let tag_str = if self.tags.len() > 0 {
             let mut parts = "";
             for (i, tag) in self.tags.enumerate() {
-                if i > 0 { parts = f"{parts}, "; }
-                parts = f"{parts}#{tag}";
+                if i > 0 { parts = `{parts}, `; }
+                parts = `{parts}#{tag}`;
             }
-            f" ({parts})"
+            ` ({parts})`
         } else {
             ""
         };
-        f"{check} #{self.id}: {self.title}{tag_str} [{self.status.to_string()}]"
+        `{check} #{self.id}: {self.title}{tag_str} [{self.status.to_string()}]`
     }
 }
 

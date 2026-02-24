@@ -32,19 +32,19 @@ struct Label {
 
 impl Printable for Point {
     fn to_string(self) -> string {
-        f"Point({self.x}, {self.y})"
+        `Point({self.x}, {self.y})`
     }
 }
 
 impl Printable for Color {
     fn to_string(self) -> string {
-        f"Color({self.r}, {self.g}, {self.b})"
+        `Color({self.r}, {self.g}, {self.b})`
     }
 }
 
 impl Printable for Label {
     fn to_string(self) -> string {
-        f"Label(\"{self.text}\")"
+        `Label("{self.text}")`
     }
 }
 
@@ -88,19 +88,19 @@ impl Shape for Triangle {
 // Implement Printable for shapes too
 impl Printable for Circle {
     fn to_string(self) -> string {
-        f"Circle(r={self.radius})"
+        `Circle(r={self.radius})`
     }
 }
 
 impl Printable for Rectangle {
     fn to_string(self) -> string {
-        f"Rect({self.width}x{self.height})"
+        `Rect({self.width}x{self.height})`
     }
 }
 
 impl Printable for Triangle {
     fn to_string(self) -> string {
-        f"Tri(b={self.base}, h={self.height})"
+        `Tri(b={self.base}, h={self.height})`
     }
 }
 
@@ -108,7 +108,7 @@ impl Printable for Triangle {
 
 fn print_all(items: (dyn Printable)[]) {
     for item in items {
-        println(f"  {item.to_string()}");
+        println(`  {item.to_string()}`);
     }
 }
 
@@ -152,30 +152,30 @@ fn main() {
 
     println("Shapes:");
     for shape in shapes {
-        println(f"  {shape.name()}: area = {shape.area()}");
+        println(`  {shape.name()}: area = {shape.area()}`);
     }
 
     // --- total_area with dyn ---
     let total = total_area(shapes);
-    println(f"Total area: {total}");
+    println(`Total area: {total}`);
 
     // --- largest_shape ---
     let biggest = largest_shape(shapes);
-    println(f"Largest shape: {biggest}");
+    println(`Largest shape: {biggest}`);
 
     // --- Single dyn variable ---
     let item: dyn Printable = Point { x: 10.0, y: 20.0 };
-    println(f"Single dyn item: {item.to_string()}");
+    println(`Single dyn item: {item.to_string()}`);
 
     // --- Reassigning a dyn variable to a different concrete type ---
     let mut dynamic: dyn Printable = Point { x: 0.0, y: 0.0 };
-    println(f"Before: {dynamic.to_string()}");
+    println(`Before: {dynamic.to_string()}`);
     dynamic = Color { r: 0, g: 255, b: 0 };
-    println(f"After: {dynamic.to_string()}");
+    println(`After: {dynamic.to_string()}`);
 
     // --- dyn in function parameter ---
     fn describe(thing: dyn Printable) -> string {
-        f"Described: {thing.to_string()}"
+        `Described: {thing.to_string()}`
     }
     println(describe(Label { text: "test" }));
     println(describe(Point { x: 5.0, y: 5.0 }));
@@ -183,7 +183,7 @@ fn main() {
     // --- dyn in Option ---
     let maybe_shape: Option<dyn Shape> = Some(Circle { radius: 3.0 });
     match maybe_shape {
-        Some(s) => println(f"Optional shape: {s.name()}, area={s.area()}"),
+        Some(s) => println(`Optional shape: {s.name()}, area={s.area()}`),
         None => println("No shape"),
     }
 
@@ -192,7 +192,7 @@ fn main() {
     collection.push(Point { x: 1.0, y: 1.0 });
     collection.push(Color { r: 128, g: 128, b: 128 });
     collection.push(Label { text: "dynamic" });
-    println(f"Dynamic collection has {collection.len()} items:");
+    println(`Dynamic collection has {collection.len()} items:`);
     print_all(collection);
 
     // --- Shapes that also implement Printable (dyn can only dispatch one interface at a time) ---

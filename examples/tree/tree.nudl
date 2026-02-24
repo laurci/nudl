@@ -122,24 +122,24 @@ impl TreeNode {
 impl Printable for TreeNode {
     fn to_string(self) -> string {
         fn format_tree(node: TreeNode, prefix: string, is_left: bool) -> string {
-            let mut result = f"{prefix}";
-            result = f"{result}{if is_left { "|-- " } else { "\\-- " }}";
-            result = f"{result}{node.value}\n";
-            let child_prefix = f"{prefix}{if is_left { "|   " } else { "    " }}";
+            let mut result = `{prefix}`;
+            result = `{result}{if is_left { "|-- " } else { "\\-- " }}`;
+            result = `{result}{node.value}\n`;
+            let child_prefix = `{prefix}{if is_left { "|   " } else { "    " }}`;
             if let Some(left) = node.left {
-                result = f"{result}{format_tree(left, prefix: child_prefix, is_left: true)}";
+                result = `{result}{format_tree(left, prefix: child_prefix, is_left: true)}`;
             }
             if let Some(right) = node.right {
-                result = f"{result}{format_tree(right, prefix: child_prefix, is_left: false)}";
+                result = `{result}{format_tree(right, prefix: child_prefix, is_left: false)}`;
             }
             result
         }
-        f"{self.value}\n{match self.left {
+        `{self.value}\n{match self.left {
             Some(l) => format_tree(l, prefix: "", is_left: true),
             None => "",
         }}{match self.right {
             Some(r) => format_tree(r, prefix: "", is_left: false),
             None => "",
-        }}"
+        }}`
     }
 }

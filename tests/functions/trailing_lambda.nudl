@@ -67,18 +67,18 @@ fn main() {
 
     // Single-parameter trailing lambda with implicit `it`
     let doubled = map(numbers) { it * 2 };
-    println(f"doubled = {doubled}");
+    println(`doubled = {doubled}`);
 
     // Single-parameter trailing lambda: filter
     let evens = filter(numbers) { it % 2 == 0 };
-    println(f"evens = {evens}");
+    println(`evens = {evens}`);
 
     // Multi-parameter trailing lambda with `a, b -> expr`
     let sum = fold(numbers, initial: 0) { acc, item -> acc + item };
-    println(f"sum = {sum}");
+    println(`sum = {sum}`);
 
     let product = fold(numbers, initial: 1) { acc, item -> acc * item };
-    println(f"product = {product}");
+    println(`product = {product}`);
 
     // Zero-parameter trailing lambda, no other args: omit empty parens
     run { println("hello from trailing lambda"); }
@@ -89,36 +89,36 @@ fn main() {
         attempt += 1;
         attempt >= 2
     };
-    println(f"success after retries = {success}");
+    println(`success after retries = {success}`);
 
     // Zero-parameter trailing lambda returning a value, no other args
     let value = run_and_return { 42 };
-    println(f"value = {value}");
+    println(`value = {value}`);
 
     // Trailing lambda with one other positional arg
     let result = apply_twice(3) { it + 10 };
-    println(f"apply_twice(3, +10) = {result}");
+    println(`apply_twice(3, +10) = {result}`);
 
     // Multi-param trailing lambda: zip_combine
     let xs = [1, 2, 3];
     let ys = [10, 20, 30];
     let sums = zip_combine(xs, ys: ys) { a, b -> a + b };
-    println(f"zip sums = {sums}");
+    println(`zip sums = {sums}`);
 
     let products = zip_combine(xs, ys: ys) { a, b -> a * b };
-    println(f"zip products = {products}");
+    println(`zip products = {products}`);
 
     // Trailing lambda with block body (multiple statements)
     let processed = map(numbers) {
         let squared = it * it;
         squared + 1
     };
-    println(f"processed = {processed}");
+    println(`processed = {processed}`);
 
     // Chaining with pipe operator and trailing lambdas
     let final_result = numbers
         |> filter { it > 2 }
         |> map { it * 10 }
         |> fold(initial: 0) { acc, v -> acc + v };
-    println(f"chained result = {final_result}");
+    println(`chained result = {final_result}`);
 }

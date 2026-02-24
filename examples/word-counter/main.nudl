@@ -1,5 +1,5 @@
 // Word Counter — text tokenizer and word frequency analysis
-// Features: Map<K,V>, |> pipe operator, closures, string operations, f-strings
+// Features: Map<K,V>, |> pipe operator, closures, string operations, template strings
 
 fn tokenize(input: string) -> string[] {
     input.split(" ")
@@ -86,9 +86,9 @@ fn main() {
     for (word, count) in counts {
         let bar = "";
         for _ in 0..count {
-            bar = f"{bar}#";
+            bar = `{bar}#`;
         }
-        println(f"  {word}: {count} {bar}");
+        println(`  {word}: {count} {bar}`);
     }
 
     // Top words
@@ -96,7 +96,7 @@ fn main() {
     let top = top_n(counts, n: 5);
     for (i, entry) in top.enumerate() {
         let (word, count) = entry;
-        println(f"  {i + 1}. \"{word}\" ({count} occurrences)");
+        println(`  {i + 1}. \"{word}\" ({count} occurrences)`);
     }
 
     // Total unique words
@@ -106,6 +106,6 @@ fn main() {
         |> to_lowercase
         |> remove_punctuation
         |> remove_stopwords;
-    println(f"\nTotal words (filtered): {total_words.len()}");
-    println(f"Unique words: {unique}");
+    println(`\nTotal words (filtered): {total_words.len()}`);
+    println(`Unique words: {unique}`);
 }

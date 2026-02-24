@@ -15,21 +15,21 @@ async fn polling_task() -> string {
     loop {
         // Check cancellation flag as a bool
         if Task.is_cancelled() {
-            return f"cancelled after {iterations} iterations";
+            return `cancelled after {iterations} iterations`;
         }
         iterations += 1;
         if iterations >= 100 {
             break;
         }
     }
-    f"completed {iterations} iterations"
+    `completed {iterations} iterations`
 }
 
 async fn cancellable_work(label: string) -> Result<string, CancellationError> {
     for i in 0..10 {
         Task.check_cancelled()?;
     }
-    Ok(f"{label} done")
+    Ok(`{label} done`)
 }
 
 async fn main() {
@@ -42,7 +42,7 @@ async fn main() {
     // Designed for use with ? operator
     let handle = Task.spawn(async { long_running_task().await });
     match handle.await {
-        Ok(sum) => println(f"Sum: {sum}"),
+        Ok(sum) => println(`Sum: {sum}`),
         Err(_) => println("Task was cancelled"),
     }
 

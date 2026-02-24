@@ -47,9 +47,9 @@ impl<T: Printable> Printable for Stack<T> {
     fn to_string(self) -> string {
         let mut result = "Stack[";
         for (i, item) in self.items.enumerate() {
-            if i > 0 { result = f"{result}, "; }
-            result = f"{result}{item.to_string()}";
+            if i > 0 { result = `{result}, `; }
+            result = `{result}{item.to_string()}`;
         }
-        f"{result}]"
+        `{result}]`
     }
 }

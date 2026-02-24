@@ -1,5 +1,5 @@
 // Fibonacci — recursive and iterative implementations
-// Features: functions, match expressions, for loops, ranges, f-strings, mut bindings
+// Features: functions, match expressions, for loops, ranges, template strings, mut bindings
 
 fn fib(n: u64) -> u64 {
     match n {
@@ -34,17 +34,17 @@ fn fib_memo(n: u64) -> u64 {
 fn main() {
     println("Recursive Fibonacci:");
     for i in 0..10 {
-        println(f"  fib({i}) = {fib(i)}");
+        println(`  fib({i}) = {fib(i)}`);
     }
 
     println("\nIterative Fibonacci:");
     for i in 0..20 {
-        println(f"  fib({i}) = {fib_iter(i)}");
+        println(`  fib({i}) = {fib_iter(i)}`);
     }
 
     println("\nMemoized Fibonacci:");
     let n: u64 = 50;
-    println(f"  fib({n}) = {fib_memo(n)}");
+    println(`  fib({n}) = {fib_memo(n)}`);
 
     // Compare results for small values
     println("\nVerification (recursive == iterative):");
@@ -53,7 +53,7 @@ fn main() {
         let r = fib(i);
         let it = fib_iter(i);
         if r != it {
-            println(f"  MISMATCH at {i}: recursive={r}, iterative={it}");
+            println(`  MISMATCH at {i}: recursive={r}, iterative={it}`);
             all_match = false;
         }
     }

@@ -23,37 +23,37 @@ fn main() {
     let blue = Color(0, 0, 255);
 
     // --- Positional field access (.0, .1, .2) ---
-    println(f"Red: r={red.0}, g={red.1}, b={red.2}");
-    println(f"Green: r={green.0}, g={green.1}, b={green.2}");
-    println(f"Blue: r={blue.0}, g={blue.1}, b={blue.2}");
+    println(`Red: r={red.0}, g={red.1}, b={red.2}`);
+    println(`Green: r={green.0}, g={green.1}, b={green.2}`);
+    println(`Blue: r={blue.0}, g={blue.1}, b={blue.2}`);
 
     // --- Newtype pattern ---
     let distance = Meters(100.0);
     let time = Seconds(9.58);
-    println(f"Distance: {distance.0}m in {time.0}s");
+    println(`Distance: {distance.0}m in {time.0}s`);
 
     // Speed calculation using newtype inner values
     let speed = distance.0 / time.0;
-    println(f"Speed: {speed} m/s");
+    println(`Speed: {speed} m/s`);
 
     // --- Pair ---
     let coords = Pair(10, 20);
-    println(f"Pair: ({coords.0}, {coords.1})");
+    println(`Pair: ({coords.0}, {coords.1})`);
 
     // --- Tagged value ---
     let tv = TaggedValue("count", 42);
-    println(f"Tag: {tv.0}, Value: {tv.1}");
+    println(`Tag: {tv.0}, Value: {tv.1}`);
 
     // --- Tuple struct with collections ---
     let list = NamedList("primes", [2, 3, 5, 7, 11]);
-    println(f"List '{list.0}' has {list.1.len()} items");
+    println(`List '{list.0}' has {list.1.len()} items`);
 
     // --- Mutable tuple struct fields ---
     let mut c = Color(100, 100, 100);
     c.0 = 200;
     c.1 = 150;
     c.2 = 50;
-    println(f"Modified color: ({c.0}, {c.1}, {c.2})");
+    println(`Modified color: ({c.0}, {c.1}, {c.2})`);
 
     // --- Pattern matching on tuple structs ---
     let color = Color(0, 0, 0);
@@ -63,16 +63,16 @@ fn main() {
         Color(255, 0, 0) => "red",
         Color(0, 255, 0) => "green",
         Color(0, 0, 255) => "blue",
-        Color(r, g, b) => f"custom({r}, {g}, {b})",
+        Color(r, g, b) => `custom({r}, {g}, {b})`,
     };
-    println(f"Color name: {name}");
+    println(`Color name: {name}`);
 
     // --- Destructuring in let ---
     let Color(r, g, b) = red;
-    println(f"Destructured red: r={r}, g={g}, b={b}");
+    println(`Destructured red: r={r}, g={g}, b={b}`);
 
     let Meters(dist) = distance;
-    println(f"Distance value: {dist}");
+    println(`Distance value: {dist}`);
 
     // --- Tuple struct in a collection ---
     let palette: Color[] = [
@@ -82,12 +82,12 @@ fn main() {
         Color(255, 255, 0),
     ];
     for c in palette {
-        println(f"  ({c.0}, {c.1}, {c.2})");
+        println(`  ({c.0}, {c.1}, {c.2})`);
     }
 
     // --- Tuple struct as function parameter and return ---
     let mixed = mix_colors(red, green);
-    println(f"Mixed: ({mixed.0}, {mixed.1}, {mixed.2})");
+    println(`Mixed: ({mixed.0}, {mixed.1}, {mixed.2})`);
 }
 
 fn mix_colors(a: Color, b: Color) -> Color {

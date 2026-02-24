@@ -85,7 +85,7 @@ impl Eq for Matrix2 {
 
 impl Printable for Matrix2 {
     fn to_string(self) -> string {
-        f"[{self.data[0]}, {self.data[1]}]\n[{self.data[2]}, {self.data[3]}]"
+        `[{self.data[0]}, {self.data[1]}]\n[{self.data[2]}, {self.data[3]}]`
     }
 }
 
@@ -103,7 +103,7 @@ impl Vec2 {
 
 impl Printable for Vec2 {
     fn to_string(self) -> string {
-        f"({self.x}, {self.y})"
+        `({self.x}, {self.y})`
     }
 }
 

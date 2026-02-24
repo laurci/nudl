@@ -17,7 +17,7 @@ fn main() {
 
     // --- Match on get result ---
     match scores.get("bob") {
-        Some(score) => println(f"Bob's score: {score}"),
+        Some(score) => println(`Bob's score: {score}`),
         None => println("Bob not found"),
     }
 
@@ -35,7 +35,7 @@ fn main() {
 
     // --- Iteration over map ---
     for (key, value) in scores {
-        println(f"{key}: {value}");
+        println(`{key}: {value}`);
     }
 
     // --- Reference semantics: assignment shares ---
@@ -57,7 +57,7 @@ fn main() {
     // --- Empty map check pattern ---
     let empty: Map<string, i32> = Map::new();
     match empty.get("any") {
-        Some(v) => println(f"found: {v}"),
+        Some(v) => println(`found: {v}`),
         None => println("empty as expected"),
     }
 }

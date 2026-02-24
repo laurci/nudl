@@ -22,7 +22,7 @@ fn simple_add(a: i32, b: i32) -> i32 {
 comptime fn make_logged_wrapper(original_fn: fn) {
     let info = ast_of(original_fn);
     let name = info.name;
-    let wrapper_name = f"logged_{name}";
+    let wrapper_name = `logged_{name}`;
     let params = info.params;
     let ret_type = info.return_type;
 
@@ -36,7 +36,7 @@ comptime fn make_logged_wrapper(original_fn: fn) {
                 quote { ${pname}: ${ptype} }
             }
         }}) -> ${ret_type} {
-            println(f"Calling ${name}");
+            println(`Calling ${name}`);
             let result = ${name}(${for (i, p) in params.enumerate() {
                 let pname = p.name;
                 if i > 0 {
@@ -45,7 +45,7 @@ comptime fn make_logged_wrapper(original_fn: fn) {
                     quote { ${pname} }
                 }
             }});
-            println(f"Result: {result}");
+            println(`Result: {result}`);
             result
         }
     }
@@ -61,7 +61,7 @@ comptime {
     // Generate a summary function based on AST inspection
     quote {
         fn person_info() -> string {
-            f"struct ${struct_name} has ${field_count} fields"
+            `struct ${struct_name} has ${field_count} fields`
         }
     }
 }
@@ -75,7 +75,7 @@ comptime {
 
     quote {
         fn sample_function_info() -> string {
-            f"fn ${fn_name} has ${param_count} params, returns ${ret}"
+            `fn ${fn_name} has ${param_count} params, returns ${ret}`
         }
     }
 }

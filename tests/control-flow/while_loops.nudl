@@ -5,10 +5,10 @@ fn main() {
     // Basic while loop with a counter
     let mut count = 0;
     while count < 5 {
-        println(f"count = {count}");
+        println(`count = {count}`);
         count += 1;
     }
-    println(f"Final count = {count}");
+    println(`Final count = {count}`);
 
     // While loop computing factorial
     let mut n = 10;
@@ -17,7 +17,7 @@ fn main() {
         factorial = factorial * (n as i64);
         n -= 1;
     }
-    println(f"10! = {factorial}");
+    println(`10! = {factorial}`);
 
     // While loop with complex condition
     let mut x = 100;
@@ -28,7 +28,7 @@ fn main() {
             x = x * 3 + 1;
         }
     }
-    println(f"Collatz reached 1, x = {x}");
+    println(`Collatz reached 1, x = {x}`);
 
     // While loop with boolean flag
     let mut done = false;
@@ -39,7 +39,7 @@ fn main() {
             done = true;
         }
     }
-    println(f"Completed after {iterations} iterations");
+    println(`Completed after {iterations} iterations`);
 
     // While-let with Option: process items from an iterator
     let items = [10, 20, 30, 40, 50];
@@ -48,7 +48,7 @@ fn main() {
     while let Some(item) = iter.next() {
         sum += item;
     }
-    println(f"Sum via while-let = {sum}");
+    println(`Sum via while-let = {sum}`);
 
     // While-let with a stack-like structure (popping elements)
     let mut stack: i32[] = [1, 2, 3, 4, 5];
@@ -56,16 +56,16 @@ fn main() {
     while let Some(top) = stack.pop() {
         popped.push(top);
     }
-    println(f"Popped in order: {popped}");
+    println(`Popped in order: {popped}`);
 
     // While loop that modifies a string
     let mut text = "hello";
     let mut reversed = "";
     let mut chars = text.chars().collect::<char[]>();
     while let Some(ch) = chars.pop() {
-        reversed = f"{reversed}{ch}";
+        reversed = `{reversed}{ch}`;
     }
-    println(f"Reversed: {reversed}");
+    println(`Reversed: {reversed}`);
 
     // Nested while loops
     let mut i = 0;
@@ -73,19 +73,19 @@ fn main() {
     while i < 3 {
         let mut j = 0;
         while j < 3 {
-            pairs.push(f"({i},{j})");
+            pairs.push(`({i},{j})`);
             j += 1;
         }
         i += 1;
     }
-    println(f"Pairs: {pairs}");
+    println(`Pairs: {pairs}`);
 
     // While loop that never executes (condition false initially)
     let mut never_ran = true;
     while false {
         never_ran = false;
     }
-    println(f"Never ran loop body: {never_ran}");
+    println(`Never ran loop body: {never_ran}`);
 
     // While-let with Result
     let mut attempts: Result<i32, string>[] = [
@@ -99,5 +99,5 @@ fn main() {
     while let Some(Ok(v)) = results_iter.next() {
         ok_sum += v;
     }
-    println(f"Sum of Ok values before first Err: {ok_sum}");
+    println(`Sum of Ok values before first Err: {ok_sum}`);
 }

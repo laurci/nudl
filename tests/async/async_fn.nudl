@@ -2,7 +2,7 @@
 
 // Basic async function — return type is Future<string> effectively
 async fn greet(name: string) -> string {
-    f"Hello, {name}!"
+    `Hello, {name}!`
 }
 
 // Async function returning unit
@@ -15,7 +15,7 @@ async fn fetch_data(url: string) -> Result<string, string> {
     if url.len() == 0 {
         return Err("empty url");
     }
-    Ok(f"data from {url}")
+    Ok(`data from {url}`)
 }
 
 // Async function calling other async functions
@@ -28,7 +28,7 @@ async fn process(name: string) -> string {
 async fn combine(a: string, b: string, separator: string = ", ") -> string {
     let part_a = process(a).await;
     let part_b = process(b).await;
-    f"{part_a}{separator}{part_b}"
+    `{part_a}{separator}{part_b}`
 }
 
 async fn main() {
@@ -42,8 +42,8 @@ async fn main() {
     // Async fn with Result
     let result = fetch_data("https://example.com").await;
     match result {
-        Ok(data) => println(f"Got: {data}"),
-        Err(e) => println(f"Error: {e}"),
+        Ok(data) => println(`Got: {data}`),
+        Err(e) => println(`Error: {e}`),
     }
 
     // Chained async calls

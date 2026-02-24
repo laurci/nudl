@@ -54,19 +54,19 @@ impl Expr {
 
     fn to_string(self) -> string {
         match self {
-            Expr::Num(n) => f"{n}",
+            Expr::Num(n) => `{n}`,
             Expr::Add { left, right } =>
-                f"({left.to_string()} + {right.to_string()})",
+                `({left.to_string()} + {right.to_string()})`,
             Expr::Sub { left, right } =>
-                f"({left.to_string()} - {right.to_string()})",
+                `({left.to_string()} - {right.to_string()})`,
             Expr::Mul { left, right } =>
-                f"({left.to_string()} * {right.to_string()})",
+                `({left.to_string()} * {right.to_string()})`,
             Expr::Div { left, right } =>
-                f"({left.to_string()} / {right.to_string()})",
+                `({left.to_string()} / {right.to_string()})`,
             Expr::Neg(inner) =>
-                f"(-{inner.to_string()})",
+                `(-{inner.to_string()})`,
             Expr::Abs(inner) =>
-                f"|{inner.to_string()}|",
+                `|{inner.to_string()}|`,
         }
     }
 
@@ -135,8 +135,8 @@ impl Expr {
 fn eval_and_print(expr: Expr) {
     let display = expr.to_string();
     match expr.eval() {
-        Ok(result) => println(f"  {display} = {result}"),
-        Err(e) => println(f"  {display} => ERROR: {e}"),
+        Ok(result) => println(`  {display} = {result}`),
+        Err(e) => println(`  {display} => ERROR: {e}`),
     }
 }
 
@@ -180,9 +180,9 @@ fn main() {
         right: Expr::num(0.0),
     };
     let simplified = redundant.simplify();
-    println(f"\nSimplification:");
-    println(f"  Before: {redundant.to_string()} (depth={redundant.depth()})");
-    println(f"  After:  {simplified.to_string()} (depth={simplified.depth()})");
+    println(`\nSimplification:`);
+    println(`  Before: {redundant.to_string()} (depth={redundant.depth()})`);
+    println(`  After:  {simplified.to_string()} (depth={simplified.depth()})`);
 
     // Evaluate simplified
     eval_and_print(simplified);

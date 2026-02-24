@@ -13,7 +13,7 @@ fn main() {
         |> map { it * 2 }
         |> fold(initial: 0) { acc, item -> acc + item };
 
-    println(f"Sum of doubled evens: {sum}");  // Sum of doubled evens: 60
+    println(`Sum of doubled evens: {sum}`);  // Sum of doubled evens: 60
 }
 ```
 
@@ -29,7 +29,7 @@ fn main() {
 comptime fn make_vector_type(comptime n: u32) {
     let names = ["x", "y", "z", "w"];
     quote {
-        struct ${f"Vec{n}"} {
+        struct ${`Vec{n}`} {
             ${for name in names[0..n] { quote { ${name}: f64, } }}
         }
     }
@@ -56,7 +56,7 @@ impl<T: Printable> List<T> {
 
 fn main() {
     let list = List::new().prepend(3).prepend(2).prepend(1);
-    println(f"Length: {list.len()}");
+    println(`Length: {list.len()}`);
 }
 ```
 

@@ -5,14 +5,14 @@ async fn compute_square(n: i32) -> i32 {
 }
 
 async fn slow_operation(label: string) -> string {
-    f"completed: {label}"
+    `completed: {label}`
 }
 
 async fn main() {
     // Basic Task.spawn — returns TaskHandle<T> which is a Future<T>
     let handle = Task.spawn(async { compute_square(7).await });
     let result = handle.await;
-    println(f"7 squared = {result}");
+    println(`7 squared = {result}`);
 
     // Spawn multiple concurrent tasks
     let h1 = Task.spawn(async { slow_operation("task A").await });
@@ -23,7 +23,7 @@ async fn main() {
     let r1 = h1.await;
     let r2 = h2.await;
     let r3 = h3.await;
-    println(f"{r1}, {r2}, {r3}");
+    println(`{r1}, {r2}, {r3}`);
 
     // Spawn with captured variables
     let multiplier = 3;
@@ -31,7 +31,7 @@ async fn main() {
         let base = compute_square(5).await;
         base * multiplier  // captures multiplier by ARC ref
     });
-    println(f"5^2 * 3 = {handle.await}");
+    println(`5^2 * 3 = {handle.await}`);
 
     // Spawned task lifetime bound to enclosing scope (structured concurrency)
     {

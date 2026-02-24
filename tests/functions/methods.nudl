@@ -34,7 +34,7 @@ impl Point {
 
     // Immutable method: returns string representation
     fn to_string(self) -> string {
-        f"({self.x}, {self.y})"
+        `({self.x}, {self.y})`
     }
 }
 
@@ -123,56 +123,56 @@ fn main() {
     // Static method calls
     let p1 = Point::new(3.0, y: 4.0);
     let p2 = Point::origin();
-    println(f"p1 = {p1.to_string()}");
-    println(f"p2 = {p2.to_string()}");
+    println(`p1 = {p1.to_string()}`);
+    println(`p2 = {p2.to_string()}`);
 
     // Immutable method calls
     let mag = p1.magnitude();
-    println(f"p1.magnitude() = {mag}");
+    println(`p1.magnitude() = {mag}`);
 
     let dist = p1.distance_to(p2);
-    println(f"p1.distance_to(origin) = {dist}");
+    println(`p1.distance_to(origin) = {dist}`);
 
     // Mutable method calls
     let mut p3 = Point::new(1.0, y: 2.0);
-    println(f"p3 before translate = {p3.to_string()}");
+    println(`p3 before translate = {p3.to_string()}`);
     p3.translate(10.0, dy: 20.0);
-    println(f"p3 after translate = {p3.to_string()}");
+    println(`p3 after translate = {p3.to_string()}`);
 
     p3.scale(2.0);
-    println(f"p3 after scale(2) = {p3.to_string()}");
+    println(`p3 after scale(2) = {p3.to_string()}`);
 
     // Method returning new value
     let p4 = p1.negated();
-    println(f"p1.negated() = {p4.to_string()}");
+    println(`p1.negated() = {p4.to_string()}`);
 
     // Counter with methods
     let mut c = Counter::new();
-    println(f"counter = {c.current()}");
+    println(`counter = {c.current()}`);
     c.increment();
     c.increment();
     c.increment();
-    println(f"counter after 3 increments = {c.current()}");
+    println(`counter after 3 increments = {c.current()}`);
     c.decrement();
-    println(f"counter after decrement = {c.current()}");
+    println(`counter after decrement = {c.current()}`);
     c.reset();
-    println(f"counter after reset = {c.current()}");
+    println(`counter after reset = {c.current()}`);
 
     // Counter with custom step
     let mut c2 = Counter::new(step: 5);
     c2.increment();
     c2.increment();
-    println(f"counter(step=5) after 2 increments = {c2.current()}");
+    println(`counter(step=5) after 2 increments = {c2.current()}`);
 
     // Rectangle
     let mut rect = Rectangle::new(10.0, height: 5.0);
-    println(f"area = {rect.area()}, perimeter = {rect.perimeter()}");
-    println(f"is_square = {rect.is_square()}");
+    println(`area = {rect.area()}, perimeter = {rect.perimeter()}`);
+    println(`is_square = {rect.is_square()}`);
 
     rect.double_size();
-    println(f"after double: area = {rect.area()}");
+    println(`after double: area = {rect.area()}`);
 
     // Static method creating a square
     let sq = Rectangle::square(7.0);
-    println(f"square is_square = {sq.is_square()}, area = {sq.area()}");
+    println(`square is_square = {sq.is_square()}, area = {sq.area()}`);
 }

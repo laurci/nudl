@@ -35,36 +35,36 @@ struct Config {
 fn main() {
     // --- Basic construction with named fields ---
     let p = Point { x: 3.0, y: 4.0 };
-    println(f"Point: ({p.x}, {p.y})");
+    println(`Point: ({p.x}, {p.y})`);
 
     // --- Field access ---
     let x_val = p.x;
     let y_val = p.y;
-    println(f"x={x_val}, y={y_val}");
+    println(`x={x_val}, y={y_val}`);
 
     // --- Shorthand field initialization (variable name matches field name) ---
     let x = 1.0;
     let y = 2.0;
     let p2 = Point { x, y };   // shorthand for Point { x: x, y: y }
-    println(f"Shorthand point: ({p2.x}, {p2.y})");
+    println(`Shorthand point: ({p2.x}, {p2.y})`);
 
     // --- Mixed shorthand and explicit ---
     let name = "Alice";
     let person = Person { name, age: 30, active: true };
-    println(f"{person.name}, age {person.age}, active={person.active}");
+    println(`{person.name}, age {person.age}, active={person.active}`);
 
     // --- Mutable struct fields ---
     let mut mp = Point { x: 0.0, y: 0.0 };
     mp.x = 10.0;
     mp.y = 20.0;
-    println(f"Mutated point: ({mp.x}, {mp.y})");
+    println(`Mutated point: ({mp.x}, {mp.y})`);
 
     // --- Struct containing other structs ---
     let line = Line {
         start: Point { x: 0.0, y: 0.0 },
         end: Point { x: 10.0, y: 10.0 },
     };
-    println(f"Line from ({line.start.x}, {line.start.y}) to ({line.end.x}, {line.end.y})");
+    println(`Line from ({line.start.x}, {line.start.y}) to ({line.end.x}, {line.end.y})`);
 
     // --- Struct with collection fields ---
     let triangle = Polygon {
@@ -75,38 +75,38 @@ fn main() {
             Point { x: 0.5, y: 1.0 },
         ],
     };
-    println(f"Polygon '{triangle.name}' has {triangle.vertices.len()} vertices");
+    println(`Polygon '{triangle.name}' has {triangle.vertices.len()} vertices`);
 
     // --- Struct destructuring in let ---
     let Point { x, y } = p;
-    println(f"Destructured: x={x}, y={y}");
+    println(`Destructured: x={x}, y={y}`);
 
     // --- Struct destructuring with rename ---
     let Point { x: px, y: py } = p2;
-    println(f"Renamed: px={px}, py={py}");
+    println(`Renamed: px={px}, py={py}`);
 
     // --- Partial struct destructuring with .. ---
     let Person { name, .. } = person;
-    println(f"Name only: {name}");
+    println(`Name only: {name}`);
 
     // --- Struct in match ---
     let pt = Point { x: 0.0, y: 5.0 };
     let location = match pt {
         Point { x: 0.0, y: 0.0 } => "origin",
-        Point { x: 0.0, y } => f"on y-axis at {y}",
-        Point { x, y: 0.0 } => f"on x-axis at {x}",
-        Point { x, y } => f"({x}, {y})",
+        Point { x: 0.0, y } => `on y-axis at {y}`,
+        Point { x, y: 0.0 } => `on x-axis at {x}`,
+        Point { x, y } => `({x}, {y})`,
     };
-    println(f"Location: {location}");
+    println(`Location: {location}`);
 
     // --- Config struct ---
     let cfg = Config { host: "localhost", port: 8080, tls: false };
-    println(f"Config: {cfg.host}:{cfg.port} tls={cfg.tls}");
+    println(`Config: {cfg.host}:{cfg.port} tls={cfg.tls}`);
 
     // --- Reference semantics: structs are reference types ---
     let a = Point { x: 1.0, y: 2.0 };
     let mut b = a;   // b aliases a (refcount incremented)
     b.x = 99.0;
     // a.x is now 99.0 because a and b share the same allocation
-    println(f"a.x after mutating b: {a.x}");
+    println(`a.x after mutating b: {a.x}`);
 }

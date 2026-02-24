@@ -35,18 +35,18 @@ fn area(shape: Shape) -> f64 {
 
 fn describe_shape(shape: Shape) -> string {
     match shape {
-        Shape::Circle(r) => f"circle(r={r})",
-        Shape::Rectangle { width, height } => f"rect({width}x{height})",
-        Shape::Triangle { base, height } => f"tri(b={base}, h={height})",
+        Shape::Circle(r) => `circle(r={r})`,
+        Shape::Rectangle { width, height } => `rect({width}x{height})`,
+        Shape::Triangle { base, height } => `tri(b={base}, h={height})`,
         Shape::Point => "point",
     }
 }
 
 fn handle_event(event: Event) -> string {
     match event {
-        Event::Click { x, y, button } => f"click at ({x},{y}) with {button}",
-        Event::KeyPress(ch) => f"key: {ch}",
-        Event::Resize { width, height } => f"resize to {width}x{height}",
+        Event::Click { x, y, button } => `click at ({x},{y}) with {button}`,
+        Event::KeyPress(ch) => `key: {ch}`,
+        Event::Resize { width, height } => `resize to {width}x{height}`,
         Event::Close => "close",
     }
 }
@@ -59,21 +59,21 @@ fn main() {
     let point = Shape::Point;
 
     // --- Pattern matching struct variants ---
-    println(f"rect: {describe_shape(rect)}");
-    println(f"tri: {describe_shape(tri)}");
-    println(f"circle: {describe_shape(circle)}");
-    println(f"point: {describe_shape(point)}");
+    println(`rect: {describe_shape(rect)}`);
+    println(`tri: {describe_shape(tri)}`);
+    println(`circle: {describe_shape(circle)}`);
+    println(`point: {describe_shape(point)}`);
 
     // --- Area calculations ---
-    println(f"rect area: {area(rect)}");       // 50.0
-    println(f"tri area: {area(tri)}");         // 12.0
-    println(f"circle area: {area(circle)}");
-    println(f"point area: {area(point)}");     // 0.0
+    println(`rect area: {area(rect)}`);       // 50.0
+    println(`tri area: {area(tri)}`);         // 12.0
+    println(`circle area: {area(circle)}`);
+    println(`point area: {area(point)}`);     // 0.0
 
     // --- Destructure struct variant fields with rename ---
     match rect {
         Shape::Rectangle { width: w, height: h } => {
-            println(f"Width: {w}, Height: {h}");
+            println(`Width: {w}, Height: {h}`);
         },
         _ => {},
     }
@@ -82,7 +82,7 @@ fn main() {
     match rect {
         Shape::Rectangle { width, height } => {
             let perimeter = 2.0 * (width + height);
-            println(f"Perimeter: {perimeter}");
+            println(`Perimeter: {perimeter}`);
         },
         _ => {},
     }
@@ -95,7 +95,7 @@ fn main() {
         Event::Close,
     ];
     for event in events {
-        println(f"  event: {handle_event(event)}");
+        println(`  event: {handle_event(event)}`);
     }
 
     // --- Guards on struct variant patterns ---
@@ -112,7 +112,7 @@ fn main() {
             Shape::Triangle { .. } => "small triangle",
             _ => "other",
         };
-        println(f"  {size}");
+        println(`  {size}`);
     }
 
     // --- Command enum with reference-type fields ---
@@ -124,10 +124,10 @@ fn main() {
     ];
     for cmd in cmds {
         match cmd {
-            Command::Print { message } => println(f"  PRINT: {message}"),
-            Command::Move { target, x, y } => println(f"  MOVE {target} to ({x},{y})"),
-            Command::Delete { ids } => println(f"  DELETE {ids.len()} items"),
-            Command::Noop => println(f"  NOOP"),
+            Command::Print { message } => println(`  PRINT: {message}`),
+            Command::Move { target, x, y } => println(`  MOVE {target} to ({x},{y})`),
+            Command::Delete { ids } => println(`  DELETE {ids.len()} items`),
+            Command::Noop => println(`  NOOP`),
         }
     }
 
@@ -135,7 +135,7 @@ fn main() {
     let opt_shape: Option<Shape> = Some(Shape::Rectangle { width: 8.0, height: 3.0 });
     match opt_shape {
         Some(Shape::Rectangle { width, height }) => {
-            println(f"Optional rect: {width}x{height}");
+            println(`Optional rect: {width}x{height}`);
         },
         Some(other) => println("Some other shape"),
         None => println("No shape"),

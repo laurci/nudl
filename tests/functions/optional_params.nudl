@@ -6,7 +6,7 @@
 // Function with one optional parameter
 fn greet(name: string, title?: string) -> string {
     match title {
-        Some(t) => f"{t} {name}",
+        Some(t) => `{t} {name}`,
         None => name,
     }
 }
@@ -21,17 +21,17 @@ fn connect(host: string, port?: u16, timeout?: u64) -> string {
         Some(t) => t,
         None => 30000,
     };
-    f"{host}:{actual_port} (timeout: {actual_timeout})"
+    `{host}:{actual_port} (timeout: {actual_timeout})`
 }
 
 // Mixing required, default, and optional parameters (ordering rule)
 fn build_query(table: string, limit: i32 = 100, offset?: i32, filter?: string) -> string {
-    let mut query = f"SELECT * FROM {table} LIMIT {limit}";
+    let mut query = `SELECT * FROM {table} LIMIT {limit}`;
     if let Some(o) = offset {
-        query = f"{query} OFFSET {o}";
+        query = `{query} OFFSET {o}`;
     }
     if let Some(f) = filter {
-        query = f"{query} WHERE {f}";
+        query = `{query} WHERE {f}`;
     }
     query
 }
@@ -39,9 +39,9 @@ fn build_query(table: string, limit: i32 = 100, offset?: i32, filter?: string) -
 // Optional parameter used with if-let
 fn describe(value: i32, label?: string) -> string {
     if let Some(l) = label {
-        f"{l}: {value}"
+        `{l}: {value}`
     } else {
-        f"value: {value}"
+        `value: {value}`
     }
 }
 
@@ -96,8 +96,8 @@ fn main() {
 
     // Optional parameter passed as Option value
     let doubled = maybe_double(x: 21);
-    println(f"maybe_double(21) = {doubled}");
+    println(`maybe_double(21) = {doubled}`);
 
     let nothing = maybe_double();
-    println(f"maybe_double() = {nothing}");
+    println(`maybe_double() = {nothing}`);
 }

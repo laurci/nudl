@@ -9,7 +9,7 @@ fn main() {
         if i >= 5 {
             break;
         }
-        println(f"  i = {i}");
+        println(`  i = {i}`);
     }
 
     // Basic continue: skip odd numbers
@@ -18,7 +18,7 @@ fn main() {
         if i % 2 != 0 {
             continue;
         }
-        println(f"  i = {i}");
+        println(`  i = {i}`);
     }
 
     // Break from while loop
@@ -29,7 +29,7 @@ fn main() {
             break;
         }
     }
-    println(f"Broke while loop at n = {n}");
+    println(`Broke while loop at n = {n}`);
 
     // Continue in while loop
     let mut sum = 0;
@@ -41,7 +41,7 @@ fn main() {
         }
         sum += i;
     }
-    println(f"Sum (1..20, skip multiples of 3) = {sum}");
+    println(`Sum (1..20, skip multiples of 3) = {sum}`);
 
     // Break with value from loop
     let mut counter = 0;
@@ -51,7 +51,7 @@ fn main() {
             break counter * 10;
         }
     };
-    println(f"Loop break value: {result}");
+    println(`Loop break value: {result}`);
 
     // Break with value: search for element
     let data = [5, 12, 3, 18, 7, 21, 9];
@@ -66,7 +66,7 @@ fn main() {
         idx += 1;
     };
     match found {
-        Some(v) => println(f"First > 15: {v}"),
+        Some(v) => println(`First > 15: {v}`),
         None => println("No value > 15 found"),
     }
 
@@ -79,7 +79,7 @@ fn main() {
         if n % 3 == 0 {
             continue;
         }
-        println(f"  {n}");
+        println(`  {n}`);
     }
 
     // Break in nested loops (breaks inner only)
@@ -89,7 +89,7 @@ fn main() {
             if j >= 3 {
                 break;
             }
-            println(f"  ({i}, {j})");
+            println(`  ({i}, {j})`);
         }
     }
 
@@ -100,7 +100,7 @@ fn main() {
             if j == 2 {
                 continue;
             }
-            println(f"  ({i}, {j})");
+            println(`  ({i}, {j})`);
         }
     }
 
@@ -111,7 +111,7 @@ fn main() {
             break "all good";
         }
     };
-    println(f"Status: {status}");
+    println(`Status: {status}`);
 
     // Break with computed tuple value
     let coords = loop {
@@ -119,7 +119,7 @@ fn main() {
         let y = 4;
         break (x, y);
     };
-    println(f"Coords: ({coords.0}, {coords.1})");
+    println(`Coords: ({coords.0}, {coords.1})`);
 
     // Continue skipping over entire ranges of values
     let mut collected: i32[] = [];
@@ -129,5 +129,5 @@ fn main() {
         }
         collected.push(i);
     }
-    println(f"Collected (0-4 and 25-29): {collected}");
+    println(`Collected (0-4 and 25-29): {collected}`);
 }

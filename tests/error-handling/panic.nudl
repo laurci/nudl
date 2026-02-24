@@ -22,7 +22,7 @@ fn safe_index(items: i32[], index: i32) -> i32 {
     if index >= 0 && index < items.len() as i32 {
         items[index]
     } else {
-        panic(f"index {index} out of bounds for length {items.len()}")
+        panic(`index {index} out of bounds for length {items.len()}`)
     }
 }
 
@@ -33,7 +33,7 @@ fn direction_name(dx: i32, dy: i32) -> string {
         (0, -1) => "south",
         (1, 0) => "east",
         (-1, 0) => "west",
-        _ => panic(f"invalid direction: ({dx}, {dy})"),
+        _ => panic(`invalid direction: ({dx}, {dy})`),
     }
 }
 
@@ -54,20 +54,20 @@ fn todo_feature() -> i32 {
 fn main() {
     // --- Normal operation (no panic) ---
     let x = assert_positive(5);
-    println(f"Positive: {x}");
+    println(`Positive: {x}`);
 
     let y = unwrap_or_panic(Some(42));
-    println(f"Unwrapped: {y}");
+    println(`Unwrapped: {y}`);
 
     let items: i32[] = [10, 20, 30];
     let val = safe_index(items, 1);
-    println(f"Item at 1: {val}");
+    println(`Item at 1: {val}`);
 
     let dir = direction_name(1, 0);
-    println(f"Direction: {dir}");
+    println(`Direction: {dir}`);
 
     let name = must_have_value(Some("nudl"));
-    println(f"Name: {name}");
+    println(`Name: {name}`);
 
     // --- This line would panic if uncommented ---
     // assert_positive(-1);

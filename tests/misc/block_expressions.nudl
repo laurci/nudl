@@ -7,7 +7,7 @@ fn main() {
         let b = 20;
         a + b  // tail expression: block evaluates to 30
     };
-    println(f"x = {x}");
+    println(`x = {x}`);
 
     // Block with semicolon at end — evaluates to ()
     let y: () = {
@@ -21,7 +21,7 @@ fn main() {
         let height = 3.0;
         width * height
     };
-    println(f"area = {area}");
+    println(`area = {area}`);
 
     // Nested blocks
     let result = {
@@ -32,14 +32,14 @@ fn main() {
         };
         inner_val * 2
     };
-    println(f"result = {result}");
+    println(`result = {result}`);
 
     // Block as function argument
-    println(f"computed: {{
+    println(`computed: \{
         let a = 7;
         let b = 6;
         a * b
-    }}");
+    \}`);
 
     // Block in if expression
     let sign = if {
@@ -50,7 +50,7 @@ fn main() {
     } else {
         "non-positive"
     };
-    println(f"sign: {sign}");
+    println(`sign: {sign}`);
 
     // Empty block evaluates to ()
     let unit = {};

@@ -17,31 +17,31 @@ fn main() {
     println(root.to_string());
 
     // Tree statistics
-    println(f"Node count: {root.count()}");
-    println(f"Tree depth: {root.depth()}");
-    println(f"Min value: {root.min()}");
-    println(f"Max value: {root.max()}");
+    println(`Node count: {root.count()}`);
+    println(`Tree depth: {root.depth()}`);
+    println(`Min value: {root.min()}`);
+    println(`Max value: {root.max()}`);
 
     // In-order traversal (sorted output)
     let sorted = root.in_order();
-    println(f"In-order: {sorted}");
+    println(`In-order: {sorted}`);
 
     // Search
     let search_values = [25, 50, 42, 80, 99];
     println("\nSearch results:");
     for v in search_values {
-        println(f"  contains({v}) = {root.contains(v)}");
+        println(`  contains({v}) = {root.contains(v)}`);
     }
 
     // Demonstrate weak parent references
     println("\nParent references (via weak refs):");
     if let Some(left) = root.left {
-        println(f"  Node {left.value}'s parent: {left.parent_value()}");
+        println(`  Node {left.value}'s parent: {left.parent_value()}`);
         if let Some(ll) = left.left {
-            println(f"  Node {ll.value}'s parent: {ll.parent_value()}");
+            println(`  Node {ll.value}'s parent: {ll.parent_value()}`);
         }
     }
-    println(f"  Root {root.value}'s parent: {root.parent_value()}");
+    println(`  Root {root.value}'s parent: {root.parent_value()}`);
 
     // Defer example — cleanup logging
     {
@@ -51,6 +51,6 @@ fn main() {
         let mut temp_tree = TreeNode::new(100);
         temp_tree.insert(50);
         temp_tree.insert(150);
-        println(f"\nTemp tree sorted: {temp_tree.in_order()}");
+        println(`\nTemp tree sorted: {temp_tree.in_order()}`);
     }
 }

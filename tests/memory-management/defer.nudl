@@ -38,11 +38,11 @@ fn main() {
     // --- Defer with break ---
     log = [];
     for i in 0..3 {
-        defer { log.push(f"defer-{i}"); }
+        defer { log.push(`defer-{i}`); }
         if i == 1 {
             break;
         }
-        log.push(f"iter-{i}");
+        log.push(`iter-{i}`);
     }
     // i=0: body runs, defer scheduled. At end of iteration: defer-0
     // i=1: defer scheduled, break. defer-1 runs.
@@ -117,6 +117,6 @@ struct DeferTestResource {
 
 impl Drop for DeferTestResource {
     fn drop(mut self) {
-        log.push(f"drop:{self.name}");
+        log.push(`drop:{self.name}`);
     }
 }

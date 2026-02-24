@@ -3,19 +3,19 @@
 //       instead of `name: name`.
 
 fn create_point(x: f64, y: f64) -> string {
-    f"Point({x}, {y})"
+    `Point({x}, {y})`
 }
 
 fn send_request(url: string, method: string, body: string) -> string {
-    f"{method} {url} body={body}"
+    `{method} {url} body={body}`
 }
 
 fn make_config(host: string, port: u16, tls: bool = false) -> string {
-    f"{host}:{port} tls={tls}"
+    `{host}:{port} tls={tls}`
 }
 
 fn build_user(name: string, age: i32, email: string, active: bool = true) -> string {
-    f"User(name={name}, age={age}, email={email}, active={active})"
+    `User(name={name}, age={age}, email={email}, active={active})`
 }
 
 struct Color {
@@ -72,5 +72,5 @@ fn main() {
     let g: u8 = 128;
     let b: u8 = 0;
     let color = mix_colors(r, g, b);
-    println(f"Color({color.r}, {color.g}, {color.b})");
+    println(`Color({color.r}, {color.g}, {color.b})`);
 }

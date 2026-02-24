@@ -12,7 +12,7 @@ impl DeepItem {
     }
 
     pub fn describe(self) -> string {
-        f"DeepItem({self.value}, {self.label})"
+        `DeepItem({self.value}, {self.label})`
     }
 }
 

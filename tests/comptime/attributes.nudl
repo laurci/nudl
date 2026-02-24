@@ -62,7 +62,7 @@ comptime {
 
     quote {
         fn user_table_info() -> string {
-            f"table=${table_name}, version=${version}, columns=[${cols}], pk=${primary}"
+            `table=${table_name}, version=${version}, columns=[${cols}], pk=${primary}`
         }
     }
 }

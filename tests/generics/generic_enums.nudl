@@ -29,8 +29,8 @@ impl<L: Printable, R: Printable> Either<L, R> {
 
     fn describe(self) -> string {
         match self {
-            Either::Left(l) => f"Left({l.to_string()})",
-            Either::Right(r) => f"Right({r.to_string()})",
+            Either::Left(l) => `Left({l.to_string()})`,
+            Either::Right(r) => `Right({r.to_string()})`,
         }
     }
 }
@@ -66,14 +66,14 @@ fn main() {
     let single = Container::Single(42);
     let multi = Container::Multiple([1, 2, 3]);
 
-    println(f"left: {left.describe()}");
-    println(f"right: {right.describe()}");
-    println(f"empty count: {empty.count()}");
-    println(f"multi count: {multi.count()}");
+    println(`left: {left.describe()}`);
+    println(`right: {right.describe()}`);
+    println(`empty count: {empty.count()}`);
+    println(`multi count: {multi.count()}`);
 
     // Pattern matching on generic enums
     match ok {
-        Ok(v) => println(f"Ok: {v}"),
-        Err(e) => println(f"Err: {e}"),
+        Ok(v) => println(`Ok: {v}`),
+        Err(e) => println(`Err: {e}`),
     }
 }

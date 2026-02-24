@@ -58,9 +58,9 @@ fn shape_area(s: Shape) -> f64 {
 fn process_message(msg: Message) -> string {
     match msg {
         Message::Quit => "Quitting",
-        Message::Echo(text) => f"Echo: {text}",
-        Message::Move { x, y } => f"Moving to ({x}, {y})",
-        Message::Color { r, g, b } => f"Color: rgb({r}, {g}, {b})",
+        Message::Echo(text) => `Echo: {text}`,
+        Message::Move { x, y } => `Moving to ({x}, {y})`,
+        Message::Color { r, g, b } => `Color: rgb({r}, {g}, {b})`,
     }
 }
 
@@ -77,7 +77,7 @@ fn main() {
     // Unit variant matching
     let dirs = [Direction::North, Direction::South, Direction::East, Direction::West];
     for d in dirs {
-        println(f"Direction: {direction_name(d)}");
+        println(`Direction: {direction_name(d)}`);
     }
 
     // Data (tuple) variant matching
@@ -87,7 +87,7 @@ fn main() {
         Shape::Point,
     ];
     for s in shapes {
-        println(f"Shape area: {shape_area(s)}");
+        println(`Shape area: {shape_area(s)}`);
     }
 
     // Struct variant matching
@@ -109,16 +109,16 @@ fn main() {
         Expr::Named { name: "pi_approx", value: 3 },
     ];
     for e in expressions {
-        println(f"Eval: {eval_expr(e)}");
+        println(`Eval: {eval_expr(e)}`);
     }
 
     // Matching with guards on enum data
     let shape = Shape::Circle(15.0);
     let desc = match shape {
-        Shape::Circle(r) if r > 10.0 => f"large circle (r={r})",
-        Shape::Circle(r) => f"small circle (r={r})",
-        Shape::Rectangle(w, h) if w == h => f"square ({w}x{h})",
-        Shape::Rectangle(w, h) => f"rectangle ({w}x{h})",
+        Shape::Circle(r) if r > 10.0 => `large circle (r={r})`,
+        Shape::Circle(r) => `small circle (r={r})`,
+        Shape::Rectangle(w, h) if w == h => `square ({w}x{h})`,
+        Shape::Rectangle(w, h) => `rectangle ({w}x{h})`,
         Shape::Point => "point",
     };
     println(desc);
@@ -126,38 +126,38 @@ fn main() {
     // Enum in if-let
     let msg = Message::Move { x: 5, y: 10 };
     if let Message::Move { x, y } = msg {
-        println(f"Move detected: ({x}, {y})");
+        println(`Move detected: ({x}, {y})`);
     }
 
     // Enum matching with nested data
     let tree = Tree::Node { value: 10, left: Some(5), right: Some(15) };
     match tree {
-        Tree::Leaf(v) => println(f"Leaf: {v}"),
+        Tree::Leaf(v) => println(`Leaf: {v}`),
         Tree::Node { value, left: Some(l), right: Some(r) } => {
-            println(f"Node({value}) with left={l}, right={r}");
+            println(`Node({value}) with left={l}, right={r}`);
         },
         Tree::Node { value, left: None, right: Some(r) } => {
-            println(f"Node({value}) with right={r} only");
+            println(`Node({value}) with right={r} only`);
         },
         Tree::Node { value, left: Some(l), right: None } => {
-            println(f"Node({value}) with left={l} only");
+            println(`Node({value}) with left={l} only`);
         },
         Tree::Node { value, .. } => {
-            println(f"Node({value}) with no children");
+            println(`Node({value}) with no children`);
         },
     }
 
     // Using qualified enum paths
     let opt: Option<i32> = Some(42);
     match opt {
-        Option::Some(v) => println(f"Option::Some({v})"),
+        Option::Some(v) => println(`Option::Some({v})`),
         Option::None => println("Option::None"),
     }
 
     // Result enum patterns
     let res: Result<i32, string> = Ok(200);
     match res {
-        Ok(code) => println(f"Ok({code})"),
-        Err(msg) => println(f"Err({msg})"),
+        Ok(code) => println(`Ok({code})`),
+        Err(msg) => println(`Err({msg})`),
     }
 }

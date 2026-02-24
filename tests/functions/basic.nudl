@@ -8,7 +8,7 @@ fn add(a: i32, b: i32) -> i32 {
 
 // Function with no return type (returns unit ())
 fn greet(name: string) {
-    println(f"Hello, {name}!");
+    println(`Hello, {name}!`);
 }
 
 // Function with explicit return statement for early exit
@@ -25,7 +25,7 @@ fn do_nothing() {
 
 // Multiple parameters of different types
 fn format_entry(index: i32, label: string, value: f64) -> string {
-    f"[{index}] {label}: {value}"
+    `[{index}] {label}: {value}`
 }
 
 // Function with block body using intermediate bindings and tail expression
@@ -70,7 +70,7 @@ fn is_even(n: i32) -> bool {
 fn main() {
     // Test basic calls
     let sum = add(1, b: 2);
-    println(f"add(1, 2) = {sum}");
+    println(`add(1, 2) = {sum}`);
 
     // Test unit-returning function
     greet("world");
@@ -78,7 +78,7 @@ fn main() {
     // Test explicit return
     let abs_neg = abs_value(-42);
     let abs_pos = abs_value(42);
-    println(f"abs(-42) = {abs_neg}, abs(42) = {abs_pos}");
+    println(`abs(-42) = {abs_neg}, abs(42) = {abs_pos}`);
 
     // Test do_nothing
     do_nothing();
@@ -89,23 +89,23 @@ fn main() {
 
     // Test block body with tail expression
     let h = hypotenuse(3.0, b: 4.0);
-    println(f"hypotenuse(3, 4) = {h}");
+    println(`hypotenuse(3, 4) = {h}`);
 
     // Test nested function
     let result = outer();
-    println(f"outer() = {result}");
+    println(`outer() = {result}`);
 
     // Test multiple early returns
-    println(f"classify(-5) = {classify(-5)}");
-    println(f"classify(0) = {classify(0)}");
-    println(f"classify(50) = {classify(50)}");
-    println(f"classify(200) = {classify(200)}");
+    println(`classify(-5) = {classify(-5)}`);
+    println(`classify(0) = {classify(0)}`);
+    println(`classify(50) = {classify(50)}`);
+    println(`classify(200) = {classify(200)}`);
 
     // Test implicit return from if/else
     let m = max(10, b: 20);
-    println(f"max(10, 20) = {m}");
+    println(`max(10, 20) = {m}`);
 
     // Test boolean return
-    println(f"is_even(4) = {is_even(4)}");
-    println(f"is_even(7) = {is_even(7)}");
+    println(`is_even(4) = {is_even(4)}`);
+    println(`is_even(7) = {is_even(7)}`);
 }

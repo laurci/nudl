@@ -31,11 +31,11 @@ fn main() {
     // Identity matrix
     let id = Matrix2::identity();
     let a_times_id = a * id;
-    println(f"A * I == A: {a_times_id == a}");
+    println(`A * I == A: {a_times_id == a}`);
 
     // Determinant
-    println(f"det(A) = {a.determinant()}");
-    println(f"det(B) = {b.determinant()}");
+    println(`det(A) = {a.determinant()}`);
+    println(`det(B) = {b.determinant()}`);
 
     // Transpose
     let at = a.transpose();
@@ -52,15 +52,15 @@ fn main() {
     // Matrix-vector multiplication
     let v = Vec2::new(1.0, y: 0.0);
     let result = mat_vec_mul(a, v: v);
-    println(f"A * (1, 0) = {result.to_string()}");
+    println(`A * (1, 0) = {result.to_string()}`);
 
     let v2 = Vec2::new(0.0, y: 1.0);
     let result2 = mat_vec_mul(a, v: v2);
-    println(f"A * (0, 1) = {result2.to_string()}");
+    println(`A * (0, 1) = {result2.to_string()}`);
 
     // Rotation matrix (90 degrees)
     let rotate90 = Matrix2::new(0.0, m01: -1.0, m10: 1.0, m11: 0.0);
     let point = Vec2::new(1.0, y: 0.0);
     let rotated = mat_vec_mul(rotate90, v: point);
-    println(f"Rotate (1,0) by 90°: {rotated.to_string()}");
+    println(`Rotate (1,0) by 90°: {rotated.to_string()}`);
 }

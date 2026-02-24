@@ -5,25 +5,25 @@ fn main() {
     // For-in over an array
     let fruits = ["apple", "banana", "cherry"];
     for fruit in fruits {
-        println(f"Fruit: {fruit}");
+        println(`Fruit: {fruit}`);
     }
 
     // For-in over an exclusive range (0..5 gives 0,1,2,3,4)
     println("Exclusive range 0..5:");
     for i in 0..5 {
-        println(f"  i = {i}");
+        println(`  i = {i}`);
     }
 
     // For-in over an inclusive range (0..=5 gives 0,1,2,3,4,5)
     println("Inclusive range 0..=5:");
     for i in 0..=5 {
-        println(f"  i = {i}");
+        println(`  i = {i}`);
     }
 
     // For-in with enumerate() to get index and value
     let colors = ["red", "green", "blue", "yellow"];
     for (index, color) in colors.enumerate() {
-        println(f"  [{index}] = {color}");
+        println(`  [{index}] = {color}`);
     }
 
     // For-in over a range computing values
@@ -31,7 +31,7 @@ fn main() {
     for i in 1..=100 {
         sum += i;
     }
-    println(f"Sum 1..=100 = {sum}");
+    println(`Sum 1..=100 = {sum}`);
 
     // For-in with array of integers
     let numbers = [10, 20, 30, 40, 50];
@@ -39,7 +39,7 @@ fn main() {
     for n in numbers {
         total += n;
     }
-    println(f"Total = {total}");
+    println(`Total = {total}`);
 
     // Nested for loops
     println("Multiplication table (1-5):");
@@ -47,20 +47,20 @@ fn main() {
         let mut row = "";
         for j in 1..=5 {
             let product = i * j;
-            row = f"{row} {product}";
+            row = `{row} {product}`;
         }
-        println(f"  {row}");
+        println(`  {row}`);
     }
 
     // For-in over characters of a string
     for ch in "hello".chars() {
-        println(f"char: {ch}");
+        println(`char: {ch}`);
     }
 
     // For-in with tuple destructuring over array of tuples
     let pairs = [(1, "one"), (2, "two"), (3, "three")];
     for (num, name) in pairs {
-        println(f"{num} = {name}");
+        println(`{num} = {name}`);
     }
 
     // For-in building a new collection
@@ -68,24 +68,24 @@ fn main() {
     for i in 0..10 {
         squares.push(i * i);
     }
-    println(f"Squares: {squares}");
+    println(`Squares: {squares}`);
 
     // For-in with enumerate on a range-produced collection
     let items = [100, 200, 300];
     for (i, val) in items.enumerate() {
-        println(f"items[{i}] = {val}");
+        println(`items[{i}] = {val}`);
     }
 
     // For loop over empty array (body never executes)
     let empty: i32[] = [];
     for x in empty {
-        println(f"This should not print: {x}");
+        println(`This should not print: {x}`);
     }
     println("Empty loop completed");
 
     // For loop over single-element range
     for i in 0..1 {
-        println(f"Single iteration: {i}");
+        println(`Single iteration: {i}`);
     }
 
     // For loop with mutable accumulation
@@ -96,5 +96,5 @@ fn main() {
             max_val = v;
         }
     }
-    println(f"Max value = {max_val}");
+    println(`Max value = {max_val}`);
 }

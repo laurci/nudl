@@ -30,7 +30,7 @@ fn main() {
         7 | 8 | 9 => "seven, eight, or nine",
         _ => "other",
     };
-    println(f"{x} is {desc}");
+    println(`{x} is {desc}`);
 
     // Or-pattern with HTTP status codes
     let code = 201;
@@ -42,7 +42,7 @@ fn main() {
         500 | 502 | 503 | 504 => "server error",
         _ => "unknown",
     };
-    println(f"HTTP {code}: {category}");
+    println(`HTTP {code}: {category}`);
 
     // Or-pattern with enum variants
     let season = Season::Summer;
@@ -51,7 +51,7 @@ fn main() {
         Season::Summer => "hot",
         Season::Winter => "cold",
     };
-    println(f"Temperature: {temp}");
+    println(`Temperature: {temp}`);
 
     // Or-pattern for grouping related variants
     let suit = Suit::Hearts;
@@ -59,7 +59,7 @@ fn main() {
         Suit::Hearts | Suit::Diamonds => "red",
         Suit::Clubs | Suit::Spades => "black",
     };
-    println(f"Suit color: {color}");
+    println(`Suit color: {color}`);
 
     // Or-pattern with char ranges (combining or with range)
     let ch = '5';
@@ -69,7 +69,7 @@ fn main() {
         '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' => "digit",
         _ => "other",
     };
-    println(f"'{ch}' is a {kind}");
+    println(`'{ch}' is a {kind}`);
 
     // Or-pattern with boolean
     let flags = (true, false);
@@ -77,7 +77,7 @@ fn main() {
         (true, true) | (false, false) => "same",
         (true, false) | (false, true) => "different",
     };
-    println(f"Flags are {desc}");
+    println(`Flags are {desc}`);
 
     // Or-pattern with bindings (same binding in each alternative)
     let shape = Shape::Square(5.0);
@@ -85,7 +85,7 @@ fn main() {
         Shape::Circle(r) => r,
         Shape::Square(s) | Shape::Triangle(s) => s,
     };
-    println(f"Side/radius: {side_length}");
+    println(`Side/radius: {side_length}`);
 
     // Or-pattern with string literals
     let command = "exit";
@@ -95,7 +95,7 @@ fn main() {
         "version" | "v" => "showing version",
         _ => "unknown command",
     };
-    println(f"'{command}' -> {action}");
+    println(`'{command}' -> {action}`);
 
     // Or-pattern in nested position
     let opt: Option<i32> = Some(3);
@@ -105,7 +105,7 @@ fn main() {
         Some(_) => "medium",
         None => "none",
     };
-    println(f"Option category: {result}");
+    println(`Option category: {result}`);
 
     // Multiple or-patterns in sequence
     for i in 0..15 {
@@ -116,6 +116,6 @@ fn main() {
             11 | 12 | 13 | 14 => "third group",
             _ => "out of range",
         };
-        println(f"  {i}: {label}");
+        println(`  {i}: {label}`);
     }
 }

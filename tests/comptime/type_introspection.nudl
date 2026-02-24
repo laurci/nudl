@@ -29,12 +29,12 @@ comptime fn generate_describe(T: type) {
     quote {
         impl ${T} {
             fn describe() -> string {
-                let mut desc = f"${name} has ${fields.len()} fields:";
+                let mut desc = `${name} has ${fields.len()} fields:`;
                 ${for field in fields {
                     let fname = field.name;
                     let ftype = type_name(field.field_type);
                     quote {
-                        desc = f"{desc}\n  ${fname}: ${ftype}";
+                        desc = `{desc}\n  ${fname}: ${ftype}`;
                     }
                 }}
                 desc
@@ -134,8 +134,8 @@ fn main() {
 
     // --- comptime_print for diagnostics ---
     comptime {
-        comptime_print(f"Point has {type_fields(Point).len()} fields");
-        comptime_print(f"Config has {type_fields(Config).len()} fields");
+        comptime_print(`Point has {type_fields(Point).len()} fields`);
+        comptime_print(`Config has {type_fields(Config).len()} fields`);
     }
 
     println("type_introspection: all assertions passed");
