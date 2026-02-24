@@ -2,7 +2,6 @@
 
 ## Legend
 - [ ] Not started
-- [~] In progress
 - [x] Complete
 
 ## Pipeline Infrastructure
@@ -20,13 +19,13 @@
 - [x] String interning
 
 ## 1. Core Types
-- [~] Integers — i32 ✓, i64 ✓, u64 ✓; i8/i16/u8/u16/u32 not yet (`tests/core-types/integers.nudl`)
+- [ ] Integers — i32 ✓, i64 ✓, u64 ✓; i8/i16/u8/u16/u32 not yet (`tests/core-types/integers.nudl`)
 - [ ] Floats — f32, f64 (`tests/core-types/floats.nudl`)
 - [ ] Booleans (`tests/core-types/bool.nudl`)
 - [ ] Characters (`tests/core-types/char.nudl`)
-- [~] Strings (`tests/core-types/strings.nudl`)
+- [ ] Strings (`tests/core-types/strings.nudl`)
 - [ ] Format strings (`tests/core-types/format_strings.nudl`)
-- [~] Unit type (`tests/core-types/unit.nudl`)
+- [ ] Unit type (`tests/core-types/unit.nudl`)
 - [ ] Tuples (`tests/core-types/tuples.nudl`)
 - [ ] Dynamic arrays T[] (`tests/core-types/dynamic_arrays.nudl`)
 - [ ] Fixed-size arrays [T; N] (`tests/core-types/fixed_arrays.nudl`)
@@ -37,9 +36,9 @@
 - [ ] FFI types — RawPtr ✓ in checker; MutRawPtr, CStr not yet
 
 ## 2. Variables & Bindings
-- [~] Let bindings — immutable ✓, mut parsed but not enforced (`tests/variables/let_bindings.nudl`)
+- [ ] Let bindings — immutable ✓, mut parsed but not enforced (`tests/variables/let_bindings.nudl`)
 - [ ] Destructuring (`tests/variables/destructuring.nudl`)
-- [~] Type annotations — basic types ✓, complex types not yet (`tests/variables/type_annotations.nudl`)
+- [ ] Type annotations — basic types ✓, complex types not yet (`tests/variables/type_annotations.nudl`)
 - [ ] Constants (`tests/variables/constants.nudl`)
 - [ ] Comptime constants (`tests/variables/const_comptime.nudl`)
 - [ ] Weak references (`tests/variables/weak_references.nudl`)
@@ -73,7 +72,7 @@
 - [ ] Default parameters (`tests/functions/default_params.nudl`)
 - [ ] Optional parameters (`tests/functions/optional_params.nudl`)
 - [ ] Closures (`tests/functions/closures.nudl`)
-- [~] Methods — not yet (need structs + impl) (`tests/functions/methods.nudl`)
+- [ ] Methods — not yet (need structs + impl) (`tests/functions/methods.nudl`)
 - [ ] Trailing lambdas (`tests/functions/trailing_lambda.nudl`)
 
 ## 6. User-Defined Types
@@ -127,7 +126,7 @@
 - [ ] ARC sharing (`tests/memory-management/arc_sharing.nudl`)
 - [ ] ARC deallocation (`tests/memory-management/arc_deallocation.nudl`)
 - [ ] Value type copy (`tests/memory-management/value_type_copy.nudl`)
-- [~] Mutability — parsed, not enforced (`tests/memory-management/mutability.nudl`)
+- [ ] Mutability — parsed, not enforced (`tests/memory-management/mutability.nudl`)
 - [ ] Defer (`tests/memory-management/defer.nudl`)
 - [ ] Drop interface (`tests/memory-management/drop_interface.nudl`)
 - [ ] Clone interface (`tests/memory-management/clone_interface.nudl`)
