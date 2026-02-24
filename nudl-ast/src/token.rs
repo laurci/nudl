@@ -9,6 +9,11 @@ pub enum TokenKind {
     CharLiteral,
     BoolLiteral,
 
+    // Template string tokens: `text {expr} text`
+    TemplateStringStart, // opening ` up to first {
+    TemplateStringPart,  // text between } and next {
+    TemplateStringEnd,   // text after last } up to closing `
+
     // Identifier
     Ident,
 

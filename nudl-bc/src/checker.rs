@@ -250,6 +250,12 @@ impl Checker {
     fn check_expr(&mut self, expr: &SpannedExpr, locals: &mut HashMap<String, TypeId>) -> TypeId {
         match &expr.node {
             Expr::Literal(Literal::String(_)) => self.types.string(),
+            Expr::Literal(Literal::TemplateString { exprs, .. }) => {
+                for e in exprs {
+                    self.check_expr(e, locals);
+                }
+                self.types.string()
+            }
             Expr::Literal(Literal::Int(_)) => self.types.i32(),
             Expr::Literal(Literal::Float(_)) => self.types.i32(),
             Expr::Literal(Literal::Bool(_)) => self.types.bool(),

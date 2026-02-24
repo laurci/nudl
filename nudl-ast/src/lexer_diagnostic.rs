@@ -12,6 +12,10 @@ pub enum LexerDiagnostic {
     #[severity(Error)]
     UnterminatedString { span: Span },
 
+    #[message("unterminated template string literal")]
+    #[severity(Error)]
+    UnterminatedTemplateString { span: Span },
+
     #[message("unterminated block comment")]
     #[severity(Error)]
     UnterminatedBlockComment { span: Span },

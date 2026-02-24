@@ -364,6 +364,20 @@ fn fmt_ast_expr(expr: &Expr, out: &mut String, level: usize) {
             Literal::Float(s) => out.push_str(&format!("Literal(Float {})", s)),
             Literal::Bool(b) => out.push_str(&format!("Literal(Bool {})", b)),
             Literal::Char(c) => out.push_str(&format!("Literal(Char {:?})", c)),
+            Literal::TemplateString { parts, exprs } => {
+                out.push_str("TemplateString(");
+                for (i, part) in parts.iter().enumerate() {
+                    if i > 0 {
+                        out.push_str(", ");
+                    }
+                    out.push_str(&format!("{:?}", part));
+                    if i < exprs.len() {
+                        out.push_str(", ");
+                        fmt_ast_expr(&exprs[i].node, out, level);
+                    }
+                }
+                out.push(')');
+            }
         },
         Expr::Ident(name) => {
             out.push_str(&format!("Ident \"{}\"", name));

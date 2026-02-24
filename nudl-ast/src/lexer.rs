@@ -4,11 +4,27 @@ use nudl_core::span::{FileId, Span};
 use crate::lexer_diagnostic::LexerDiagnostic;
 use crate::token::{Token, TokenKind, keyword_from_str};
 
+/// How a template string body segment ended.
+enum TemplateEnd {
+    /// Hit closing `` ` ``
+    Backtick,
+    /// Hit unescaped `{` (start of interpolation)
+    OpenBrace,
+    /// Hit EOF without closing
+    Unterminated,
+}
+
 pub struct Lexer<'a> {
     source: &'a str,
     file_id: FileId,
     pos: usize,
     diagnostics: DiagnosticBag,
+    /// Stack of brace depths for nested template strings.
+    /// When we enter a template string interpolation `{`, we push 1.
+    /// Each nested `{` increments the top. Each `}` decrements.
+    /// When top reaches 0, we're closing the interpolation and resume
+    /// lexing the template string body.
+    template_brace_depth: Vec<u32>,
 }
 
 impl<'a> Lexer<'a> {
@@ -18,6 +34,7 @@ impl<'a> Lexer<'a> {
             file_id,
             pos: 0,
             diagnostics: DiagnosticBag::new(),
+            template_brace_depth: Vec::new(),
         }
     }
 
@@ -113,6 +130,33 @@ impl<'a> Lexer<'a> {
         let start = self.pos;
         let ch = self.peek().unwrap();
 
+        // If we're inside a template string interpolation and hit '}' that
+        // closes it, resume lexing the template string body.
+        if ch == '}' {
+            if let Some(depth) = self.template_brace_depth.last_mut() {
+                if *depth == 1 {
+                    // This '}' closes the interpolation — resume template body
+                    self.template_brace_depth.pop();
+                    self.advance(); // skip }
+                    return self.lex_template_string_continuation(start);
+                } else {
+                    *depth -= 1;
+                }
+            }
+        }
+
+        // Track brace depth for template string interpolation
+        if ch == '{' {
+            if let Some(depth) = self.template_brace_depth.last_mut() {
+                *depth += 1;
+            }
+        }
+
+        // Template string literal
+        if ch == '`' {
+            return self.lex_template_string_start(start);
+        }
+
         // String literal
         if ch == '"' {
             return self.lex_string(start);
@@ -135,6 +179,139 @@ impl<'a> Lexer<'a> {
 
         // Operators and punctuation
         self.lex_operator(start)
+    }
+
+    /// Lex the body of a template string, consuming text and escape sequences
+    /// until we hit an unescaped `{` (start of interpolation) or `` ` `` (end of
+    /// template string). Returns the accumulated text.
+    fn lex_template_string_body(&mut self) -> (String, TemplateEnd) {
+        let mut value = String::new();
+        loop {
+            match self.peek() {
+                None => {
+                    return (value, TemplateEnd::Unterminated);
+                }
+                Some('`') => {
+                    self.advance();
+                    return (value, TemplateEnd::Backtick);
+                }
+                Some('{') => {
+                    self.advance(); // skip {
+                    self.template_brace_depth.push(1);
+                    return (value, TemplateEnd::OpenBrace);
+                }
+                Some('\\') => {
+                    self.advance();
+                    match self.peek() {
+                        Some('n') => {
+                            self.advance();
+                            value.push('\n');
+                        }
+                        Some('t') => {
+                            self.advance();
+                            value.push('\t');
+                        }
+                        Some('r') => {
+                            self.advance();
+                            value.push('\r');
+                        }
+                        Some('\\') => {
+                            self.advance();
+                            value.push('\\');
+                        }
+                        Some('`') => {
+                            self.advance();
+                            value.push('`');
+                        }
+                        Some('{') => {
+                            self.advance();
+                            value.push('{');
+                        }
+                        Some('}') => {
+                            self.advance();
+                            value.push('}');
+                        }
+                        Some('0') => {
+                            self.advance();
+                            value.push('\0');
+                        }
+                        Some('"') => {
+                            self.advance();
+                            value.push('"');
+                        }
+                        Some('\'') => {
+                            self.advance();
+                            value.push('\'');
+                        }
+                        Some(ch) => {
+                            let esc_start = self.pos - 1;
+                            self.advance();
+                            self.diagnostics.add(&LexerDiagnostic::InvalidEscape {
+                                span: self.span(esc_start, self.pos),
+                                ch,
+                            });
+                            value.push(ch);
+                        }
+                        None => {
+                            return (value, TemplateEnd::Unterminated);
+                        }
+                    }
+                }
+                Some(ch) => {
+                    self.advance();
+                    value.push(ch);
+                }
+            }
+        }
+    }
+
+    /// Called when we see the opening `` ` `` of a template string.
+    fn lex_template_string_start(&mut self, start: usize) -> Token {
+        self.advance(); // skip opening `
+        let (value, end_reason) = self.lex_template_string_body();
+        match end_reason {
+            TemplateEnd::Backtick => {
+                // No interpolation — just emit as a plain string literal
+                Token::new(TokenKind::StringLiteral, self.span(start, self.pos), &value)
+            }
+            TemplateEnd::OpenBrace => Token::new(
+                TokenKind::TemplateStringStart,
+                self.span(start, self.pos),
+                &value,
+            ),
+            TemplateEnd::Unterminated => {
+                self.diagnostics
+                    .add(&LexerDiagnostic::UnterminatedTemplateString {
+                        span: self.span(start, self.pos),
+                    });
+                Token::new(TokenKind::Error, self.span(start, self.pos), &value)
+            }
+        }
+    }
+
+    /// Called after we close an interpolation `}` — lex the next segment
+    /// of the template string.
+    fn lex_template_string_continuation(&mut self, start: usize) -> Token {
+        let (value, end_reason) = self.lex_template_string_body();
+        match end_reason {
+            TemplateEnd::Backtick => Token::new(
+                TokenKind::TemplateStringEnd,
+                self.span(start, self.pos),
+                &value,
+            ),
+            TemplateEnd::OpenBrace => Token::new(
+                TokenKind::TemplateStringPart,
+                self.span(start, self.pos),
+                &value,
+            ),
+            TemplateEnd::Unterminated => {
+                self.diagnostics
+                    .add(&LexerDiagnostic::UnterminatedTemplateString {
+                        span: self.span(start, self.pos),
+                    });
+                Token::new(TokenKind::Error, self.span(start, self.pos), &value)
+            }
+        }
     }
 
     fn lex_string(&mut self, start: usize) -> Token {
@@ -635,5 +812,98 @@ mod tests {
     fn error_unexpected_char() {
         let (_, diags) = Lexer::new("§", FileId(0)).tokenize();
         assert!(diags.has_errors());
+    }
+
+    #[test]
+    fn template_string_no_interpolation() {
+        let tokens = lex("`hello, world`");
+        assert_eq!(tokens[0].kind, TokenKind::StringLiteral);
+        assert_eq!(tokens[0].text, "hello, world");
+    }
+
+    #[test]
+    fn template_string_single_interpolation() {
+        let tokens = lex("`hello, {name}!`");
+        let kinds: Vec<_> = tokens.iter().map(|t| t.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                TokenKind::TemplateStringStart,
+                TokenKind::Ident,
+                TokenKind::TemplateStringEnd,
+                TokenKind::Eof,
+            ]
+        );
+        assert_eq!(tokens[0].text, "hello, ");
+        assert_eq!(tokens[1].text, "name");
+        assert_eq!(tokens[2].text, "!");
+    }
+
+    #[test]
+    fn template_string_multiple_interpolations() {
+        let tokens = lex("`{a} + {b} = {c}`");
+        let kinds: Vec<_> = tokens.iter().map(|t| t.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                TokenKind::TemplateStringStart,
+                TokenKind::Ident, // a
+                TokenKind::TemplateStringPart,
+                TokenKind::Ident, // b
+                TokenKind::TemplateStringPart,
+                TokenKind::Ident, // c
+                TokenKind::TemplateStringEnd,
+                TokenKind::Eof,
+            ]
+        );
+        assert_eq!(tokens[0].text, "");
+        assert_eq!(tokens[2].text, " + ");
+        assert_eq!(tokens[4].text, " = ");
+        assert_eq!(tokens[6].text, "");
+    }
+
+    #[test]
+    fn template_string_with_braces_in_expr() {
+        // Expression contains braces (e.g., a block or struct literal)
+        let tokens = lex("`result: {if true { 1 } else { 2 }}`");
+        let kinds: Vec<_> = tokens.iter().map(|t| t.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                TokenKind::TemplateStringStart, // "result: "
+                TokenKind::If,
+                TokenKind::True,
+                TokenKind::LBrace,
+                TokenKind::IntLiteral, // 1
+                TokenKind::RBrace,
+                TokenKind::Else,
+                TokenKind::LBrace,
+                TokenKind::IntLiteral, // 2
+                TokenKind::RBrace,
+                TokenKind::TemplateStringEnd, // ""
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn template_string_escapes() {
+        let tokens = lex(r"`\{not interpolated\}`");
+        assert_eq!(tokens[0].kind, TokenKind::StringLiteral);
+        assert_eq!(tokens[0].text, "{not interpolated}");
+    }
+
+    #[test]
+    fn template_string_backtick_escape() {
+        let tokens = lex(r"`contains a \` backtick`");
+        assert_eq!(tokens[0].kind, TokenKind::StringLiteral);
+        assert_eq!(tokens[0].text, "contains a ` backtick");
+    }
+
+    #[test]
+    fn error_unterminated_template_string() {
+        let (tokens, diags) = Lexer::new("`hello", FileId(0)).tokenize();
+        assert!(diags.has_errors());
+        assert_eq!(tokens[0].kind, TokenKind::Error);
     }
 }

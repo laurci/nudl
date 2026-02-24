@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 nudl-core = { path = "../nudl-core" }
 nudl-bc = { path = "../nudl-bc" }
+dynasm = "5.0"
+dynasmrt = "5.0"
 
 [dev-dependencies]
 nudl-ast = { path = "../nudl-ast" }

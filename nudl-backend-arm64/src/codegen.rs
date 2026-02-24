@@ -1,7 +1,16 @@
 use std::collections::HashMap;
 
+use dynasm::dynasm;
+use dynasmrt::{DynamicLabel, DynasmApi, DynasmLabelApi, VecAssembler, aarch64::Aarch64Relocation};
+
 use nudl_bc::ir::*;
 use nudl_core::types::{TypeInterner, TypeKind};
+
+macro_rules! asm {
+    ($ops:expr; $($t:tt)*) => {
+        dynasm!($ops; .arch aarch64; $($t)*)
+    };
+}
 
 /// Relocation kinds for ARM64
 #[derive(Debug, Clone)]
@@ -106,7 +115,7 @@ struct CodegenContext {
 
 /// ARM64 code generator
 pub struct Codegen {
-    code: Vec<u8>,
+    ops: VecAssembler<Aarch64Relocation>,
     data: Vec<u8>,
     relocations: Vec<Relocation>,
     extern_symbols: Vec<String>,
@@ -115,8 +124,8 @@ pub struct Codegen {
     function_symbols: Vec<FunctionSymbol>,
     /// FunctionId → code offset
     function_offsets: HashMap<u32, u32>,
-    /// Pending internal calls: (code_offset_of_bl, target_function_id)
-    pending_internal_calls: Vec<(u32, u32)>,
+    /// FunctionId → DynamicLabel for internal call resolution
+    function_labels: HashMap<u32, DynamicLabel>,
     /// Types for resolving param layouts
     types: TypeInterner,
 }
@@ -124,7 +133,7 @@ pub struct Codegen {
 impl Codegen {
     pub fn new() -> Self {
         Self {
-            code: Vec::new(),
+            ops: VecAssembler::new(0),
             data: Vec::new(),
             relocations: Vec::new(),
             extern_symbols: Vec::new(),
@@ -132,7 +141,7 @@ impl Codegen {
             string_offsets: Vec::new(),
             function_symbols: Vec::new(),
             function_offsets: HashMap::new(),
-            pending_internal_calls: Vec::new(),
+            function_labels: HashMap::new(),
             types: TypeInterner::new(),
         }
     }
@@ -175,21 +184,33 @@ impl Codegen {
 
         let entry_id = program.entry_function;
 
+        // Pre-allocate dynamic labels for non-extern functions
+        for func in &program.functions {
+            if !func.is_extern {
+                let label = self.ops.new_dynamic_label();
+                self.function_labels.insert(func.id.0, label);
+            }
+        }
+
         // Emit code for each non-extern function
         for func in &program.functions {
             if func.is_extern {
                 continue;
             }
 
-            let func_offset = self.code.len() as u32;
+            let func_offset = self.ops.offset().0 as u32;
             self.function_offsets.insert(func.id.0, func_offset);
+
+            // Define label at function entry
+            let label = self.function_labels[&func.id.0];
+            asm!(self.ops; =>label);
 
             let is_entry = entry_id == Some(func.id);
             let layout = ParamLayout::compute(func, &self.types);
 
             self.emit_function(func, program, &layout, &ctx, is_entry);
 
-            let func_size = self.code.len() as u32 - func_offset;
+            let func_size = self.ops.offset().0 as u32 - func_offset;
 
             self.function_symbols.push(FunctionSymbol {
                 name: format!("__func_{}", func.id.0),
@@ -199,15 +220,8 @@ impl Codegen {
             });
         }
 
-        // Resolve internal calls
-        for (bl_offset, target_func_id) in &self.pending_internal_calls {
-            if let Some(&target_offset) = self.function_offsets.get(target_func_id) {
-                let rel_offset = (target_offset as i32 - *bl_offset as i32) / 4;
-                let bl_instr = encode_bl(rel_offset);
-                let off = *bl_offset as usize;
-                self.code[off..off + 4].copy_from_slice(&bl_instr.to_le_bytes());
-            }
-        }
+        // dynasm resolves internal calls via labels — no manual fixup needed
+        let code = self.ops.finalize().unwrap();
 
         let entry_offset = entry_id
             .and_then(|eid| self.function_offsets.get(&eid.0))
@@ -215,7 +229,7 @@ impl Codegen {
             .unwrap_or(0);
 
         CodegenResult {
-            code: self.code,
+            code,
             data: self.data,
             entry_offset,
             relocations: self.relocations,
@@ -239,31 +253,31 @@ impl Codegen {
         let frame_size = save_pairs * 16;
 
         // Prologue: STP X29, X30, [SP, #-frame_size]!
-        self.emit_u32(encode_stp_pre(29, 30, frame_size));
+        let neg_frame = -(frame_size as i32);
+        asm!(self.ops; stp x29, x30, [sp, neg_frame]!);
         // MOV X29, SP
-        self.emit_u32(0x910003fd);
+        asm!(self.ops; mov x29, sp);
 
         let callee_saved_base = 19u32;
 
         // Save callee-saved registers we'll use
         for i in (0..num_callee_saved).step_by(2) {
-            let callee_reg = callee_saved_base + i;
-            let slot_offset = (1 + i / 2) * 16;
+            let reg1 = (callee_saved_base + i) as u8;
+            let slot_off_s = ((1 + i / 2) * 16) as i32;
+            let slot_off_u = ((1 + i / 2) * 16) as u32;
             if i + 1 < num_callee_saved {
-                self.emit_u32(encode_stp_offset(
-                    callee_reg,
-                    callee_reg + 1,
-                    29,
-                    slot_offset,
-                ));
+                let reg2 = reg1 + 1;
+                asm!(self.ops; stp X(reg1), X(reg2), [x29, slot_off_s]);
             } else {
-                self.emit_u32(encode_str_offset(callee_reg, 29, slot_offset));
+                asm!(self.ops; str X(reg1), [x29, slot_off_u]);
             }
         }
 
         // Move parameter values from X0-X7 to callee-saved X19+
         for i in 0..layout.total_arm_regs {
-            self.emit_u32(encode_mov_reg(callee_saved_base + i, i));
+            let dst = (callee_saved_base + i) as u8;
+            let src = i as u8;
+            asm!(self.ops; mov X(dst), X(src));
         }
 
         // Build RegInfo for SSA param registers
@@ -326,29 +340,31 @@ impl Codegen {
 
                     Instruction::StringPtr(dst, src) => {
                         let arm_dst = alloc_temp();
+                        let arm_dst_r = arm_dst as u8;
                         match reg_info.get(&src.0) {
                             Some(RegInfo::StringLiteral(idx)) => {
-                                let (offset, _) = self.string_offsets[*idx as usize];
-                                let code_offset = self.code.len() as u32;
-                                self.emit_u32(encode_adrp(arm_dst, 0));
+                                let (data_offset, _) = self.string_offsets[*idx as usize];
+                                let code_offset = self.ops.offset().0 as u32;
+                                self.ops.push_u32(encode_adrp(arm_dst, 0));
                                 self.relocations.push(Relocation {
                                     offset: code_offset,
                                     kind: RelocKind::Page21,
-                                    target: RelocTarget::DataSection(offset),
+                                    target: RelocTarget::DataSection(data_offset),
                                 });
-                                let code_offset = self.code.len() as u32;
-                                self.emit_u32(encode_add_imm(arm_dst, arm_dst, 0));
+                                let code_offset = self.ops.offset().0 as u32;
+                                self.ops.push_u32(encode_add_imm(arm_dst, arm_dst, 0));
                                 self.relocations.push(Relocation {
                                     offset: code_offset,
                                     kind: RelocKind::PageOff12,
-                                    target: RelocTarget::DataSection(offset),
+                                    target: RelocTarget::DataSection(data_offset),
                                 });
                             }
                             Some(RegInfo::StringParam(ptr_reg, _)) => {
-                                self.emit_u32(encode_mov_reg(arm_dst, *ptr_reg));
+                                let pr = *ptr_reg as u8;
+                                asm!(self.ops; mov X(arm_dst_r), X(pr));
                             }
                             _ => {
-                                self.emit_u32(encode_movz(arm_dst, 0, 0));
+                                asm!(self.ops; movz X(arm_dst_r), 0u32);
                             }
                         }
                         reg_info.insert(dst.0, RegInfo::General(arm_dst));
@@ -356,16 +372,18 @@ impl Codegen {
 
                     Instruction::StringLen(dst, src) => {
                         let arm_dst = alloc_temp();
+                        let arm_dst_r = arm_dst as u8;
                         match reg_info.get(&src.0) {
                             Some(RegInfo::StringLiteral(idx)) => {
                                 let (_, len) = self.string_offsets[*idx as usize];
                                 self.emit_mov_imm(arm_dst, len as u64);
                             }
                             Some(RegInfo::StringParam(_, len_reg)) => {
-                                self.emit_u32(encode_mov_reg(arm_dst, *len_reg));
+                                let lr = *len_reg as u8;
+                                asm!(self.ops; mov X(arm_dst_r), X(lr));
                             }
                             _ => {
-                                self.emit_u32(encode_movz(arm_dst, 0, 0));
+                                asm!(self.ops; movz X(arm_dst_r), 0u32);
                             }
                         }
                         reg_info.insert(dst.0, RegInfo::General(arm_dst));
@@ -398,36 +416,45 @@ impl Codegen {
                                     break;
                                 }
                                 let (first_arm, count) = cl.entries[i];
+                                let first_arm_r = first_arm as u8;
                                 match reg_info.get(&arg_reg.0) {
                                     Some(RegInfo::StringLiteral(idx)) if count == 2 => {
-                                        let (offset, len) = self.string_offsets[*idx as usize];
-                                        let code_offset = self.code.len() as u32;
-                                        self.emit_u32(encode_adrp(first_arm, 0));
+                                        let (data_offset, len) =
+                                            self.string_offsets[*idx as usize];
+                                        let code_offset = self.ops.offset().0 as u32;
+                                        self.ops.push_u32(encode_adrp(first_arm, 0));
                                         self.relocations.push(Relocation {
                                             offset: code_offset,
                                             kind: RelocKind::Page21,
-                                            target: RelocTarget::DataSection(offset),
+                                            target: RelocTarget::DataSection(data_offset),
                                         });
-                                        let code_offset = self.code.len() as u32;
-                                        self.emit_u32(encode_add_imm(first_arm, first_arm, 0));
+                                        let code_offset = self.ops.offset().0 as u32;
+                                        self.ops
+                                            .push_u32(encode_add_imm(first_arm, first_arm, 0));
                                         self.relocations.push(Relocation {
                                             offset: code_offset,
                                             kind: RelocKind::PageOff12,
-                                            target: RelocTarget::DataSection(offset),
+                                            target: RelocTarget::DataSection(data_offset),
                                         });
                                         self.emit_mov_imm(first_arm + 1, len as u64);
                                     }
-                                    Some(RegInfo::StringParam(ptr_reg, len_reg)) if count == 2 => {
+                                    Some(RegInfo::StringParam(ptr_reg, len_reg))
+                                        if count == 2 =>
+                                    {
+                                        let pr = *ptr_reg as u8;
+                                        let lr = *len_reg as u8;
                                         if first_arm != *ptr_reg {
-                                            self.emit_u32(encode_mov_reg(first_arm, *ptr_reg));
+                                            asm!(self.ops; mov X(first_arm_r), X(pr));
                                         }
+                                        let dst2 = first_arm_r + 1;
                                         if first_arm + 1 != *len_reg {
-                                            self.emit_u32(encode_mov_reg(first_arm + 1, *len_reg));
+                                            asm!(self.ops; mov X(dst2), X(lr));
                                         }
                                     }
                                     Some(RegInfo::General(arm_reg)) => {
+                                        let ar = *arm_reg as u8;
                                         if first_arm != *arm_reg {
-                                            self.emit_u32(encode_mov_reg(first_arm, *arm_reg));
+                                            asm!(self.ops; mov X(first_arm_r), X(ar));
                                         }
                                     }
                                     _ => {}
@@ -437,8 +464,10 @@ impl Codegen {
                             // No layout — simple positional marshalling
                             for (i, arg_reg) in args.iter().enumerate() {
                                 if let Some(RegInfo::General(arm_reg)) = reg_info.get(&arg_reg.0) {
+                                    let ar = *arm_reg as u8;
+                                    let dst = i as u8;
                                     if i as u32 != *arm_reg {
-                                        self.emit_u32(encode_mov_reg(i as u32, *arm_reg));
+                                        asm!(self.ops; mov X(dst), X(ar));
                                     }
                                 }
                             }
@@ -448,8 +477,8 @@ impl Codegen {
                         if is_extern {
                             if let Some(ref ext_sym) = extern_sym {
                                 if let Some(&ext_idx) = self.extern_symbol_map.get(ext_sym) {
-                                    let code_offset = self.code.len() as u32;
-                                    self.emit_u32(encode_bl(0));
+                                    let code_offset = self.ops.offset().0 as u32;
+                                    self.ops.push_u32(encode_bl(0));
                                     self.relocations.push(Relocation {
                                         offset: code_offset,
                                         kind: RelocKind::Branch26,
@@ -458,15 +487,15 @@ impl Codegen {
                                 }
                             }
                         } else if let Some(target_fid) = callee_func_id {
-                            let code_offset = self.code.len() as u32;
-                            self.emit_u32(encode_bl(0)); // placeholder
-                            self.pending_internal_calls.push((code_offset, target_fid));
+                            let label = self.function_labels[&target_fid];
+                            asm!(self.ops; bl =>label);
                         }
 
                         // Result in X0
                         let arm_dst = alloc_temp();
                         if arm_dst != 0 {
-                            self.emit_u32(encode_mov_reg(arm_dst, 0));
+                            let arm_dst_r = arm_dst as u8;
+                            asm!(self.ops; mov X(arm_dst_r), x0);
                         }
                         reg_info.insert(result_reg.0, RegInfo::General(arm_dst));
                     }
@@ -482,20 +511,20 @@ impl Codegen {
                     // Legacy instructions
                     Instruction::StringConstPtr(reg, str_idx) => {
                         let arm_reg = alloc_temp();
-                        let (offset, _) = self.string_offsets[*str_idx as usize];
-                        let code_offset = self.code.len() as u32;
-                        self.emit_u32(encode_adrp(arm_reg, 0));
+                        let (data_offset, _) = self.string_offsets[*str_idx as usize];
+                        let code_offset = self.ops.offset().0 as u32;
+                        self.ops.push_u32(encode_adrp(arm_reg, 0));
                         self.relocations.push(Relocation {
                             offset: code_offset,
                             kind: RelocKind::Page21,
-                            target: RelocTarget::DataSection(offset),
+                            target: RelocTarget::DataSection(data_offset),
                         });
-                        let code_offset = self.code.len() as u32;
-                        self.emit_u32(encode_add_imm(arm_reg, arm_reg, 0));
+                        let code_offset = self.ops.offset().0 as u32;
+                        self.ops.push_u32(encode_add_imm(arm_reg, arm_reg, 0));
                         self.relocations.push(Relocation {
                             offset: code_offset,
                             kind: RelocKind::PageOff12,
-                            target: RelocTarget::DataSection(offset),
+                            target: RelocTarget::DataSection(data_offset),
                         });
                         reg_info.insert(reg.0, RegInfo::General(arm_reg));
                     }
@@ -514,29 +543,27 @@ impl Codegen {
                 Terminator::Return(_) => {
                     if is_entry {
                         // main: set exit code 0
-                        self.emit_u32(encode_movz(0, 0, 0));
+                        asm!(self.ops; movz x0, 0u32);
                     }
 
                     // Restore callee-saved registers
                     for i in (0..num_callee_saved).step_by(2) {
-                        let callee_reg = callee_saved_base + i;
-                        let slot_offset = (1 + i / 2) * 16;
+                        let reg1 = (callee_saved_base + i) as u8;
+                        let slot_off_s = ((1 + i / 2) * 16) as i32;
+                        let slot_off_u = ((1 + i / 2) * 16) as u32;
                         if i + 1 < num_callee_saved {
-                            self.emit_u32(encode_ldp_offset(
-                                callee_reg,
-                                callee_reg + 1,
-                                29,
-                                slot_offset,
-                            ));
+                            let reg2 = reg1 + 1;
+                            asm!(self.ops; ldp X(reg1), X(reg2), [x29, slot_off_s]);
                         } else {
-                            self.emit_u32(encode_ldr_offset(callee_reg, 29, slot_offset));
+                            asm!(self.ops; ldr X(reg1), [x29, slot_off_u]);
                         }
                     }
 
                     // Epilogue: LDP X29, X30, [SP], #frame_size
-                    self.emit_u32(encode_ldp_post(29, 30, frame_size));
+                    let frame = frame_size as i32;
+                    asm!(self.ops; ldp x29, x30, [sp], frame);
                     // RET
-                    self.emit_u32(0xd65f03c0);
+                    asm!(self.ops; ret);
                 }
                 _ => {}
             }
@@ -544,31 +571,35 @@ impl Codegen {
     }
 
     fn emit_mov_imm(&mut self, rd: u32, value: u64) {
+        let rd_r = rd as u8;
         if value <= 0xFFFF {
-            self.emit_u32(encode_movz(rd, value as u16, 0));
+            let val = value as u32;
+            asm!(self.ops; movz X(rd_r), val);
         } else if value <= 0xFFFF_FFFF {
-            self.emit_u32(encode_movz(rd, (value & 0xFFFF) as u16, 0));
-            self.emit_u32(encode_movk(rd, ((value >> 16) & 0xFFFF) as u16, 1));
+            let lo = (value & 0xFFFF) as u32;
+            let hi = ((value >> 16) & 0xFFFF) as u32;
+            asm!(self.ops; movz X(rd_r), lo);
+            asm!(self.ops; movk X(rd_r), hi, LSL 16);
         } else {
-            self.emit_u32(encode_movz(rd, (value & 0xFFFF) as u16, 0));
-            if (value >> 16) & 0xFFFF != 0 {
-                self.emit_u32(encode_movk(rd, ((value >> 16) & 0xFFFF) as u16, 1));
+            let lo = (value & 0xFFFF) as u32;
+            asm!(self.ops; movz X(rd_r), lo);
+            let imm1 = ((value >> 16) & 0xFFFF) as u32;
+            if imm1 != 0 {
+                asm!(self.ops; movk X(rd_r), imm1, LSL 16);
             }
-            if (value >> 32) & 0xFFFF != 0 {
-                self.emit_u32(encode_movk(rd, ((value >> 32) & 0xFFFF) as u16, 2));
+            let imm2 = ((value >> 32) & 0xFFFF) as u32;
+            if imm2 != 0 {
+                asm!(self.ops; movk X(rd_r), imm2, LSL 32);
             }
-            if (value >> 48) & 0xFFFF != 0 {
-                self.emit_u32(encode_movk(rd, ((value >> 48) & 0xFFFF) as u16, 3));
+            let imm3 = ((value >> 48) & 0xFFFF) as u32;
+            if imm3 != 0 {
+                asm!(self.ops; movk X(rd_r), imm3, LSL 48);
             }
         }
     }
-
-    fn emit_u32(&mut self, val: u32) {
-        self.code.extend_from_slice(&val.to_le_bytes());
-    }
 }
 
-// ARM64 instruction encoders
+// ARM64 instruction encoders — retained only for relocation placeholders
 
 /// ADRP Xd, #imm — encodes with imm=0, to be patched by relocation
 fn encode_adrp(rd: u32, _imm: i32) -> u32 {
@@ -580,61 +611,10 @@ fn encode_add_imm(rd: u32, rn: u32, imm12: u32) -> u32 {
     0x91000000 | ((imm12 & 0xfff) << 10) | ((rn & 0x1f) << 5) | (rd & 0x1f)
 }
 
-/// MOV Xd, Xn (encoded as ORR Xd, XZR, Xn)
-fn encode_mov_reg(rd: u32, rm: u32) -> u32 {
-    0xaa0003e0 | ((rm & 0x1f) << 16) | (rd & 0x1f)
-}
-
 /// BL #offset (26-bit signed, in units of 4 bytes)
 fn encode_bl(offset: i32) -> u32 {
     let imm26 = (offset as u32) & 0x03ffffff;
     0x94000000 | imm26
-}
-
-/// MOVZ Xd, #imm16, LSL #(hw*16)
-fn encode_movz(rd: u32, imm16: u16, hw: u32) -> u32 {
-    0xd2800000 | ((hw & 0x3) << 21) | ((imm16 as u32) << 5) | (rd & 0x1f)
-}
-
-/// MOVK Xd, #imm16, LSL #(hw*16)
-fn encode_movk(rd: u32, imm16: u16, hw: u32) -> u32 {
-    0xf2800000 | ((hw & 0x3) << 21) | ((imm16 as u32) << 5) | (rd & 0x1f)
-}
-
-/// STP Xt1, Xt2, [SP, #-imm]! (pre-indexed)
-fn encode_stp_pre(rt1: u32, rt2: u32, frame_size: u32) -> u32 {
-    let imm7 = ((-(frame_size as i32)) / 8) as u32 & 0x7f;
-    0xa9800000 | (imm7 << 15) | ((rt2 & 0x1f) << 10) | (31 << 5) | (rt1 & 0x1f)
-}
-
-/// LDP Xt1, Xt2, [SP], #imm (post-indexed)
-fn encode_ldp_post(rt1: u32, rt2: u32, frame_size: u32) -> u32 {
-    let imm7 = (frame_size / 8) & 0x7f;
-    0xa8c00000 | (imm7 << 15) | ((rt2 & 0x1f) << 10) | (31 << 5) | (rt1 & 0x1f)
-}
-
-/// STP Xt1, Xt2, [Xn, #offset] (signed offset)
-fn encode_stp_offset(rt1: u32, rt2: u32, rn: u32, offset: u32) -> u32 {
-    let imm7 = (offset / 8) & 0x7f;
-    0xa9000000 | (imm7 << 15) | ((rt2 & 0x1f) << 10) | ((rn & 0x1f) << 5) | (rt1 & 0x1f)
-}
-
-/// LDP Xt1, Xt2, [Xn, #offset] (signed offset)
-fn encode_ldp_offset(rt1: u32, rt2: u32, rn: u32, offset: u32) -> u32 {
-    let imm7 = (offset / 8) & 0x7f;
-    0xa9400000 | (imm7 << 15) | ((rt2 & 0x1f) << 10) | ((rn & 0x1f) << 5) | (rt1 & 0x1f)
-}
-
-/// STR Xt, [Xn, #offset] (unsigned offset)
-fn encode_str_offset(rt: u32, rn: u32, offset: u32) -> u32 {
-    let imm12 = (offset / 8) & 0xfff;
-    0xf9000000 | (imm12 << 10) | ((rn & 0x1f) << 5) | (rt & 0x1f)
-}
-
-/// LDR Xt, [Xn, #offset] (unsigned offset)
-fn encode_ldr_offset(rt: u32, rn: u32, offset: u32) -> u32 {
-    let imm12 = (offset / 8) & 0xfff;
-    0xf9400000 | (imm12 << 10) | ((rn & 0x1f) << 5) | (rt & 0x1f)
 }
 
 #[cfg(test)]

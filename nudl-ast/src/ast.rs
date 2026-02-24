@@ -71,6 +71,13 @@ pub enum Expr {
 #[derive(Debug)]
 pub enum Literal {
     String(String),
+    /// Template string: alternating text parts and expression parts.
+    /// `parts` has one more element than `exprs` (text before first expr,
+    /// between exprs, and after last expr).
+    TemplateString {
+        parts: Vec<String>,
+        exprs: Vec<SpannedExpr>,
+    },
     Int(String),
     Float(String),
     Bool(bool),

@@ -5,7 +5,7 @@
 	"patterns": [
 		{ "include": "#comments" },
 		{ "include": "#attributes" },
-		{ "include": "#format-strings" },
+		{ "include": "#template-strings" },
 		{ "include": "#strings" },
 		{ "include": "#char-literals" },
 		{ "include": "#labels" },
@@ -66,10 +66,10 @@
 				}
 			]
 		},
-		"format-strings": {
+		"template-strings": {
 			"name": "string.interpolated.nudl",
-			"begin": "f\"",
-			"end": "\"",
+			"begin": "`",
+			"end": "`",
 			"beginCaptures": {
 				"0": { "name": "punctuation.definition.string.begin.nudl" }
 			},
@@ -77,14 +77,13 @@
 				"0": { "name": "punctuation.definition.string.end.nudl" }
 			},
 			"patterns": [
-				{ "include": "#escape-sequences" },
 				{
 					"name": "constant.character.escape.nudl",
-					"match": "\\{\\{|\\}\\}"
+					"match": "\\\\[nrt0\\\\`{}'\"]|\\\\x[0-9a-fA-F]{2}|\\\\u\\{[0-9a-fA-F]{1,6}\\}"
 				},
 				{
 					"name": "meta.interpolation.nudl",
-					"begin": "\\{",
+					"begin": "(?<!\\\\)\\{",
 					"end": "\\}",
 					"beginCaptures": {
 						"0": { "name": "punctuation.section.interpolation.begin.nudl" }

@@ -354,6 +354,9 @@ impl Parser {
                     tok.span,
                 ))
             }
+            TokenKind::TemplateStringStart => {
+                self.parse_template_string()
+            }
             TokenKind::CharLiteral => {
                 let tok = self.advance().clone();
                 let ch = tok.text.chars().next().unwrap_or('\0');
@@ -394,6 +397,46 @@ impl Parser {
                     span: self.peek().span,
                 });
                 None
+            }
+        }
+    }
+
+    fn parse_template_string(&mut self) -> Option<SpannedExpr> {
+        let start_tok = self.advance().clone(); // TemplateStringStart
+        let start = start_tok.span;
+        let mut parts = vec![start_tok.text.clone()];
+        let mut exprs = Vec::new();
+
+        loop {
+            // Parse the interpolated expression
+            if let Some(expr) = self.parse_expr() {
+                exprs.push(expr);
+            }
+
+            match self.peek_kind() {
+                TokenKind::TemplateStringEnd => {
+                    let end_tok = self.advance().clone();
+                    parts.push(end_tok.text.clone());
+                    let end = end_tok.span;
+                    return Some(Spanned::new(
+                        Expr::Literal(Literal::TemplateString { parts, exprs }),
+                        start.merge(end),
+                    ));
+                }
+                TokenKind::TemplateStringPart => {
+                    let mid_tok = self.advance().clone();
+                    parts.push(mid_tok.text.clone());
+                    // continue to next interpolation
+                }
+                _ => {
+                    // Error recovery: unexpected token
+                    self.diagnostics.add(&ParserDiagnostic::UnexpectedToken {
+                        span: self.peek().span,
+                        expected: "template string continuation".into(),
+                        found: self.peek().text.clone(),
+                    });
+                    return None;
+                }
             }
         }
     }
