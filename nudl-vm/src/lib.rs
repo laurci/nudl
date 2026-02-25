@@ -12,6 +12,8 @@ pub enum Value {
     I64(i64),
     U64(u64),
     Bool(bool),
+    F64(f64),
+    Char(char),
     /// String constant (index into Program::string_constants).
     String(u32),
     /// Synthetic raw pointer (not dereferenceable, only for VM-internal tracking).
@@ -26,6 +28,8 @@ impl fmt::Display for Value {
             Value::I64(v) => write!(f, "{}", v),
             Value::U64(v) => write!(f, "{}", v),
             Value::Bool(v) => write!(f, "{}", v),
+            Value::F64(v) => write!(f, "{}", v),
+            Value::Char(v) => write!(f, "{}", v),
             Value::String(idx) => write!(f, "string[{}]", idx),
             Value::RawPtr(v) => write!(f, "ptr(0x{:x})", v),
         }
@@ -52,6 +56,8 @@ pub enum VmError {
     },
     /// Stack overflow (too many nested calls).
     StackOverflow { depth: usize },
+    /// Type error at runtime (shouldn't happen with proper type checking).
+    TypeError { message: String },
 }
 
 impl fmt::Display for VmError {
@@ -79,6 +85,7 @@ impl fmt::Display for VmError {
                 block_id, function_name
             ),
             VmError::StackOverflow { depth } => write!(f, "stack overflow at depth {}", depth),
+            VmError::TypeError { message } => write!(f, "type error: {}", message),
         }
     }
 }
@@ -243,6 +250,8 @@ impl Vm {
                     ConstValue::I64(v) => Value::I64(*v),
                     ConstValue::U64(v) => Value::U64(*v),
                     ConstValue::Bool(v) => Value::Bool(*v),
+                    ConstValue::F64(v) => Value::F64(*v),
+                    ConstValue::Char(v) => Value::Char(*v),
                     ConstValue::StringLiteral(idx) => Value::String(*idx),
                 };
             }
@@ -252,8 +261,6 @@ impl Vm {
             }
 
             Instruction::StringPtr(dst, src) => {
-                // Extract a synthetic pointer from a string value.
-                // For string literals, use the constant index as a synthetic address.
                 let val = match &registers[src.0 as usize] {
                     Value::String(idx) => Value::RawPtr(*idx as u64),
                     _ => Value::RawPtr(0),
@@ -262,7 +269,6 @@ impl Vm {
             }
 
             Instruction::StringLen(dst, src) => {
-                // Extract the length from a string value.
                 let val = match &registers[src.0 as usize] {
                     Value::String(idx) => {
                         let len = program
@@ -311,8 +317,6 @@ impl Vm {
                         });
                     }
                     FunctionRef::Builtin(sym) => {
-                        // Builtins should be lowered to specific instructions,
-                        // but handle them here as a fallback.
                         let name = program.interner.resolve(*sym);
                         match name {
                             "__str_ptr" => {
@@ -349,9 +353,120 @@ impl Vm {
             }
 
             Instruction::Nop => {}
+
+            // Arithmetic
+            Instruction::Add(dst, lhs, rhs) => {
+                let result = vm_binop_arith(&registers[lhs.0 as usize], &registers[rhs.0 as usize], |a, b| a + b, |a, b| a + b)?;
+                registers[dst.0 as usize] = result;
+            }
+            Instruction::Sub(dst, lhs, rhs) => {
+                let result = vm_binop_arith(&registers[lhs.0 as usize], &registers[rhs.0 as usize], |a, b| a - b, |a, b| a - b)?;
+                registers[dst.0 as usize] = result;
+            }
+            Instruction::Mul(dst, lhs, rhs) => {
+                let result = vm_binop_arith(&registers[lhs.0 as usize], &registers[rhs.0 as usize], |a, b| a * b, |a, b| a * b)?;
+                registers[dst.0 as usize] = result;
+            }
+            Instruction::Div(dst, lhs, rhs) => {
+                let result = vm_binop_arith(&registers[lhs.0 as usize], &registers[rhs.0 as usize], |a, b| if b != 0 { a / b } else { 0 }, |a, b| if b != 0.0 { a / b } else { 0.0 })?;
+                registers[dst.0 as usize] = result;
+            }
+            Instruction::Mod(dst, lhs, rhs) => {
+                let result = vm_binop_arith(&registers[lhs.0 as usize], &registers[rhs.0 as usize], |a, b| if b != 0 { a % b } else { 0 }, |a, b| if b != 0.0 { a % b } else { 0.0 })?;
+                registers[dst.0 as usize] = result;
+            }
+            Instruction::Shl(dst, lhs, rhs) => {
+                let result = vm_binop_arith(&registers[lhs.0 as usize], &registers[rhs.0 as usize], |a, b| a << (b & 0x3F), |_a, _b| 0.0)?;
+                registers[dst.0 as usize] = result;
+            }
+            Instruction::Shr(dst, lhs, rhs) => {
+                let result = vm_binop_arith(&registers[lhs.0 as usize], &registers[rhs.0 as usize], |a, b| a >> (b & 0x3F), |_a, _b| 0.0)?;
+                registers[dst.0 as usize] = result;
+            }
+            Instruction::Neg(dst, src) => {
+                let result = match &registers[src.0 as usize] {
+                    Value::I32(v) => Value::I32(-*v),
+                    Value::I64(v) => Value::I64(-*v),
+                    Value::F64(v) => Value::F64(-*v),
+                    other => return Err(VmError::TypeError { message: format!("cannot negate {:?}", other) }),
+                };
+                registers[dst.0 as usize] = result;
+            }
+
+            // Comparison
+            Instruction::Eq(dst, lhs, rhs) => {
+                let result = vm_binop_cmp(&registers[lhs.0 as usize], &registers[rhs.0 as usize], |a, b| a == b, |a, b| a == b)?;
+                registers[dst.0 as usize] = Value::Bool(result);
+            }
+            Instruction::Ne(dst, lhs, rhs) => {
+                let result = vm_binop_cmp(&registers[lhs.0 as usize], &registers[rhs.0 as usize], |a, b| a != b, |a, b| a != b)?;
+                registers[dst.0 as usize] = Value::Bool(result);
+            }
+            Instruction::Lt(dst, lhs, rhs) => {
+                let result = vm_binop_cmp(&registers[lhs.0 as usize], &registers[rhs.0 as usize], |a, b| a < b, |a, b| a < b)?;
+                registers[dst.0 as usize] = Value::Bool(result);
+            }
+            Instruction::Le(dst, lhs, rhs) => {
+                let result = vm_binop_cmp(&registers[lhs.0 as usize], &registers[rhs.0 as usize], |a, b| a <= b, |a, b| a <= b)?;
+                registers[dst.0 as usize] = Value::Bool(result);
+            }
+            Instruction::Gt(dst, lhs, rhs) => {
+                let result = vm_binop_cmp(&registers[lhs.0 as usize], &registers[rhs.0 as usize], |a, b| a > b, |a, b| a > b)?;
+                registers[dst.0 as usize] = Value::Bool(result);
+            }
+            Instruction::Ge(dst, lhs, rhs) => {
+                let result = vm_binop_cmp(&registers[lhs.0 as usize], &registers[rhs.0 as usize], |a, b| a >= b, |a, b| a >= b)?;
+                registers[dst.0 as usize] = Value::Bool(result);
+            }
+
+            // Logical
+            Instruction::Not(dst, src) => {
+                let result = match &registers[src.0 as usize] {
+                    Value::Bool(v) => Value::Bool(!*v),
+                    other => return Err(VmError::TypeError { message: format!("cannot negate {:?}", other) }),
+                };
+                registers[dst.0 as usize] = result;
+            }
         }
 
         Ok(())
+    }
+}
+
+/// Perform an arithmetic binary operation, dispatching on value types.
+fn vm_binop_arith(
+    lhs: &Value,
+    rhs: &Value,
+    int_op: impl Fn(i64, i64) -> i64,
+    float_op: impl Fn(f64, f64) -> f64,
+) -> Result<Value, VmError> {
+    match (lhs, rhs) {
+        (Value::I32(a), Value::I32(b)) => Ok(Value::I32(int_op(*a as i64, *b as i64) as i32)),
+        (Value::I64(a), Value::I64(b)) => Ok(Value::I64(int_op(*a, *b))),
+        (Value::U64(a), Value::U64(b)) => Ok(Value::U64(int_op(*a as i64, *b as i64) as u64)),
+        (Value::F64(a), Value::F64(b)) => Ok(Value::F64(float_op(*a, *b))),
+        _ => Err(VmError::TypeError {
+            message: format!("incompatible types for arithmetic: {:?} and {:?}", lhs, rhs),
+        }),
+    }
+}
+
+/// Perform a comparison binary operation, dispatching on value types.
+fn vm_binop_cmp(
+    lhs: &Value,
+    rhs: &Value,
+    int_op: impl Fn(i64, i64) -> bool,
+    float_op: impl Fn(f64, f64) -> bool,
+) -> Result<bool, VmError> {
+    match (lhs, rhs) {
+        (Value::I32(a), Value::I32(b)) => Ok(int_op(*a as i64, *b as i64)),
+        (Value::I64(a), Value::I64(b)) => Ok(int_op(*a, *b)),
+        (Value::U64(a), Value::U64(b)) => Ok(int_op(*a as i64, *b as i64)),
+        (Value::F64(a), Value::F64(b)) => Ok(float_op(*a, *b)),
+        (Value::Bool(a), Value::Bool(b)) => Ok(int_op(if *a { 1 } else { 0 }, if *b { 1 } else { 0 })),
+        _ => Err(VmError::TypeError {
+            message: format!("incompatible types for comparison: {:?} and {:?}", lhs, rhs),
+        }),
     }
 }
 
@@ -363,6 +478,8 @@ fn is_truthy(val: &Value) -> bool {
         Value::I64(v) => *v != 0,
         Value::U64(v) => *v != 0,
         Value::Bool(v) => *v,
+        Value::F64(v) => *v != 0.0,
+        Value::Char(v) => *v != '\0',
         Value::String(_) => true,
         Value::RawPtr(v) => *v != 0,
     }
@@ -455,9 +572,6 @@ fn main() {
 
     #[test]
     fn step_limit_exceeded() {
-        // Create a program that calls itself to blow the step limit
-        // Since we don't have recursion in the test (main calls greet, greet doesn't recurse),
-        // use a very low step limit
         let program = compile(
             r#"
 fn a(s: string) {}
@@ -495,17 +609,106 @@ fn main() {
 
     #[test]
     fn no_entry_function_error() {
-        // Create a program manually with no entry function
         let program = Program {
             functions: vec![],
             string_constants: vec![],
             entry_function: None,
             extern_libs: vec![],
             interner: nudl_core::intern::StringInterner::new(),
+            source_map: None,
         };
         let mut vm = Vm::new();
         let result = vm.run(&program);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), VmError::NoEntryFunction));
+    }
+
+    #[test]
+    fn vm_arithmetic() {
+        let program = compile(
+            r#"
+fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+fn main() {
+    let result = add(10, 20);
+}
+"#,
+        );
+        let mut vm = Vm::new();
+        let result = vm.run(&program);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn vm_if_else() {
+        let program = compile(
+            r#"
+fn pick(x: i32) -> i32 {
+    if x > 5 { 1 } else { 0 }
+}
+fn main() {
+    let a = pick(10);
+    let b = pick(3);
+}
+"#,
+        );
+        let mut vm = Vm::new();
+        let result = vm.run(&program);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn vm_while_loop() {
+        let program = compile(
+            r#"
+fn main() {
+    let mut x: i32 = 0;
+    while x < 10 {
+        x = x + 1;
+    }
+}
+"#,
+        );
+        let mut vm = Vm::new();
+        let result = vm.run(&program);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn vm_loop_break() {
+        let program = compile(
+            r#"
+fn main() {
+    let mut x: i32 = 0;
+    loop {
+        x = x + 1;
+        if x > 5 {
+            break;
+        }
+    }
+}
+"#,
+        );
+        let mut vm = Vm::new();
+        let result = vm.run(&program);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn vm_function_return_value() {
+        let program = compile(
+            r#"
+fn double(x: i32) -> i32 {
+    x + x
+}
+fn main() {
+    let a = double(21);
+}
+"#,
+        );
+        let mut vm = Vm::new();
+        let result = vm.run(&program);
+        assert!(result.is_ok());
     }
 }

@@ -16,6 +16,16 @@
 				"${workspaceFolder}/editor/vscode/dist/**/*.js"
 			],
 			"preLaunchTask": "${defaultBuildTask}"
+		},
+		{
+			"name": "Debug nudl (scratch)",
+			"type": "lldb",
+			"request": "launch",
+			"program": "${workspaceFolder}/tmp/scratch",
+			"cwd": "${workspaceFolder}",
+			"sourceMap": {
+				".": "${workspaceFolder}"
+			}
 		}
 	]
 }

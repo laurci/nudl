@@ -236,42 +236,55 @@ impl Parser {
     fn parse_block(&mut self) -> Option<Spanned<Block>> {
         let start = self.expect(TokenKind::LBrace)?.span;
         let mut stmts = Vec::new();
+        let mut tail_expr = None;
 
         while !self.at_eof() && self.peek_kind() != TokenKind::RBrace {
-            if let Some(stmt) = self.parse_stmt() {
-                stmts.push(stmt);
-            } else {
-                self.advance();
+            // Try to parse a statement
+            match self.peek_kind() {
+                TokenKind::Let => {
+                    if let Some(stmt) = self.parse_let_stmt() {
+                        stmts.push(stmt);
+                    } else {
+                        self.advance();
+                    }
+                }
+                TokenKind::Fn | TokenKind::Pub | TokenKind::Extern => {
+                    if let Some(item) = self.parse_item() {
+                        let span = item.span;
+                        stmts.push(Spanned::new(Stmt::Item(item), span));
+                    } else {
+                        self.advance();
+                    }
+                }
+                _ => {
+                    if let Some(expr) = self.parse_expr() {
+                        // Check if this expression is followed by ';' or '}'
+                        if self.peek_kind() == TokenKind::Semi {
+                            // Expression statement
+                            let span = expr.span;
+                            self.advance(); // consume ;
+                            stmts.push(Spanned::new(Stmt::Expr(expr), span));
+                        } else if self.peek_kind() == TokenKind::RBrace {
+                            // Tail expression
+                            tail_expr = Some(Box::new(expr));
+                        } else {
+                            // Expression statement without semicolon (e.g., if/while/loop)
+                            let span = expr.span;
+                            stmts.push(Spanned::new(Stmt::Expr(expr), span));
+                        }
+                    } else {
+                        self.advance();
+                    }
+                }
             }
         }
 
         let end = self.expect(TokenKind::RBrace)?.span;
 
-        // For simplicity in POC: no tail expression handling
         Some(Spanned::new(
-            Block {
-                stmts,
-                tail_expr: None,
-            },
+            Block { stmts, tail_expr },
             start.merge(end),
         ))
-    }
-
-    fn parse_stmt(&mut self) -> Option<SpannedStmt> {
-        match self.peek_kind() {
-            TokenKind::Let => self.parse_let_stmt(),
-            TokenKind::Fn | TokenKind::Pub | TokenKind::Extern => {
-                let item = self.parse_item()?;
-                let span = item.span;
-                Some(Spanned::new(Stmt::Item(item), span))
-            }
-            _ => {
-                let expr = self.parse_expr()?;
-                let span = expr.span;
-                self.eat(TokenKind::Semi);
-                Some(Spanned::new(Stmt::Expr(expr), span))
-            }
-        }
     }
 
     fn parse_let_stmt(&mut self) -> Option<SpannedStmt> {
@@ -305,13 +318,33 @@ impl Parser {
         self.parse_expr_bp(0)
     }
 
-    fn parse_expr_bp(&mut self, _min_bp: u8) -> Option<SpannedExpr> {
-        // For the POC, we only need primary + call expressions
-        let mut lhs = self.parse_primary()?;
+    fn parse_expr_bp(&mut self, min_bp: u8) -> Option<SpannedExpr> {
+        // Parse prefix or primary
+        let mut lhs = if let Some(right_bp) = prefix_binding_power(self.peek_kind()) {
+            let op_tok = self.advance().clone();
+            let op = match op_tok.kind {
+                TokenKind::Minus => UnaryOp::Neg,
+                TokenKind::Bang => UnaryOp::Not,
+                _ => unreachable!(),
+            };
+            let operand = self.parse_expr_bp(right_bp)?;
+            let span = op_tok.span.merge(operand.span);
+            Spanned::new(
+                Expr::Unary {
+                    op,
+                    operand: Box::new(operand),
+                },
+                span,
+            )
+        } else {
+            self.parse_primary()?
+        };
 
-        // Handle postfix: call expressions
         loop {
-            if self.peek_kind() == TokenKind::LParen {
+            let kind = self.peek_kind();
+
+            // Postfix: call expressions
+            if kind == TokenKind::LParen {
                 let start = lhs.span;
                 self.advance(); // (
                 let args = self.parse_call_args();
@@ -323,9 +356,61 @@ impl Parser {
                     },
                     start.merge(end),
                 );
-            } else {
-                break;
+                continue;
             }
+
+            // Assignment operators (right-associative)
+            if let Some(assign_bp) = assign_binding_power(kind) {
+                if assign_bp < min_bp {
+                    break;
+                }
+                let op_tok = self.advance().clone();
+                let rhs = self.parse_expr_bp(assign_bp)?; // right-associative: same bp
+                let span = lhs.span.merge(rhs.span);
+                lhs = match op_tok.kind {
+                    TokenKind::Eq => Spanned::new(
+                        Expr::Assign {
+                            target: Box::new(lhs),
+                            value: Box::new(rhs),
+                        },
+                        span,
+                    ),
+                    _ => {
+                        let op = compound_assign_op(op_tok.kind);
+                        Spanned::new(
+                            Expr::CompoundAssign {
+                                op,
+                                target: Box::new(lhs),
+                                value: Box::new(rhs),
+                            },
+                            span,
+                        )
+                    }
+                };
+                continue;
+            }
+
+            // Infix operators
+            if let Some((l_bp, r_bp)) = infix_binding_power(kind) {
+                if l_bp < min_bp {
+                    break;
+                }
+                let op_tok = self.advance().clone();
+                let op = token_to_binop(op_tok.kind);
+                let rhs = self.parse_expr_bp(r_bp)?;
+                let span = lhs.span.merge(rhs.span);
+                lhs = Spanned::new(
+                    Expr::Binary {
+                        op,
+                        left: Box::new(lhs),
+                        right: Box::new(rhs),
+                    },
+                    span,
+                );
+                continue;
+            }
+
+            break;
         }
 
         Some(lhs)
@@ -335,8 +420,9 @@ impl Parser {
         match self.peek_kind() {
             TokenKind::IntLiteral => {
                 let tok = self.advance().clone();
+                let (value, suffix) = parse_int_suffix(&tok.text);
                 Some(Spanned::new(
-                    Expr::Literal(Literal::Int(tok.text.clone())),
+                    Expr::Literal(Literal::Int(value, suffix)),
                     tok.span,
                 ))
             }
@@ -354,9 +440,7 @@ impl Parser {
                     tok.span,
                 ))
             }
-            TokenKind::TemplateStringStart => {
-                self.parse_template_string()
-            }
+            TokenKind::TemplateStringStart => self.parse_template_string(),
             TokenKind::CharLiteral => {
                 let tok = self.advance().clone();
                 let ch = tok.text.chars().next().unwrap_or('\0');
@@ -387,6 +471,42 @@ impl Parser {
                 let end = value.as_ref().map(|v| v.span).unwrap_or(tok.span);
                 Some(Spanned::new(Expr::Return(value), tok.span.merge(end)))
             }
+            TokenKind::If => self.parse_if_expr(),
+            TokenKind::While => self.parse_while_expr(),
+            TokenKind::Loop => self.parse_loop_expr(),
+            TokenKind::Break => {
+                let tok = self.advance().clone();
+                let value = if self.peek_kind() != TokenKind::Semi
+                    && self.peek_kind() != TokenKind::RBrace
+                    && !self.at_eof()
+                {
+                    Some(Box::new(self.parse_expr()?))
+                } else {
+                    None
+                };
+                let end = value.as_ref().map(|v| v.span).unwrap_or(tok.span);
+                Some(Spanned::new(Expr::Break(value), tok.span.merge(end)))
+            }
+            TokenKind::Continue => {
+                let tok = self.advance().clone();
+                Some(Spanned::new(Expr::Continue, tok.span))
+            }
+            TokenKind::LParen => {
+                let start = self.advance().clone();
+                // Check for unit literal ()
+                if self.peek_kind() == TokenKind::RParen {
+                    let end = self.advance();
+                    let span = start.span.merge(end.span);
+                    return Some(Spanned::new(
+                        Expr::Literal(Literal::Bool(false)), // unit as expression — use Block
+                        span,
+                    ));
+                }
+                let inner = self.parse_expr()?;
+                let end = self.expect(TokenKind::RParen)?.span;
+                let span = start.span.merge(end);
+                Some(Spanned::new(Expr::Grouped(Box::new(inner)), span))
+            }
             TokenKind::LBrace => {
                 let block = self.parse_block()?;
                 let span = block.span;
@@ -399,6 +519,72 @@ impl Parser {
                 None
             }
         }
+    }
+
+    fn parse_if_expr(&mut self) -> Option<SpannedExpr> {
+        let start = self.expect(TokenKind::If)?.span;
+        let condition = self.parse_expr()?;
+        let then_branch = self.parse_block()?;
+
+        let else_branch = if self.eat(TokenKind::Else) {
+            if self.peek_kind() == TokenKind::If {
+                // else if ...
+                let else_if = self.parse_if_expr()?;
+                Some(Box::new(else_if))
+            } else {
+                // else { ... }
+                let else_block = self.parse_block()?;
+                let span = else_block.span;
+                Some(Box::new(Spanned::new(
+                    Expr::Block(else_block.node),
+                    span,
+                )))
+            }
+        } else {
+            None
+        };
+
+        let end = else_branch
+            .as_ref()
+            .map(|e| e.span)
+            .unwrap_or(then_branch.span);
+
+        Some(Spanned::new(
+            Expr::If {
+                condition: Box::new(condition),
+                then_branch: Box::new(then_branch),
+                else_branch,
+            },
+            start.merge(end),
+        ))
+    }
+
+    fn parse_while_expr(&mut self) -> Option<SpannedExpr> {
+        let start = self.expect(TokenKind::While)?.span;
+        let condition = self.parse_expr()?;
+        let body = self.parse_block()?;
+        let end = body.span;
+
+        Some(Spanned::new(
+            Expr::While {
+                condition: Box::new(condition),
+                body: Box::new(body),
+            },
+            start.merge(end),
+        ))
+    }
+
+    fn parse_loop_expr(&mut self) -> Option<SpannedExpr> {
+        let start = self.expect(TokenKind::Loop)?.span;
+        let body = self.parse_block()?;
+        let end = body.span;
+
+        Some(Spanned::new(
+            Expr::Loop {
+                body: Box::new(body),
+            },
+            start.merge(end),
+        ))
     }
 
     fn parse_template_string(&mut self) -> Option<SpannedExpr> {
@@ -455,6 +641,101 @@ impl Parser {
             }
         }
         args
+    }
+}
+
+/// Returns (left_bp, right_bp) for infix operators.
+fn infix_binding_power(kind: TokenKind) -> Option<(u8, u8)> {
+    match kind {
+        // Logical or: left-associative
+        TokenKind::PipePipe => Some((5, 6)),
+        // Logical and: left-associative
+        TokenKind::AmpAmp => Some((7, 8)),
+        // Shift: left-associative
+        TokenKind::LtLt | TokenKind::GtGt => Some((9, 10)),
+        // Comparison: non-associative (use same bp on both sides)
+        TokenKind::EqEq | TokenKind::BangEq | TokenKind::Lt | TokenKind::Gt
+        | TokenKind::LtEq | TokenKind::GtEq => Some((11, 12)),
+        // Addition/subtraction: left-associative
+        TokenKind::Plus | TokenKind::Minus => Some((13, 14)),
+        // Multiplication/division/modulo: left-associative
+        TokenKind::Star | TokenKind::Slash | TokenKind::Percent => Some((15, 16)),
+        _ => None,
+    }
+}
+
+/// Returns the right_bp for prefix operators.
+fn prefix_binding_power(kind: TokenKind) -> Option<u8> {
+    match kind {
+        TokenKind::Minus | TokenKind::Bang => Some(17),
+        _ => None,
+    }
+}
+
+/// Returns the binding power for assignment operators (right-associative).
+fn assign_binding_power(kind: TokenKind) -> Option<u8> {
+    match kind {
+        TokenKind::Eq | TokenKind::PlusEq | TokenKind::MinusEq | TokenKind::StarEq
+        | TokenKind::SlashEq | TokenKind::PercentEq | TokenKind::LtLtEq
+        | TokenKind::GtGtEq => Some(1),
+        _ => None,
+    }
+}
+
+fn token_to_binop(kind: TokenKind) -> BinOp {
+    match kind {
+        TokenKind::Plus => BinOp::Add,
+        TokenKind::Minus => BinOp::Sub,
+        TokenKind::Star => BinOp::Mul,
+        TokenKind::Slash => BinOp::Div,
+        TokenKind::Percent => BinOp::Mod,
+        TokenKind::LtLt => BinOp::Shl,
+        TokenKind::GtGt => BinOp::Shr,
+        TokenKind::EqEq => BinOp::Eq,
+        TokenKind::BangEq => BinOp::Ne,
+        TokenKind::Lt => BinOp::Lt,
+        TokenKind::LtEq => BinOp::Le,
+        TokenKind::Gt => BinOp::Gt,
+        TokenKind::GtEq => BinOp::Ge,
+        TokenKind::AmpAmp => BinOp::And,
+        TokenKind::PipePipe => BinOp::Or,
+        _ => unreachable!("not a binop token: {:?}", kind),
+    }
+}
+
+fn parse_int_suffix(text: &str) -> (String, Option<IntSuffix>) {
+    const SUFFIXES: &[(&str, IntSuffix)] = &[
+        ("i16", IntSuffix::I16),
+        ("i32", IntSuffix::I32),
+        ("i64", IntSuffix::I64),
+        ("i8", IntSuffix::I8),
+        ("u16", IntSuffix::U16),
+        ("u32", IntSuffix::U32),
+        ("u64", IntSuffix::U64),
+        ("u8", IntSuffix::U8),
+    ];
+    for &(s, suffix) in SUFFIXES {
+        if let Some(value) = text.strip_suffix(s) {
+            // Make sure what remains before the suffix is not empty and ends
+            // with a digit or underscore (not another letter).
+            if !value.is_empty() && value.as_bytes().last().is_some_and(|&b| b.is_ascii_digit() || b == b'_') {
+                return (value.to_string(), Some(suffix));
+            }
+        }
+    }
+    (text.to_string(), None)
+}
+
+fn compound_assign_op(kind: TokenKind) -> BinOp {
+    match kind {
+        TokenKind::PlusEq => BinOp::Add,
+        TokenKind::MinusEq => BinOp::Sub,
+        TokenKind::StarEq => BinOp::Mul,
+        TokenKind::SlashEq => BinOp::Div,
+        TokenKind::PercentEq => BinOp::Mod,
+        TokenKind::LtLtEq => BinOp::Shl,
+        TokenKind::GtGtEq => BinOp::Shr,
+        _ => unreachable!("not a compound assign token: {:?}", kind),
     }
 }
 
@@ -545,5 +826,198 @@ mod tests {
         let (tokens, _) = Lexer::new("fn main() {", FileId(0)).tokenize();
         let (_, diags) = Parser::new(tokens).parse_module();
         assert!(diags.has_errors());
+    }
+
+    #[test]
+    fn parse_binary_precedence() {
+        let module = parse("fn main() { let x = 1 + 2 * 3; }");
+        match &module.items[0].node {
+            Item::FnDef { body, .. } => {
+                let stmt = &body.node.stmts[0].node;
+                match stmt {
+                    Stmt::Let { value, .. } => match &value.node {
+                        Expr::Binary { op, right, .. } => {
+                            assert_eq!(*op, BinOp::Add);
+                            match &right.node {
+                                Expr::Binary { op, .. } => assert_eq!(*op, BinOp::Mul),
+                                _ => panic!("expected Binary(Mul)"),
+                            }
+                        }
+                        _ => panic!("expected Binary"),
+                    },
+                    _ => panic!("expected Let"),
+                }
+            }
+            _ => panic!("expected FnDef"),
+        }
+    }
+
+    #[test]
+    fn parse_if_else() {
+        let module = parse(
+            r#"fn main() {
+    if x > 0 { 1 } else { 2 }
+}"#,
+        );
+        match &module.items[0].node {
+            Item::FnDef { body, .. } => {
+                // The if/else is a tail expression or statement
+                let has_if = body.node.tail_expr.is_some()
+                    || body.node.stmts.iter().any(|s| {
+                        matches!(
+                            &s.node,
+                            Stmt::Expr(e) if matches!(&e.node, Expr::If { .. })
+                        )
+                    });
+                assert!(has_if, "expected If expression in body");
+            }
+            _ => panic!("expected FnDef"),
+        }
+    }
+
+    #[test]
+    fn parse_while_loop() {
+        let module = parse("fn main() { while x < 10 { x = x + 1; } }");
+        match &module.items[0].node {
+            Item::FnDef { body, .. } => {
+                let in_stmts = body.node.stmts.iter().any(|s| {
+                    matches!(
+                        &s.node,
+                        Stmt::Expr(e) if matches!(&e.node, Expr::While { .. })
+                    )
+                });
+                let in_tail = body
+                    .node
+                    .tail_expr
+                    .as_ref()
+                    .is_some_and(|e| matches!(&e.node, Expr::While { .. }));
+                assert!(in_stmts || in_tail, "expected While expression");
+            }
+            _ => panic!("expected FnDef"),
+        }
+    }
+
+    #[test]
+    fn parse_loop_break() {
+        let module = parse("fn main() { loop { break; } }");
+        match &module.items[0].node {
+            Item::FnDef { body, .. } => {
+                let in_stmts = body.node.stmts.iter().any(|s| {
+                    matches!(
+                        &s.node,
+                        Stmt::Expr(e) if matches!(&e.node, Expr::Loop { .. })
+                    )
+                });
+                let in_tail = body
+                    .node
+                    .tail_expr
+                    .as_ref()
+                    .is_some_and(|e| matches!(&e.node, Expr::Loop { .. }));
+                assert!(in_stmts || in_tail, "expected Loop expression");
+            }
+            _ => panic!("expected FnDef"),
+        }
+    }
+
+    #[test]
+    fn parse_tail_expression() {
+        let module = parse("fn foo() -> i32 { 42 }");
+        match &module.items[0].node {
+            Item::FnDef { body, .. } => {
+                assert!(
+                    body.node.tail_expr.is_some(),
+                    "expected tail expression"
+                );
+                match &body.node.tail_expr.as_ref().unwrap().node {
+                    Expr::Literal(Literal::Int(s, None)) => assert_eq!(s, "42"),
+                    _ => panic!("expected Int literal tail"),
+                }
+            }
+            _ => panic!("expected FnDef"),
+        }
+    }
+
+    #[test]
+    fn parse_assignment() {
+        let module = parse("fn main() { x = 42; }");
+        match &module.items[0].node {
+            Item::FnDef { body, .. } => {
+                let has_assign = body.node.stmts.iter().any(|s| {
+                    matches!(
+                        &s.node,
+                        Stmt::Expr(e) if matches!(&e.node, Expr::Assign { .. })
+                    )
+                });
+                assert!(has_assign, "expected Assign expression");
+            }
+            _ => panic!("expected FnDef"),
+        }
+    }
+
+    #[test]
+    fn parse_compound_assign() {
+        let module = parse("fn main() { x += 1; }");
+        match &module.items[0].node {
+            Item::FnDef { body, .. } => {
+                let has_compound = body.node.stmts.iter().any(|s| {
+                    matches!(
+                        &s.node,
+                        Stmt::Expr(e) if matches!(&e.node, Expr::CompoundAssign { .. })
+                    )
+                });
+                assert!(has_compound, "expected CompoundAssign expression");
+            }
+            _ => panic!("expected FnDef"),
+        }
+    }
+
+    #[test]
+    fn parse_unary_negation() {
+        let module = parse("fn main() { let x = -42; }");
+        match &module.items[0].node {
+            Item::FnDef { body, .. } => match &body.node.stmts[0].node {
+                Stmt::Let { value, .. } => {
+                    assert!(
+                        matches!(&value.node, Expr::Unary { op: UnaryOp::Neg, .. }),
+                        "expected Unary Neg"
+                    );
+                }
+                _ => panic!("expected Let"),
+            },
+            _ => panic!("expected FnDef"),
+        }
+    }
+
+    #[test]
+    fn parse_grouped_expression() {
+        let module = parse("fn main() { let x = (1 + 2) * 3; }");
+        match &module.items[0].node {
+            Item::FnDef { body, .. } => match &body.node.stmts[0].node {
+                Stmt::Let { value, .. } => {
+                    // Should be Mul at top level with grouped Add inside
+                    assert!(
+                        matches!(&value.node, Expr::Binary { op: BinOp::Mul, .. }),
+                        "expected Mul at top"
+                    );
+                }
+                _ => panic!("expected Let"),
+            },
+            _ => panic!("expected FnDef"),
+        }
+    }
+
+    #[test]
+    fn parse_add_function_with_tail() {
+        let module = parse("fn add(a: i32, b: i32) -> i32 { a + b }");
+        match &module.items[0].node {
+            Item::FnDef { body, .. } => {
+                assert!(body.node.tail_expr.is_some());
+                match &body.node.tail_expr.as_ref().unwrap().node {
+                    Expr::Binary { op: BinOp::Add, .. } => {}
+                    _ => panic!("expected Binary Add tail"),
+                }
+            }
+            _ => panic!("expected FnDef"),
+        }
     }
 }

@@ -21,6 +21,11 @@
         "configuration": "./language-configuration.json"
       }
     ],
+    "breakpoints": [
+      {
+        "language": "nudl"
+      }
+    ],
     "grammars": [
       {
         "language": "nudl",

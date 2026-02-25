@@ -466,6 +466,7 @@ impl<'a> Lexer<'a> {
                         {
                             self.advance();
                         }
+                        self.try_consume_int_suffix();
                         let text = &self.source[start..self.pos];
                         return Token::new(TokenKind::IntLiteral, self.span(start, self.pos), text);
                     }
@@ -475,6 +476,7 @@ impl<'a> Lexer<'a> {
                         while self.peek().is_some_and(|c| c.is_ascii_digit() || c == '_') {
                             self.advance();
                         }
+                        self.try_consume_int_suffix();
                         let text = &self.source[start..self.pos];
                         return Token::new(TokenKind::IntLiteral, self.span(start, self.pos), text);
                     }
@@ -487,6 +489,7 @@ impl<'a> Lexer<'a> {
                         {
                             self.advance();
                         }
+                        self.try_consume_int_suffix();
                         let text = &self.source[start..self.pos];
                         return Token::new(TokenKind::IntLiteral, self.span(start, self.pos), text);
                     }
@@ -522,6 +525,9 @@ impl<'a> Lexer<'a> {
             }
         }
 
+        if !is_float {
+            self.try_consume_int_suffix();
+        }
         let text = &self.source[start..self.pos];
         let kind = if is_float {
             TokenKind::FloatLiteral
@@ -529,6 +535,24 @@ impl<'a> Lexer<'a> {
             TokenKind::IntLiteral
         };
         Token::new(kind, self.span(start, self.pos), text)
+    }
+
+    /// Try to consume an integer type suffix (i8, i16, i32, i64, u8, u16, u32, u64)
+    /// at the current position. Only consumes if the suffix is followed by a
+    /// non-identifier character (or EOF).
+    fn try_consume_int_suffix(&mut self) {
+        let remaining = &self.source[self.pos..];
+        const SUFFIXES: &[&str] = &["i16", "i32", "i64", "i8", "u16", "u32", "u64", "u8"];
+        for &suffix in SUFFIXES {
+            if remaining.starts_with(suffix) {
+                let after = self.pos + suffix.len();
+                let next_ch = self.source[after..].chars().next();
+                if next_ch.is_none() || !next_ch.unwrap().is_ascii_alphanumeric() && next_ch.unwrap() != '_' {
+                    self.pos = after;
+                    return;
+                }
+            }
+        }
     }
 
     fn lex_ident(&mut self, start: usize) -> Token {

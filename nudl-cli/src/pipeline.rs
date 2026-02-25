@@ -3,13 +3,12 @@ use std::path::Path;
 use nudl_ast::ast::*;
 use nudl_ast::lexer::Lexer;
 use nudl_ast::parser::Parser;
-use nudl_backend_arm64::codegen::{Codegen, CodegenResult};
+use nudl_backend_llvm::codegen;
 use nudl_bc::checker::Checker;
 use nudl_bc::ir::*;
 use nudl_bc::lower::Lowerer;
 use nudl_core::diagnostic::DiagnosticBag;
 use nudl_core::source::SourceMap;
-use nudl_packer_macho::packer;
 use nudl_vm::Vm;
 
 #[derive(Default)]
@@ -17,6 +16,7 @@ pub struct DumpOptions {
     pub dump_ast: bool,
     pub dump_ir: bool,
     pub dump_asm: bool,
+    pub dump_llvm_ir: bool,
 }
 
 pub struct PipelineResult {
@@ -83,7 +83,7 @@ pub struct CompileResult {
     pub success: bool,
 }
 
-pub fn build(source_path: &Path, output_path: &Path, dump: &DumpOptions) -> CompileResult {
+pub fn build(source_path: &Path, output_path: &Path, release: bool, dump: &DumpOptions) -> CompileResult {
     let mut source_map = SourceMap::new();
     let mut diagnostics = DiagnosticBag::new();
 
@@ -135,19 +135,30 @@ pub fn build(source_path: &Path, output_path: &Path, dump: &DumpOptions) -> Comp
         };
     }
 
-    let program = Lowerer::new(checked).lower(&module);
+    let mut program = Lowerer::new(checked).lower(&module);
+    program.source_map = Some(source_map);
 
     if dump.dump_ir {
         eprintln!("{}", fmt_ir(&program));
     }
 
-    let codegen_result = Codegen::new().generate(&program);
-
-    if dump.dump_asm {
-        eprintln!("{}", fmt_asm(&codegen_result));
+    if dump.dump_llvm_ir {
+        match codegen::compile_to_llvm_ir(&program) {
+            Ok(ir) => eprintln!("{}", ir),
+            Err(e) => eprintln!("error generating LLVM IR: {}", e),
+        }
     }
 
-    match packer::pack(&codegen_result, output_path) {
+    if dump.dump_asm {
+        match codegen::compile_to_asm_text(&program, release) {
+            Ok(asm) => eprintln!("{}", asm),
+            Err(e) => eprintln!("error generating assembly: {}", e),
+        }
+    }
+
+    let result = codegen::compile_to_executable(&program, output_path, release);
+    let source_map = program.source_map.unwrap_or_default();
+    match result {
         Ok(()) => CompileResult {
             source_map,
             diagnostics,
@@ -321,6 +332,12 @@ fn fmt_ast_block(block: &Block, out: &mut String, level: usize) {
     for stmt in &block.stmts {
         fmt_ast_stmt(&stmt.node, out, level + 1);
     }
+    if let Some(ref tail) = block.tail_expr {
+        indent(out, level + 1);
+        out.push_str("Tail: ");
+        fmt_ast_expr(&tail.node, out, level + 1);
+        out.push('\n');
+    }
 }
 
 fn fmt_ast_stmt(stmt: &Stmt, out: &mut String, level: usize) {
@@ -360,7 +377,12 @@ fn fmt_ast_expr(expr: &Expr, out: &mut String, level: usize) {
     match expr {
         Expr::Literal(lit) => match lit {
             Literal::String(s) => out.push_str(&format!("Literal(String {:?})", s)),
-            Literal::Int(s) => out.push_str(&format!("Literal(Int {})", s)),
+            Literal::Int(s, suffix) => {
+                out.push_str(&format!("Literal(Int {})", s));
+                if let Some(suf) = suffix {
+                    out.push_str(&format!("{:?}", suf));
+                }
+            }
             Literal::Float(s) => out.push_str(&format!("Literal(Float {})", s)),
             Literal::Bool(b) => out.push_str(&format!("Literal(Bool {})", b)),
             Literal::Char(c) => out.push_str(&format!("Literal(Char {:?})", c)),
@@ -403,6 +425,73 @@ fn fmt_ast_expr(expr: &Expr, out: &mut String, level: usize) {
                 out.push(' ');
                 fmt_ast_expr(&v.node, out, level);
             }
+        }
+        Expr::Binary { op, left, right } => {
+            out.push_str(&format!("Binary({:?}, ", op));
+            fmt_ast_expr(&left.node, out, level);
+            out.push_str(", ");
+            fmt_ast_expr(&right.node, out, level);
+            out.push(')');
+        }
+        Expr::Unary { op, operand } => {
+            out.push_str(&format!("Unary({:?}, ", op));
+            fmt_ast_expr(&operand.node, out, level);
+            out.push(')');
+        }
+        Expr::Assign { target, value } => {
+            out.push_str("Assign(");
+            fmt_ast_expr(&target.node, out, level);
+            out.push_str(" = ");
+            fmt_ast_expr(&value.node, out, level);
+            out.push(')');
+        }
+        Expr::CompoundAssign { op, target, value } => {
+            out.push_str(&format!("CompoundAssign({:?}, ", op));
+            fmt_ast_expr(&target.node, out, level);
+            out.push_str(", ");
+            fmt_ast_expr(&value.node, out, level);
+            out.push(')');
+        }
+        Expr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            out.push_str("If ");
+            fmt_ast_expr(&condition.node, out, level);
+            out.push('\n');
+            fmt_ast_block(&then_branch.node, out, level + 1);
+            if let Some(else_br) = else_branch {
+                indent(out, level + 1);
+                out.push_str("Else: ");
+                fmt_ast_expr(&else_br.node, out, level + 1);
+                out.push('\n');
+            }
+        }
+        Expr::While { condition, body } => {
+            out.push_str("While ");
+            fmt_ast_expr(&condition.node, out, level);
+            out.push('\n');
+            fmt_ast_block(&body.node, out, level + 1);
+        }
+        Expr::Loop { body } => {
+            out.push_str("Loop\n");
+            fmt_ast_block(&body.node, out, level + 1);
+        }
+        Expr::Break(val) => {
+            out.push_str("Break");
+            if let Some(v) = val {
+                out.push(' ');
+                fmt_ast_expr(&v.node, out, level);
+            }
+        }
+        Expr::Continue => {
+            out.push_str("Continue");
+        }
+        Expr::Grouped(inner) => {
+            out.push_str("Grouped(");
+            fmt_ast_expr(&inner.node, out, level);
+            out.push(')');
         }
     }
 }
@@ -484,6 +573,8 @@ fn fmt_instruction(
                 ConstValue::I64(v) => out.push_str(&format!("I64({})", v)),
                 ConstValue::U64(v) => out.push_str(&format!("U64({})", v)),
                 ConstValue::Bool(v) => out.push_str(&format!("Bool({})", v)),
+                ConstValue::F64(v) => out.push_str(&format!("F64({})", v)),
+                ConstValue::Char(v) => out.push_str(&format!("Char({:?})", v)),
                 ConstValue::StringLiteral(idx) => out.push_str(&format!("StringLiteral({})", idx)),
             }
             out.push(')');
@@ -531,6 +622,54 @@ fn fmt_instruction(
         Instruction::Nop => {
             out.push_str("Nop");
         }
+        // Arithmetic
+        Instruction::Add(dst, lhs, rhs) => {
+            out.push_str(&format!("r{} = Add(r{}, r{})", dst.0, lhs.0, rhs.0));
+        }
+        Instruction::Sub(dst, lhs, rhs) => {
+            out.push_str(&format!("r{} = Sub(r{}, r{})", dst.0, lhs.0, rhs.0));
+        }
+        Instruction::Mul(dst, lhs, rhs) => {
+            out.push_str(&format!("r{} = Mul(r{}, r{})", dst.0, lhs.0, rhs.0));
+        }
+        Instruction::Div(dst, lhs, rhs) => {
+            out.push_str(&format!("r{} = Div(r{}, r{})", dst.0, lhs.0, rhs.0));
+        }
+        Instruction::Mod(dst, lhs, rhs) => {
+            out.push_str(&format!("r{} = Mod(r{}, r{})", dst.0, lhs.0, rhs.0));
+        }
+        Instruction::Shl(dst, lhs, rhs) => {
+            out.push_str(&format!("r{} = Shl(r{}, r{})", dst.0, lhs.0, rhs.0));
+        }
+        Instruction::Shr(dst, lhs, rhs) => {
+            out.push_str(&format!("r{} = Shr(r{}, r{})", dst.0, lhs.0, rhs.0));
+        }
+        Instruction::Neg(dst, src) => {
+            out.push_str(&format!("r{} = Neg(r{})", dst.0, src.0));
+        }
+        // Comparison
+        Instruction::Eq(dst, lhs, rhs) => {
+            out.push_str(&format!("r{} = Eq(r{}, r{})", dst.0, lhs.0, rhs.0));
+        }
+        Instruction::Ne(dst, lhs, rhs) => {
+            out.push_str(&format!("r{} = Ne(r{}, r{})", dst.0, lhs.0, rhs.0));
+        }
+        Instruction::Lt(dst, lhs, rhs) => {
+            out.push_str(&format!("r{} = Lt(r{}, r{})", dst.0, lhs.0, rhs.0));
+        }
+        Instruction::Le(dst, lhs, rhs) => {
+            out.push_str(&format!("r{} = Le(r{}, r{})", dst.0, lhs.0, rhs.0));
+        }
+        Instruction::Gt(dst, lhs, rhs) => {
+            out.push_str(&format!("r{} = Gt(r{}, r{})", dst.0, lhs.0, rhs.0));
+        }
+        Instruction::Ge(dst, lhs, rhs) => {
+            out.push_str(&format!("r{} = Ge(r{}, r{})", dst.0, lhs.0, rhs.0));
+        }
+        // Logical
+        Instruction::Not(dst, src) => {
+            out.push_str(&format!("r{} = Not(r{})", dst.0, src.0));
+        }
     }
 }
 
@@ -545,211 +684,3 @@ fn fmt_terminator(term: &Terminator, out: &mut String) {
     }
 }
 
-// --- ASM dump ---
-
-fn fmt_asm(codegen: &CodegenResult) -> String {
-    let mut out = String::new();
-
-    // Data section
-    out.push_str(".data:\n");
-    for (i, &(offset, len)) in codegen.string_offsets.iter().enumerate() {
-        let bytes = &codegen.data[offset as usize..(offset + len) as usize];
-        out.push_str(&format!("  {:04x}: ", offset));
-        for (j, b) in bytes.iter().enumerate() {
-            if j > 0 && j % 16 == 0 {
-                out.push_str(&format!("\n        {:04x}: ", offset + j as u32));
-            }
-            out.push_str(&format!("{:02x} ", b));
-        }
-        // Show string value
-        let s = String::from_utf8_lossy(bytes);
-        out.push_str(&format!(" // str[{}] {:?}", i, s));
-        out.push('\n');
-    }
-    out.push('\n');
-
-    // Text section
-    out.push_str(".text:\n");
-    for func_sym in &codegen.function_symbols {
-        let entry_marker = if func_sym.is_entry { " [entry]" } else { "" };
-        out.push_str(&format!(
-            "  {} (offset 0x{:x}, {} bytes){}:\n",
-            func_sym.name, func_sym.offset, func_sym.size, entry_marker
-        ));
-
-        let start = func_sym.offset as usize;
-        let end = start + func_sym.size as usize;
-        let func_code = &codegen.code[start..end];
-
-        for (i, chunk) in func_code.chunks(4).enumerate() {
-            if chunk.len() == 4 {
-                let word = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
-                let offset = func_sym.offset + (i * 4) as u32;
-                out.push_str(&format!(
-                    "    {:04x}: {:02x} {:02x} {:02x} {:02x}  {}",
-                    offset,
-                    chunk[0],
-                    chunk[1],
-                    chunk[2],
-                    chunk[3],
-                    disasm_arm64(word)
-                ));
-
-                // Annotate relocations at this offset
-                for reloc in &codegen.relocations {
-                    if reloc.offset == offset {
-                        let target_str = match &reloc.target {
-                            nudl_backend_arm64::codegen::RelocTarget::DataSection(off) => {
-                                let str_idx = codegen
-                                    .string_offsets
-                                    .iter()
-                                    .position(|&(o, _)| o == *off)
-                                    .map(|i| format!("str[{}]", i))
-                                    .unwrap_or_else(|| format!("data+0x{:x}", off));
-                                str_idx
-                            }
-                            nudl_backend_arm64::codegen::RelocTarget::ExternSymbol(idx) => {
-                                format!("extern {}", codegen.extern_symbols[*idx])
-                            }
-                        };
-                        let kind_str = match reloc.kind {
-                            nudl_backend_arm64::codegen::RelocKind::Page21 => "PAGE21",
-                            nudl_backend_arm64::codegen::RelocKind::PageOff12 => "PAGEOFF12",
-                            nudl_backend_arm64::codegen::RelocKind::Branch26 => "BRANCH26",
-                        };
-                        out.push_str(&format!("  ; {} -> {}", kind_str, target_str));
-                    }
-                }
-
-                out.push('\n');
-            }
-        }
-    }
-
-    // Relocations summary
-    if !codegen.relocations.is_empty() {
-        out.push_str("\nrelocations:\n");
-        for reloc in &codegen.relocations {
-            let kind_str = match reloc.kind {
-                nudl_backend_arm64::codegen::RelocKind::Page21 => "PAGE21",
-                nudl_backend_arm64::codegen::RelocKind::PageOff12 => "PAGEOFF12",
-                nudl_backend_arm64::codegen::RelocKind::Branch26 => "BRANCH26",
-            };
-            let target_str = match &reloc.target {
-                nudl_backend_arm64::codegen::RelocTarget::DataSection(off) => {
-                    format!("data+0x{:x}", off)
-                }
-                nudl_backend_arm64::codegen::RelocTarget::ExternSymbol(idx) => {
-                    format!("extern {}", codegen.extern_symbols[*idx])
-                }
-            };
-            out.push_str(&format!(
-                "  0x{:04x}: {:10} -> {}\n",
-                reloc.offset, kind_str, target_str
-            ));
-        }
-    }
-
-    out
-}
-
-/// Basic ARM64 instruction disassembly for common instructions
-fn disasm_arm64(word: u32) -> String {
-    let rd = word & 0x1f;
-    let rn = (word >> 5) & 0x1f;
-    let rm = (word >> 16) & 0x1f;
-
-    // STP/LDP pre/post indexed
-    if word & 0xffc00000 == 0xa9800000 {
-        let rt2 = (word >> 10) & 0x1f;
-        let imm7 = ((word >> 15) & 0x7f) as i32;
-        let offset = (if imm7 & 0x40 != 0 { imm7 | !0x7f } else { imm7 }) * 8;
-        return format!("STP X{}, X{}, [SP, #{}]!", rd, rt2, offset);
-    }
-    if word & 0xffc00000 == 0xa8c00000 {
-        let rt2 = (word >> 10) & 0x1f;
-        let imm7 = (word >> 15) & 0x7f;
-        return format!("LDP X{}, X{}, [SP], #{}", rd, rt2, imm7 * 8);
-    }
-    // STP signed offset
-    if word & 0xffc00000 == 0xa9000000 {
-        let rt2 = (word >> 10) & 0x1f;
-        let imm7 = (word >> 15) & 0x7f;
-        return format!("STP X{}, X{}, [X{}, #{}]", rd, rt2, rn, imm7 * 8);
-    }
-    // LDP signed offset
-    if word & 0xffc00000 == 0xa9400000 {
-        let rt2 = (word >> 10) & 0x1f;
-        let imm7 = (word >> 15) & 0x7f;
-        return format!("LDP X{}, X{}, [X{}, #{}]", rd, rt2, rn, imm7 * 8);
-    }
-
-    // MOV X29, SP (ADD X29, SP, #0)
-    if word == 0x910003fd {
-        return "MOV X29, SP".into();
-    }
-
-    // ADD immediate
-    if word & 0xff000000 == 0x91000000 {
-        let imm12 = (word >> 10) & 0xfff;
-        return format!("ADD X{}, X{}, #{}", rd, rn, imm12);
-    }
-
-    // ORR (MOV reg)
-    if word & 0xff200000 == 0xaa000000 && rn == 31 {
-        return format!("MOV X{}, X{}", rd, rm);
-    }
-
-    // ADRP
-    if word & 0x9f000000 == 0x90000000 {
-        return format!("ADRP X{}, #<page>", rd);
-    }
-
-    // BL
-    if word & 0xfc000000 == 0x94000000 {
-        let imm26 = word & 0x03ffffff;
-        let offset = if imm26 & 0x02000000 != 0 {
-            ((imm26 | 0xfc000000) as i32) * 4
-        } else {
-            (imm26 as i32) * 4
-        };
-        return format!("BL #{:+}", offset);
-    }
-
-    // MOVZ
-    if word & 0xff800000 == 0xd2800000 {
-        let hw = (word >> 21) & 0x3;
-        let imm16 = (word >> 5) & 0xffff;
-        if hw == 0 {
-            return format!("MOVZ X{}, #{}", rd, imm16);
-        } else {
-            return format!("MOVZ X{}, #{}, LSL #{}", rd, imm16, hw * 16);
-        }
-    }
-
-    // MOVK
-    if word & 0xff800000 == 0xf2800000 {
-        let hw = (word >> 21) & 0x3;
-        let imm16 = (word >> 5) & 0xffff;
-        return format!("MOVK X{}, #{}, LSL #{}", rd, imm16, hw * 16);
-    }
-
-    // STR unsigned offset
-    if word & 0xffc00000 == 0xf9000000 {
-        let imm12 = (word >> 10) & 0xfff;
-        return format!("STR X{}, [X{}, #{}]", rd, rn, imm12 * 8);
-    }
-
-    // LDR unsigned offset
-    if word & 0xffc00000 == 0xf9400000 {
-        let imm12 = (word >> 10) & 0xfff;
-        return format!("LDR X{}, [X{}, #{}]", rd, rn, imm12 * 8);
-    }
-
-    // RET
-    if word == 0xd65f03c0 {
-        return "RET".into();
-    }
-
-    format!("??? 0x{:08x}", word)
-}

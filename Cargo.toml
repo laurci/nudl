@@ -8,9 +8,7 @@ members = [
     "nudl-ast",
     "nudl-bc",
     "nudl-vm",
-    "nudl-backend-arm64",
-    "nudl-packer-macho",
-    "nudl-packer-elf",
+    "nudl-backend-llvm",
     "nudl-cli",
     "nudl-lsp",
 ]

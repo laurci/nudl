@@ -26,6 +26,10 @@ enum Command {
         #[arg(short, long)]
         output: Option<PathBuf>,
 
+        /// Build with optimizations
+        #[arg(long)]
+        release: bool,
+
         /// Dump the parsed AST
         #[arg(long)]
         dump_ast: bool,
@@ -34,9 +38,13 @@ enum Command {
         #[arg(long)]
         dump_ir: bool,
 
-        /// Dump the generated ARM64 assembly
+        /// Dump the generated native assembly
         #[arg(long)]
         dump_asm: bool,
+
+        /// Dump the LLVM IR
+        #[arg(long)]
+        dump_llvm_ir: bool,
 
         /// Dump all the debug info
         #[arg(long)]
@@ -52,6 +60,10 @@ enum Command {
         #[arg(long)]
         vm: bool,
 
+        /// Build with optimizations
+        #[arg(long)]
+        release: bool,
+
         /// Dump the parsed AST
         #[arg(long)]
         dump_ast: bool,
@@ -60,9 +72,13 @@ enum Command {
         #[arg(long)]
         dump_ir: bool,
 
-        /// Dump the generated ARM64 assembly
+        /// Dump the generated native assembly
         #[arg(long)]
         dump_asm: bool,
+
+        /// Dump the LLVM IR
+        #[arg(long)]
+        dump_llvm_ir: bool,
 
         /// Dump all the debug info
         #[arg(long)]
@@ -95,9 +111,11 @@ fn main() {
         Command::Build {
             source,
             output,
+            release,
             dump_ast,
             dump_ir,
             dump_asm,
+            dump_llvm_ir,
             dump_all,
         } => {
             let output = output.unwrap_or_else(|| {
@@ -109,8 +127,9 @@ fn main() {
                 dump_ast: dump_ast || dump_all,
                 dump_ir: dump_ir || dump_all,
                 dump_asm: dump_asm || dump_all,
+                dump_llvm_ir: dump_llvm_ir || dump_all,
             };
-            let result = pipeline::build(&source, &output, &dump);
+            let result = pipeline::build(&source, &output, release, &dump);
             render::render_diagnostics(&result.diagnostics, &result.source_map);
 
             if !result.success {
@@ -121,9 +140,11 @@ fn main() {
         Command::Run {
             source,
             vm,
+            release,
             dump_ast,
             dump_ir,
             dump_asm,
+            dump_llvm_ir,
             dump_all,
         } => {
             if vm {
@@ -131,6 +152,7 @@ fn main() {
                     dump_ast: dump_ast || dump_all,
                     dump_ir: dump_ir || dump_all,
                     dump_asm: false,
+                    dump_llvm_ir: false,
                 };
                 let result = pipeline::run_vm(&source, &dump);
                 render::render_diagnostics(&result.diagnostics, &result.source_map);
@@ -146,8 +168,9 @@ fn main() {
                     dump_ast: dump_ast || dump_all,
                     dump_ir: dump_ir || dump_all,
                     dump_asm: dump_asm || dump_all,
+                    dump_llvm_ir: dump_llvm_ir || dump_all,
                 };
-                let result = pipeline::build(&source, &output, &dump);
+                let result = pipeline::build(&source, &output, release, &dump);
                 render::render_diagnostics(&result.diagnostics, &result.source_map);
 
                 if !result.success {
@@ -177,6 +200,7 @@ fn main() {
                 dump_ast: dump_ast || dump_all,
                 dump_ir: dump_ir || dump_all,
                 dump_asm: false,
+                dump_llvm_ir: false,
             };
             let result = pipeline::check(&source, &dump);
             render::render_diagnostics(&result.diagnostics, &result.source_map);

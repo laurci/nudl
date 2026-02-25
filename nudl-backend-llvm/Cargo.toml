@@ -1,13 +1,12 @@
 [package]
-name = "nudl-backend-arm64"
+name = "nudl-backend-llvm"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 nudl-core = { path = "../nudl-core" }
 nudl-bc = { path = "../nudl-bc" }
-dynasm = "5.0"
-dynasmrt = "5.0"
+inkwell = { version = "0.8", features = ["llvm18-1"] }
 
 [dev-dependencies]
 nudl-ast = { path = "../nudl-ast" }

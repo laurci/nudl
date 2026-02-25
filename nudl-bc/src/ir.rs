@@ -1,4 +1,6 @@
 use nudl_core::intern::{StringInterner, Symbol};
+use nudl_core::source::SourceMap;
+use nudl_core::span::Span;
 use nudl_core::types::TypeId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -17,6 +19,8 @@ pub enum ConstValue {
     I64(i64),
     U64(u64),
     Bool(bool),
+    F64(f64),
+    Char(char),
     StringLiteral(u32), // index into Program::string_constants
 }
 
@@ -40,6 +44,27 @@ pub enum Instruction {
     Call(Register, FunctionRef, Vec<Register>),
     Copy(Register, Register),
     Nop,
+
+    // Arithmetic
+    Add(Register, Register, Register), // dst = lhs + rhs
+    Sub(Register, Register, Register),
+    Mul(Register, Register, Register),
+    Div(Register, Register, Register),
+    Mod(Register, Register, Register),
+    Shl(Register, Register, Register), // dst = lhs << rhs
+    Shr(Register, Register, Register), // dst = lhs >> rhs
+    Neg(Register, Register), // dst = -src
+
+    // Comparison
+    Eq(Register, Register, Register), // dst = lhs == rhs (bool)
+    Ne(Register, Register, Register),
+    Lt(Register, Register, Register),
+    Le(Register, Register, Register),
+    Gt(Register, Register, Register),
+    Ge(Register, Register, Register),
+
+    // Logical
+    Not(Register, Register), // dst = !src
 }
 
 #[derive(Debug, Clone)]
@@ -54,6 +79,7 @@ pub enum Terminator {
 pub struct BasicBlock {
     pub id: BlockId,
     pub instructions: Vec<Instruction>,
+    pub spans: Vec<Span>, // parallel to instructions, same length
     pub terminator: Terminator,
 }
 
@@ -67,6 +93,7 @@ pub struct Function {
     pub register_count: u32,
     pub is_extern: bool,
     pub extern_symbol: Option<String>,
+    pub span: Span,
 }
 
 #[derive(Debug)]
@@ -76,4 +103,5 @@ pub struct Program {
     pub entry_function: Option<FunctionId>,
     pub extern_libs: Vec<String>,
     pub interner: StringInterner,
+    pub source_map: Option<SourceMap>,
 }

@@ -1,0 +1,50 @@
+extern {
+    fn write(fd: i32, buf: RawPtr, count: u64) -> i64;
+}
+
+fn print(s: string) {
+    write(1, __str_ptr(s), __str_len(s));
+}
+
+fn print_digit(i: i32) {
+    if i == 0 {
+        print("0");
+    } else if i == 1 {
+        print("1");
+    } else if i == 2 {
+        print("2");
+    } else if i == 3 {
+        print("3");
+    } else if i == 4 {
+        print("4");
+    } else if i == 5 {
+        print("5");
+    } else if i == 6 {
+        print("6");
+    } else if i == 7 {
+        print("7");
+    } else if i == 8 {
+        print("8");
+    } else if i == 9 {
+        print("9");
+    }
+}
+
+fn print_number(i: i32) {
+    let mut i = i;
+    while i > 0 {
+        print_digit(i % 10);
+        i = i / 10;
+    }
+}
+
+
+fn main() {
+    print("hello world!\n");
+    let x = 11;
+    let y = 23;
+    let z = x + y;
+    print("x + y = ");
+    print_number(z * 2);
+    print("\n");
+}

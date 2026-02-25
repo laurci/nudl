@@ -43,4 +43,24 @@ pub enum CheckerDiagnostic {
     #[message("undefined variable '{name}'")]
     #[severity(Error)]
     UndefinedVariable { span: Span, name: String },
+
+    #[message("cannot assign to immutable variable '{name}'")]
+    #[severity(Error)]
+    ImmutableAssignment { span: Span, name: String },
+
+    #[message("operator '{op}' cannot be applied to type '{ty}'")]
+    #[severity(Error)]
+    InvalidOperatorType {
+        span: Span,
+        op: String,
+        ty: String,
+    },
+
+    #[message("expected return type '{expected}', found '{found}'")]
+    #[severity(Error)]
+    ReturnTypeMismatch {
+        span: Span,
+        expected: String,
+        found: String,
+    },
 }

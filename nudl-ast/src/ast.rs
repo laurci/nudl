@@ -66,6 +66,76 @@ pub enum Expr {
     },
     Block(Block),
     Return(Option<Box<SpannedExpr>>),
+    Binary {
+        op: BinOp,
+        left: Box<SpannedExpr>,
+        right: Box<SpannedExpr>,
+    },
+    Unary {
+        op: UnaryOp,
+        operand: Box<SpannedExpr>,
+    },
+    Assign {
+        target: Box<SpannedExpr>,
+        value: Box<SpannedExpr>,
+    },
+    CompoundAssign {
+        op: BinOp,
+        target: Box<SpannedExpr>,
+        value: Box<SpannedExpr>,
+    },
+    If {
+        condition: Box<SpannedExpr>,
+        then_branch: Box<Spanned<Block>>,
+        else_branch: Option<Box<SpannedExpr>>,
+    },
+    While {
+        condition: Box<SpannedExpr>,
+        body: Box<Spanned<Block>>,
+    },
+    Loop {
+        body: Box<Spanned<Block>>,
+    },
+    Break(Option<Box<SpannedExpr>>),
+    Continue,
+    Grouped(Box<SpannedExpr>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    Shl,
+    Shr,
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    And,
+    Or,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnaryOp {
+    Neg,
+    Not,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IntSuffix {
+    I8,
+    I16,
+    I32,
+    I64,
+    U8,
+    U16,
+    U32,
+    U64,
 }
 
 #[derive(Debug)]
@@ -78,7 +148,7 @@ pub enum Literal {
         parts: Vec<String>,
         exprs: Vec<SpannedExpr>,
     },
-    Int(String),
+    Int(String, Option<IntSuffix>),
     Float(String),
     Bool(bool),
     Char(char),

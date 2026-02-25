@@ -12,7 +12,7 @@ nudl is a compiled programming language: "The power and syntax of Rust, with the
 
 ```bash
 cargo build                     # Build default members (nudl-cli, nudl-lsp)
-cargo build --workspace         # Build all 9 crates
+cargo build --workspace         # Build all 7 crates
 cargo test --workspace          # Run all tests
 cargo test -p nudl-ast          # Run tests for a single crate
 cargo check --workspace         # Type-check without building
@@ -20,7 +20,7 @@ cargo run --bin nudl-cli        # Run the CLI binary
 cargo run --bin nudl-lsp        # Run the LSP binary
 ```
 
-All crates use Rust edition 2024, resolver 3. No external dependencies yet.
+All crates use Rust edition 2024, resolver 3. Requires LLVM 18 installed (`brew install llvm@18` on macOS). Set `LLVM_SYS_181_PREFIX=/opt/homebrew/opt/llvm@18` when building.
 
 ## Architecture
 
@@ -29,8 +29,7 @@ Compilation pipeline flows through crates in this order:
 ```
 Source → nudl-ast (lex/parse) → nudl-bc (type-check + SSA bytecode)
     → nudl-vm (comptime eval, feeds generated code back to nudl-bc)
-    → nudl-backend-arm64 (native codegen)
-    → nudl-packer-macho / nudl-packer-elf (executable binary)
+    → nudl-backend-llvm (SSA → LLVM IR → object file → executable)
 ```
 
 ### Crate Responsibilities
@@ -41,9 +40,7 @@ Source → nudl-ast (lex/parse) → nudl-bc (type-check + SSA bytecode)
 | **nudl-ast** | Lexer + recursive-descent/Pratt parser → untyped AST |
 | **nudl-bc** | Hindley-Milner type inference, interface resolution, monomorphization, AST → SSA bytecode, ARC retain/release insertion |
 | **nudl-vm** | Register-based VM executing SSA bytecode for comptime evaluation. Step-limited, no I/O. |
-| **nudl-backend-arm64** | SSA bytecode → ARM64 machine code, register allocation, Apple ARM64 ABI |
-| **nudl-packer-macho** | Machine code → Mach-O executable (macOS/Darwin) |
-| **nudl-packer-elf** | Machine code → ELF executable (Linux aarch64) |
+| **nudl-backend-llvm** | SSA bytecode → LLVM IR via Inkwell → native object file + system linker. Multi-arch, multi-platform. |
 | **nudl-cli** | CLI frontend: `build`, `run`, `check`, `fmt` subcommands |
 | **nudl-lsp** | Language Server Protocol server for editor integration |
 
