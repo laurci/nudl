@@ -313,6 +313,7 @@ fn build_module<'ctx>(
             &mut reg_string_info,
             &types,
             is_entry,
+            optimized,
             &dibuilder,
             &compile_unit,
             source_map,
@@ -341,6 +342,7 @@ fn emit_function<'ctx>(
     reg_string_info: &mut HashMap<u32, RegStringInfo>,
     types: &TypeInterner,
     is_entry: bool,
+    optimized: bool,
     dibuilder: &DebugInfoBuilder<'ctx>,
     compile_unit: &DICompileUnit<'ctx>,
     source_map: Option<&SourceMap>,
@@ -498,28 +500,40 @@ fn emit_function<'ctx>(
             )?;
         }
 
-        // Point the return terminator at the function's closing brace so the
-        // debugger stays in source view instead of falling into assembly.
+        // For return terminators: emit a dummy store at the closing `}` line
+        // so the debugger stops there, then set line 0 on the actual `ret` so
+        // it executes without an extra stop.
         if matches!(&block.terminator, Terminator::Return(_)) {
-            let ret_line = if let Some(sm) = source_map {
-                if !func.span.is_empty() && func.span.end > 0 {
-                    let file = sm.get_file(func.span.file_id);
-                    let (line, _) = file.line_col(func.span.end.saturating_sub(1));
-                    line
-                } else {
-                    func_line.max(1)
+            if !optimized {
+                // Debug builds: emit a dummy store at the closing `}` so the
+                // debugger has a source-level stop, then line 0 on the ret.
+                if let Some(sm) = source_map {
+                    if !func.span.is_empty() && func.span.end > 0 {
+                        let file = sm.get_file(func.span.file_id);
+                        let (line, col) = file.line_col(func.span.end.saturating_sub(1));
+                        let loc = dibuilder.create_debug_location(
+                            context,
+                            line,
+                            col,
+                            di_scope,
+                            None,
+                        );
+                        builder.set_current_debug_location(loc);
+                        if let Some(alloca) = register_allocas.get(&0) {
+                            let zero = context.i64_type().const_zero();
+                            let _ = builder.build_store(*alloca, zero);
+                        }
+                    }
                 }
-            } else {
-                func_line.max(1)
-            };
-            let epilogue_loc = dibuilder.create_debug_location(
-                context,
-                ret_line,
-                0,
-                di_scope,
-                None,
-            );
-            builder.set_current_debug_location(epilogue_loc);
+                let epilogue_loc = dibuilder.create_debug_location(
+                    context,
+                    0,
+                    0,
+                    di_scope,
+                    None,
+                );
+                builder.set_current_debug_location(epilogue_loc);
+            }
         }
 
         emit_terminator(
