@@ -271,6 +271,7 @@ impl Vm {
                     ConstValue::I64(v) => Value::I64(*v),
                     ConstValue::U64(v) => Value::U64(*v),
                     ConstValue::Bool(v) => Value::Bool(*v),
+                    ConstValue::F32(v) => Value::F64(*v as f64),
                     ConstValue::F64(v) => Value::F64(*v),
                     ConstValue::Char(v) => Value::Char(*v),
                     ConstValue::StringLiteral(idx) => Value::String(*idx),
@@ -404,12 +405,33 @@ impl Vm {
                 let result = vm_binop_arith(&registers[lhs.0 as usize], &registers[rhs.0 as usize], |a, b| a >> (b & 0x3F), |_a, _b| 0.0)?;
                 registers[dst.0 as usize] = result;
             }
+            Instruction::BitAnd(dst, lhs, rhs) => {
+                let result = vm_binop_arith(&registers[lhs.0 as usize], &registers[rhs.0 as usize], |a, b| a & b, |_a, _b| 0.0)?;
+                registers[dst.0 as usize] = result;
+            }
+            Instruction::BitOr(dst, lhs, rhs) => {
+                let result = vm_binop_arith(&registers[lhs.0 as usize], &registers[rhs.0 as usize], |a, b| a | b, |_a, _b| 0.0)?;
+                registers[dst.0 as usize] = result;
+            }
+            Instruction::BitXor(dst, lhs, rhs) => {
+                let result = vm_binop_arith(&registers[lhs.0 as usize], &registers[rhs.0 as usize], |a, b| a ^ b, |_a, _b| 0.0)?;
+                registers[dst.0 as usize] = result;
+            }
             Instruction::Neg(dst, src) => {
                 let result = match &registers[src.0 as usize] {
                     Value::I32(v) => Value::I32(-*v),
                     Value::I64(v) => Value::I64(-*v),
                     Value::F64(v) => Value::F64(-*v),
                     other => return Err(VmError::TypeError { message: format!("cannot negate {:?}", other) }),
+                };
+                registers[dst.0 as usize] = result;
+            }
+            Instruction::BitNot(dst, src) => {
+                let result = match &registers[src.0 as usize] {
+                    Value::I32(v) => Value::I32(!*v),
+                    Value::I64(v) => Value::I64(!*v),
+                    Value::U64(v) => Value::U64(!*v),
+                    other => return Err(VmError::TypeError { message: format!("cannot bitwise-not {:?}", other) }),
                 };
                 registers[dst.0 as usize] = result;
             }
@@ -438,6 +460,11 @@ impl Vm {
             Instruction::Ge(dst, lhs, rhs) => {
                 let result = vm_binop_cmp(&registers[lhs.0 as usize], &registers[rhs.0 as usize], |a, b| a >= b, |a, b| a >= b)?;
                 registers[dst.0 as usize] = Value::Bool(result);
+            }
+
+            // Cast (no-op in VM for now - all values carry their types)
+            Instruction::Cast(dst, src, _target_type) => {
+                registers[dst.0 as usize] = registers[src.0 as usize].clone();
             }
 
             // Logical
@@ -516,6 +543,93 @@ impl Vm {
                 if should_free {
                     self.heap.remove(&id);
                 }
+            }
+
+            // Tuple/Array operations — use same heap object representation
+            Instruction::TupleAlloc(dst, type_id, elements) | Instruction::FixedArrayAlloc(dst, type_id, elements) => {
+                let id = self.next_heap_id;
+                self.next_heap_id += 1;
+                let fields: Vec<Value> = elements.iter().map(|r| registers[r.0 as usize].clone()).collect();
+                self.heap.insert(id, HeapObject {
+                    fields,
+                    strong_count: 1,
+                    weak_count: 0,
+                    type_tag: type_id.0,
+                });
+                registers[dst.0 as usize] = Value::HeapRef(id);
+            }
+            Instruction::TupleLoad(dst, ptr_reg, offset) => {
+                let id = match &registers[ptr_reg.0 as usize] {
+                    Value::HeapRef(id) => *id,
+                    other => return Err(VmError::TypeError {
+                        message: format!("TupleLoad expected HeapRef, got {:?}", other),
+                    }),
+                };
+                let obj = self.heap.get(&id).ok_or_else(|| VmError::TypeError {
+                    message: format!("TupleLoad from freed heap object {}", id),
+                })?;
+                let val = obj.fields.get(*offset as usize).cloned().unwrap_or(Value::Unit);
+                registers[dst.0 as usize] = val;
+            }
+            Instruction::TupleStore(ptr_reg, offset, src) => {
+                let id = match &registers[ptr_reg.0 as usize] {
+                    Value::HeapRef(id) => *id,
+                    other => return Err(VmError::TypeError {
+                        message: format!("TupleStore expected HeapRef, got {:?}", other),
+                    }),
+                };
+                let val = registers[src.0 as usize].clone();
+                let obj = self.heap.get_mut(&id).ok_or_else(|| VmError::TypeError {
+                    message: format!("TupleStore to freed heap object {}", id),
+                })?;
+                let idx = *offset as usize;
+                if idx >= obj.fields.len() {
+                    obj.fields.resize(idx + 1, Value::Unit);
+                }
+                obj.fields[idx] = val;
+            }
+            Instruction::IndexLoad(dst, ptr_reg, idx_reg, _elem_type) => {
+                let id = match &registers[ptr_reg.0 as usize] {
+                    Value::HeapRef(id) => *id,
+                    other => return Err(VmError::TypeError {
+                        message: format!("IndexLoad expected HeapRef, got {:?}", other),
+                    }),
+                };
+                let idx = match &registers[idx_reg.0 as usize] {
+                    Value::I32(v) => *v as usize,
+                    Value::I64(v) => *v as usize,
+                    other => return Err(VmError::TypeError {
+                        message: format!("IndexLoad expected integer index, got {:?}", other),
+                    }),
+                };
+                let obj = self.heap.get(&id).ok_or_else(|| VmError::TypeError {
+                    message: format!("IndexLoad from freed heap object {}", id),
+                })?;
+                let val = obj.fields.get(idx).cloned().unwrap_or(Value::Unit);
+                registers[dst.0 as usize] = val;
+            }
+            Instruction::IndexStore(ptr_reg, idx_reg, src) => {
+                let id = match &registers[ptr_reg.0 as usize] {
+                    Value::HeapRef(id) => *id,
+                    other => return Err(VmError::TypeError {
+                        message: format!("IndexStore expected HeapRef, got {:?}", other),
+                    }),
+                };
+                let idx = match &registers[idx_reg.0 as usize] {
+                    Value::I32(v) => *v as usize,
+                    Value::I64(v) => *v as usize,
+                    other => return Err(VmError::TypeError {
+                        message: format!("IndexStore expected integer index, got {:?}", other),
+                    }),
+                };
+                let val = registers[src.0 as usize].clone();
+                let obj = self.heap.get_mut(&id).ok_or_else(|| VmError::TypeError {
+                    message: format!("IndexStore to freed heap object {}", id),
+                })?;
+                if idx >= obj.fields.len() {
+                    obj.fields.resize(idx + 1, Value::Unit);
+                }
+                obj.fields[idx] = val;
             }
         }
 

@@ -128,12 +128,12 @@ struct ArcIntrinsics<'ctx> {
     arc_release_slow: FunctionValue<'ctx>,
     /// extern: __nudl_arc_overflow_abort() -> void [noreturn]
     arc_overflow_abort: FunctionValue<'ctx>,
+    /// extern: __nudl_arc_drop(ptr) -> void
+    arc_drop: FunctionValue<'ctx>,
     /// inline: __nudl_arc_retain(ptr) -> void
     arc_retain: FunctionValue<'ctx>,
     /// inline: __nudl_arc_release(ptr, drop_fn) -> void
     arc_release: FunctionValue<'ctx>,
-    /// inline: __nudl_drop_noop(ptr) -> void
-    drop_noop: FunctionValue<'ctx>,
 }
 
 /// Emit ARC intrinsic declarations and inline functions into the module.
@@ -185,20 +185,13 @@ fn emit_arc_intrinsics<'ctx>(
         ),
     );
 
-    // --- Emit __nudl_drop_noop(ptr) -> void ---
-    let noop_ty = void_ty.fn_type(&[ptr_ty.into()], false);
-    let drop_noop = module.add_function(
-        "__nudl_drop_noop",
-        noop_ty,
-        Some(inkwell::module::Linkage::Internal),
+    // --- Declare extern __nudl_arc_drop(ptr) -> void ---
+    let drop_ty = void_ty.fn_type(&[ptr_ty.into()], false);
+    let arc_drop = module.add_function(
+        "__nudl_arc_drop",
+        drop_ty,
+        Some(inkwell::module::Linkage::External),
     );
-    {
-        let bb = context.append_basic_block(drop_noop, "entry");
-        let b = context.create_builder();
-        b.position_at_end(bb);
-        b.build_return(None)
-            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-    }
 
     // --- Emit __nudl_arc_retain(ptr) -> void  [alwaysinline] ---
     //
@@ -365,9 +358,9 @@ fn emit_arc_intrinsics<'ctx>(
         arc_alloc,
         arc_release_slow,
         arc_overflow_abort,
+        arc_drop,
         arc_retain,
         arc_release,
-        drop_noop,
     })
 }
 
@@ -565,63 +558,197 @@ fn build_module<'ctx>(
         }
     }
 
-    // Generate per-struct drop functions that log "dropping <Name>\n"
-    let mut drop_fns: HashMap<nudl_core::types::TypeId, FunctionValue<'ctx>> = HashMap::new();
+    // Generate type descriptor table for runtime-driven ARC drop
     {
         let ptr_ty = context.ptr_type(AddressSpace::default());
-        let void_ty = context.void_type();
-        let drop_fn_ty = void_ty.fn_type(&[ptr_ty.into()], false);
+        let i8_ty = context.i8_type();
+        let i16_ty = context.i16_type();
+        let i32_ty = context.i32_type();
 
-        // Find the extern write function in the module
-        let write_fn = module.get_function("write");
+        // Collect all types and build descriptors
+        let all_types: Vec<_> = types.iter_types().collect();
+        let table_len = if all_types.is_empty() {
+            0u32
+        } else {
+            all_types.iter().map(|(tid, _)| tid.0).max().unwrap() + 1
+        };
 
-        for (type_id, kind) in types.iter_types() {
-            if let TypeKind::Struct { name, .. } = kind {
-                let msg = format!("dropping {}\n", name);
-                let msg_bytes = msg.as_bytes();
+        let mut desc_globals: HashMap<u32, GlobalValue<'ctx>> = HashMap::new();
 
-                // Create a global string for the drop message
-                let global = context.const_string(msg_bytes, false);
-                let global_val = module.add_global(
-                    context.i8_type().array_type(msg_bytes.len() as u32),
-                    Some(AddressSpace::default()),
-                    &format!(".drop_msg.{}", name),
-                );
-                global_val.set_initializer(&global);
-                global_val.set_constant(true);
-                global_val.set_unnamed_addr(true);
-                global_val.set_linkage(inkwell::module::Linkage::Private);
+        for (type_id, kind) in &all_types {
+            match kind {
+                TypeKind::Struct { name, fields } => {
+                    // Collect byte offsets of reference-typed fields
+                    let ref_offsets: Vec<u16> = fields
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, (_, ftype))| types.is_reference_type(*ftype))
+                        .map(|(i, _)| (16 + i * 8) as u16) // header(16) + field_index * 8
+                        .collect();
 
-                let drop_fn = module.add_function(
-                    &format!("__nudl_drop_{}", name),
-                    drop_fn_ty,
-                    Some(inkwell::module::Linkage::Internal),
-                );
-                let bb = context.append_basic_block(drop_fn, "entry");
-                let b = context.create_builder();
-                b.position_at_end(bb);
+                    // Build type_name global string
+                    let name_bytes = name.as_bytes();
+                    let name_global_val = context.const_string(name_bytes, true); // null-terminated
+                    let name_global = module.add_global(
+                        i8_ty.array_type(name_bytes.len() as u32 + 1),
+                        Some(AddressSpace::default()),
+                        &format!(".type_name.{}", name),
+                    );
+                    name_global.set_initializer(&name_global_val);
+                    name_global.set_constant(true);
+                    name_global.set_unnamed_addr(true);
+                    name_global.set_linkage(inkwell::module::Linkage::Private);
 
-                // Call write(1, msg_ptr, msg_len) if write is available
-                // Note: extern write has LLVM signature (i64, i64, i64) -> i64
-                if let Some(write_fn) = write_fn {
-                    let i64_ty = context.i64_type();
-                    let fd = i64_ty.const_int(1, false);
-                    let msg_ptr_raw = b.build_ptr_to_int(
-                        global_val.as_pointer_value(),
-                        i64_ty,
-                        "msg_ptr_int",
-                    ).map_err(|e| BackendError::LlvmError(e.to_string()))?;
-                    let msg_len = i64_ty.const_int(msg_bytes.len() as u64, false);
-                    b.build_direct_call(write_fn, &[fd.into(), msg_ptr_raw.into(), msg_len.into()], "")
-                        .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                    // Build NudlTypeDesc struct:
+                    // { ptr type_name, i8 kind, i16 child_count, [N x i16] offsets }
+                    let child_count = ref_offsets.len();
+                    let offset_array_ty = i16_ty.array_type(child_count.max(1) as u32);
+                    let desc_struct_ty = context.struct_type(
+                        &[ptr_ty.into(), i8_ty.into(), i16_ty.into(), offset_array_ty.into()],
+                        false,
+                    );
+
+                    let offset_values: Vec<_> = if child_count == 0 {
+                        vec![i16_ty.const_zero()]
+                    } else {
+                        ref_offsets.iter().map(|&off| i16_ty.const_int(off as u64, false)).collect()
+                    };
+                    let offsets_array = i16_ty.const_array(&offset_values);
+
+                    let desc_value = desc_struct_ty.const_named_struct(&[
+                        name_global.as_pointer_value().into(),
+                        i8_ty.const_int(0, false).into(),  // kind = 0 (struct)
+                        i16_ty.const_int(child_count as u64, false).into(),
+                        offsets_array.into(),
+                    ]);
+
+                    let desc_global = module.add_global(
+                        desc_struct_ty,
+                        Some(AddressSpace::default()),
+                        &format!("__nudl_type_desc.{}", name),
+                    );
+                    desc_global.set_initializer(&desc_value);
+                    desc_global.set_constant(true);
+                    desc_global.set_linkage(inkwell::module::Linkage::Private);
+
+                    desc_globals.insert(type_id.0, desc_global);
                 }
+                TypeKind::FixedArray { element, length } => {
+                    if types.is_reference_type(*element) {
+                        // kind=1 stride-based: start=16, stride=8
+                        let desc_struct_ty = context.struct_type(
+                            &[ptr_ty.into(), i8_ty.into(), i16_ty.into(), i16_ty.into(), i16_ty.into()],
+                            false,
+                        );
 
-                b.build_return(None)
-                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                        let desc_value = desc_struct_ty.const_named_struct(&[
+                            ptr_ty.const_null().into(),  // no name
+                            i8_ty.const_int(1, false).into(),  // kind = 1 (array)
+                            i16_ty.const_int(*length as u64, false).into(),  // child_count = length
+                            i16_ty.const_int(16, false).into(),  // start = 16
+                            i16_ty.const_int(8, false).into(),   // stride = 8
+                        ]);
 
-                drop_fns.insert(type_id, drop_fn);
+                        let desc_global = module.add_global(
+                            desc_struct_ty,
+                            Some(AddressSpace::default()),
+                            &format!("__nudl_type_desc.array.{}", type_id.0),
+                        );
+                        desc_global.set_initializer(&desc_value);
+                        desc_global.set_constant(true);
+                        desc_global.set_linkage(inkwell::module::Linkage::Private);
+
+                        desc_globals.insert(type_id.0, desc_global);
+                    }
+                }
+                TypeKind::Tuple(elements) => {
+                    let has_ref = elements.iter().any(|ety| types.is_reference_type(*ety));
+                    if has_ref {
+                        let ref_offsets: Vec<u16> = elements
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, ety)| types.is_reference_type(**ety))
+                            .map(|(i, _)| (16 + i * 8) as u16)
+                            .collect();
+
+                        let child_count = ref_offsets.len();
+                        let offset_array_ty = i16_ty.array_type(child_count.max(1) as u32);
+                        let desc_struct_ty = context.struct_type(
+                            &[ptr_ty.into(), i8_ty.into(), i16_ty.into(), offset_array_ty.into()],
+                            false,
+                        );
+
+                        let offset_values: Vec<_> = ref_offsets
+                            .iter()
+                            .map(|&off| i16_ty.const_int(off as u64, false))
+                            .collect();
+                        let offsets_array = i16_ty.const_array(&offset_values);
+
+                        let desc_value = desc_struct_ty.const_named_struct(&[
+                            ptr_ty.const_null().into(),  // no name for tuples
+                            i8_ty.const_int(0, false).into(),  // kind = 0
+                            i16_ty.const_int(child_count as u64, false).into(),
+                            offsets_array.into(),
+                        ]);
+
+                        let desc_global = module.add_global(
+                            desc_struct_ty,
+                            Some(AddressSpace::default()),
+                            &format!("__nudl_type_desc.tuple.{}", type_id.0),
+                        );
+                        desc_global.set_initializer(&desc_value);
+                        desc_global.set_constant(true);
+                        desc_global.set_linkage(inkwell::module::Linkage::Private);
+
+                        desc_globals.insert(type_id.0, desc_global);
+                    }
+                }
+                _ => {}
             }
         }
+
+        // Build __nudl_type_table: array of const NudlTypeDesc*, indexed by type_tag
+        let table_entries: Vec<_> = (0..table_len)
+            .map(|i| {
+                if let Some(g) = desc_globals.get(&i) {
+                    g.as_pointer_value()
+                } else {
+                    ptr_ty.const_null()
+                }
+            })
+            .collect();
+
+        // Handle empty table case
+        if table_len > 0 {
+            let table_array = ptr_ty.const_array(&table_entries);
+            let table_global = module.add_global(
+                ptr_ty.array_type(table_len),
+                Some(AddressSpace::default()),
+                "__nudl_type_table",
+            );
+            table_global.set_initializer(&table_array);
+            table_global.set_constant(true);
+            table_global.set_linkage(inkwell::module::Linkage::External);
+        } else {
+            let table_global = module.add_global(
+                ptr_ty.array_type(1),
+                Some(AddressSpace::default()),
+                "__nudl_type_table",
+            );
+            table_global.set_initializer(&ptr_ty.const_array(&[ptr_ty.const_null()]));
+            table_global.set_constant(true);
+            table_global.set_linkage(inkwell::module::Linkage::External);
+        }
+
+        // Build __nudl_type_table_len
+        let len_global = module.add_global(
+            i32_ty,
+            Some(AddressSpace::default()),
+            "__nudl_type_table_len",
+        );
+        len_global.set_initializer(&i32_ty.const_int(table_len as u64, false));
+        len_global.set_constant(true);
+        len_global.set_linkage(inkwell::module::Linkage::External);
     }
 
     // Emit function bodies
@@ -640,7 +767,6 @@ fn build_module<'ctx>(
             &mut reg_string_info,
             types,
             &arc,
-            &drop_fns,
             is_entry,
             optimized,
             &dibuilder,
@@ -671,7 +797,6 @@ fn emit_function<'ctx>(
     reg_string_info: &mut HashMap<u32, RegStringInfo>,
     types: &TypeInterner,
     arc: &ArcIntrinsics<'ctx>,
-    drop_fns: &HashMap<nudl_core::types::TypeId, FunctionValue<'ctx>>,
     is_entry: bool,
     optimized: bool,
     dibuilder: &DebugInfoBuilder<'ctx>,
@@ -736,26 +861,34 @@ fn emit_function<'ctx>(
 
     // Create allocas for all SSA registers
     let mut register_allocas: HashMap<u32, PointerValue<'ctx>> = HashMap::new();
+    let mut str_ptr_allocas: HashMap<u32, PointerValue<'ctx>> = HashMap::new();
+    let mut str_len_allocas: HashMap<u32, PointerValue<'ctx>> = HashMap::new();
     for r in 0..func.register_count {
         let alloca = builder
             .build_alloca(context.i64_type(), &format!("r{}", r))
             .map_err(|e| BackendError::LlvmError(e.to_string()))?;
         register_allocas.insert(r, alloca);
+        // Companion allocas for string ptr/len — used when string values
+        // flow through control flow (if-else branches, loops).
+        let ptr_alloca = builder
+            .build_alloca(
+                context.ptr_type(AddressSpace::default()),
+                &format!("r{}_str_ptr", r),
+            )
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        let len_alloca = builder
+            .build_alloca(context.i64_type(), &format!("r{}_str_len", r))
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        str_ptr_allocas.insert(r, ptr_alloca);
+        str_len_allocas.insert(r, len_alloca);
     }
 
     // Store incoming parameters
     for (param_idx, &(first_llvm, count)) in layout.entries.iter().enumerate() {
         if count == 2 {
-            // String param: create separate ptr/len allocas
-            let ptr_alloca = builder
-                .build_alloca(
-                    context.ptr_type(AddressSpace::default()),
-                    &format!("r{}_str_ptr", param_idx),
-                )
-                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-            let len_alloca = builder
-                .build_alloca(context.i64_type(), &format!("r{}_str_len", param_idx))
-                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            // String param: store ptr/len into the pre-allocated companion allocas
+            let ptr_alloca = str_ptr_allocas[&(param_idx as u32)];
+            let len_alloca = str_len_allocas[&(param_idx as u32)];
 
             let ptr_param = fn_val.get_nth_param(first_llvm).unwrap();
             let len_param = fn_val.get_nth_param(first_llvm + 1).unwrap();
@@ -824,12 +957,13 @@ fn emit_function<'ctx>(
                 context,
                 builder,
                 &register_allocas,
+                &str_ptr_allocas,
+                &str_len_allocas,
                 reg_string_info,
                 string_constants,
                 function_map,
                 types,
                 arc,
-                drop_fns,
             )?;
         }
 
@@ -852,9 +986,19 @@ fn emit_function<'ctx>(
                             None,
                         );
                         builder.set_current_debug_location(loc);
-                        if let Some(alloca) = register_allocas.get(&0) {
-                            let zero = context.i64_type().const_zero();
-                            let _ = builder.build_store(*alloca, zero);
+                        // Emit a dummy store for the debugger stop, but NOT
+                        // to the return register — that would clobber the value.
+                        let ret_reg_idx = match &block.terminator {
+                            Terminator::Return(r) => Some(r.0),
+                            _ => None,
+                        };
+                        // Pick a register that isn't the return register for the dummy store.
+                        let dummy_idx = if ret_reg_idx == Some(0) { None } else { Some(0u32) };
+                        if let Some(idx) = dummy_idx {
+                            if let Some(alloca) = register_allocas.get(&idx) {
+                                let zero = context.i64_type().const_zero();
+                                let _ = builder.build_store(*alloca, zero);
+                            }
                         }
                     }
                 }
@@ -888,12 +1032,13 @@ fn emit_instruction<'ctx>(
     context: &'ctx Context,
     builder: &Builder<'ctx>,
     register_allocas: &HashMap<u32, PointerValue<'ctx>>,
+    str_ptr_allocas: &HashMap<u32, PointerValue<'ctx>>,
+    str_len_allocas: &HashMap<u32, PointerValue<'ctx>>,
     reg_string_info: &mut HashMap<u32, RegStringInfo>,
     string_constants: &[(GlobalValue<'ctx>, u64)],
     function_map: &HashMap<u32, FunctionValue<'ctx>>,
     types: &TypeInterner,
     arc: &ArcIntrinsics<'ctx>,
-    drop_fns: &HashMap<nudl_core::types::TypeId, FunctionValue<'ctx>>,
 ) -> Result<(), BackendError> {
     match inst {
         Instruction::Const(reg, ConstValue::I32(val)) => {
@@ -914,6 +1059,11 @@ fn emit_instruction<'ctx>(
                 .const_int(if *val { 1 } else { 0 }, false);
             store(builder, register_allocas, reg.0, v)?;
         }
+        Instruction::Const(reg, ConstValue::F32(_)) => {
+            // F32 codegen not yet fully supported; store zero as i64
+            let v = context.i64_type().const_int(0, false);
+            store(builder, register_allocas, reg.0, v)?;
+        }
         Instruction::Const(reg, ConstValue::F64(_)) => {
             // F64 codegen not yet fully supported; store zero as i64
             let v = context.i64_type().const_int(0, false);
@@ -925,6 +1075,21 @@ fn emit_instruction<'ctx>(
         }
         Instruction::Const(reg, ConstValue::StringLiteral(idx)) => {
             reg_string_info.insert(reg.0, RegStringInfo::StringLiteral(*idx));
+            // Also store resolved ptr/len to companion allocas so string values
+            // survive control flow (if-else, loops) where Copy propagates allocas.
+            let (global, len) = &string_constants[*idx as usize];
+            let ptr = gep_string_ptr(context, builder, global, *len)?;
+            let len_val = context.i64_type().const_int(*len, false);
+            if let Some(&ptr_alloca) = str_ptr_allocas.get(&reg.0) {
+                builder
+                    .build_store(ptr_alloca, ptr)
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            }
+            if let Some(&len_alloca) = str_len_allocas.get(&reg.0) {
+                builder
+                    .build_store(len_alloca, len_val)
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            }
         }
         Instruction::Const(_, ConstValue::Unit) | Instruction::ConstUnit(_) => {}
 
@@ -945,7 +1110,21 @@ fn emit_instruction<'ctx>(
                         .map_err(|e| BackendError::LlvmError(e.to_string()))?
                         .into_pointer_value()
                 }
-                _ => context.ptr_type(AddressSpace::default()).const_null(),
+                _ => {
+                    // Fallback to companion alloca
+                    if let Some(&ptr_al) = str_ptr_allocas.get(&src.0) {
+                        builder
+                            .build_load(
+                                context.ptr_type(AddressSpace::default()),
+                                ptr_al,
+                                "str_alloca_ptr",
+                            )
+                            .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                            .into_pointer_value()
+                    } else {
+                        context.ptr_type(AddressSpace::default()).const_null()
+                    }
+                }
             };
             let v = builder
                 .build_ptr_to_int(ptr_val, context.i64_type(), "ptr_to_i64")
@@ -1033,11 +1212,39 @@ fn emit_instruction<'ctx>(
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?;
             store(builder, register_allocas, dst.0, r)?;
         }
+        Instruction::BitAnd(dst, lhs, rhs) => {
+            let (lv, rv) = load_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
+            let r = builder
+                .build_and(lv, rv, "and")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            store(builder, register_allocas, dst.0, r)?;
+        }
+        Instruction::BitOr(dst, lhs, rhs) => {
+            let (lv, rv) = load_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
+            let r = builder
+                .build_or(lv, rv, "or")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            store(builder, register_allocas, dst.0, r)?;
+        }
+        Instruction::BitXor(dst, lhs, rhs) => {
+            let (lv, rv) = load_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
+            let r = builder
+                .build_xor(lv, rv, "xor")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            store(builder, register_allocas, dst.0, r)?;
+        }
         Instruction::Neg(dst, src) => {
             let sv = load_i64(context, builder, register_allocas, src.0)?;
             let zero = context.i64_type().const_zero();
             let r = builder
                 .build_int_sub(zero, sv, "neg")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            store(builder, register_allocas, dst.0, r)?;
+        }
+        Instruction::BitNot(dst, src) => {
+            let sv = load_i64(context, builder, register_allocas, src.0)?;
+            let r = builder
+                .build_not(sv, "bitnot")
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?;
             store(builder, register_allocas, dst.0, r)?;
         }
@@ -1062,6 +1269,12 @@ fn emit_instruction<'ctx>(
             emit_icmp(context, builder, register_allocas, dst.0, lhs.0, rhs.0, inkwell::IntPredicate::SGE)?;
         }
 
+        // Cast (currently a no-op since all registers are i64)
+        Instruction::Cast(dst, src, _target_type) => {
+            let sv = load_i64(context, builder, register_allocas, src.0)?;
+            store(builder, register_allocas, dst.0, sv)?;
+        }
+
         // Logical NOT
         Instruction::Not(dst, src) => {
             let sv = load_i64(context, builder, register_allocas, src.0)?;
@@ -1079,6 +1292,8 @@ fn emit_instruction<'ctx>(
                 builder,
                 program,
                 register_allocas,
+                str_ptr_allocas,
+                str_len_allocas,
                 reg_string_info,
                 string_constants,
                 function_map,
@@ -1093,8 +1308,36 @@ fn emit_instruction<'ctx>(
         Instruction::Copy(dst, src) => {
             let val = load_i64(context, builder, register_allocas, src.0)?;
             store(builder, register_allocas, dst.0, val)?;
-            if let Some(info) = reg_string_info.get(&src.0).cloned() {
-                reg_string_info.insert(dst.0, info);
+            // Note: we intentionally do NOT propagate reg_string_info here.
+            // The companion allocas (str_ptr_allocas, str_len_allocas) are copied
+            // below and correctly handle control flow (if/else branches).
+            // Propagating reg_string_info would cause the last-compiled branch
+            // to hardcode its string literal for the destination register.
+
+            // Copy string companion allocas for control-flow correctness
+            if let (Some(&src_ptr), Some(&dst_ptr)) =
+                (str_ptr_allocas.get(&src.0), str_ptr_allocas.get(&dst.0))
+            {
+                let ptr_val = builder
+                    .build_load(
+                        context.ptr_type(AddressSpace::default()),
+                        src_ptr,
+                        "copy_str_ptr",
+                    )
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                builder
+                    .build_store(dst_ptr, ptr_val)
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            }
+            if let (Some(&src_len), Some(&dst_len)) =
+                (str_len_allocas.get(&src.0), str_len_allocas.get(&dst.0))
+            {
+                let len_val = builder
+                    .build_load(context.i64_type(), src_len, "copy_str_len")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                builder
+                    .build_store(dst_len, len_val)
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
             }
         }
 
@@ -1168,19 +1411,142 @@ fn emit_instruction<'ctx>(
                 .build_direct_call(arc.arc_retain, &[obj_ptr.into()], "")
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?;
         }
-        Instruction::Release(reg, type_id) => {
+        Instruction::Release(reg, _type_id) => {
             let obj_ptr = load_ptr(context, builder, register_allocas, reg.0)?;
-            let drop_fn_ptr = if let Some(tid) = type_id {
-                if let Some(dfn) = drop_fns.get(tid) {
-                    dfn.as_global_value().as_pointer_value()
-                } else {
-                    arc.drop_noop.as_global_value().as_pointer_value()
-                }
-            } else {
-                arc.drop_noop.as_global_value().as_pointer_value()
-            };
+            let drop_fn_ptr = arc.arc_drop.as_global_value().as_pointer_value();
             builder
                 .build_direct_call(arc.arc_release, &[obj_ptr.into(), drop_fn_ptr.into()], "")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        }
+
+        // Tuple/Array operations — heap-allocated like structs for now
+        Instruction::TupleAlloc(dst, type_id, elements) | Instruction::FixedArrayAlloc(dst, type_id, elements) => {
+            // Allocate: header (16 bytes) + elements (8 bytes each)
+            let header_size = 16u64;
+            let field_size = elements.len() as u64 * 8;
+            let total_size = context.i64_type().const_int(header_size + field_size, false);
+            let type_tag = context.i32_type().const_int(type_id.0 as u64, false);
+            let call_result = builder
+                .build_direct_call(arc.arc_alloc, &[total_size.into(), type_tag.into()], "alloc")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let ptr = call_result
+                .try_as_basic_value()
+                .basic()
+                .expect("arc_alloc should return a pointer")
+                .into_pointer_value();
+            // Store elements
+            for (i, elem_reg) in elements.iter().enumerate() {
+                let byte_offset = 16u64 + (i as u64) * 8;
+                let field_ptr = unsafe {
+                    builder
+                        .build_gep(
+                            context.i8_type(),
+                            ptr,
+                            &[context.i64_type().const_int(byte_offset, false)],
+                            "elem_ptr",
+                        )
+                        .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                };
+                let val = load_i64(context, builder, register_allocas, elem_reg.0)?;
+                builder
+                    .build_store(field_ptr, val)
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            }
+            // Store pointer as i64
+            let ptr_as_i64 = builder
+                .build_ptr_to_int(ptr, context.i64_type(), "ptr_to_i64")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            store(builder, register_allocas, dst.0, ptr_as_i64)?;
+        }
+        Instruction::TupleLoad(dst, ptr_reg, offset) => {
+            let obj_ptr = load_ptr(context, builder, register_allocas, ptr_reg.0)?;
+            let byte_offset = 16u64 + (*offset as u64) * 8;
+            let field_ptr = unsafe {
+                builder
+                    .build_gep(
+                        context.i8_type(),
+                        obj_ptr,
+                        &[context.i64_type().const_int(byte_offset, false)],
+                        "tuple_field_ptr",
+                    )
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            };
+            let val = builder
+                .build_load(context.i64_type(), field_ptr, "tuple_field_val")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                .into_int_value();
+            store(builder, register_allocas, dst.0, val)?;
+        }
+        Instruction::TupleStore(ptr_reg, offset, src) => {
+            let obj_ptr = load_ptr(context, builder, register_allocas, ptr_reg.0)?;
+            let byte_offset = 16u64 + (*offset as u64) * 8;
+            let field_ptr = unsafe {
+                builder
+                    .build_gep(
+                        context.i8_type(),
+                        obj_ptr,
+                        &[context.i64_type().const_int(byte_offset, false)],
+                        "tuple_field_ptr",
+                    )
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            };
+            let val = load_i64(context, builder, register_allocas, src.0)?;
+            builder
+                .build_store(field_ptr, val)
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        }
+        Instruction::IndexLoad(dst, ptr_reg, idx_reg, _elem_type) => {
+            let obj_ptr = load_ptr(context, builder, register_allocas, ptr_reg.0)?;
+            let idx_val = load_i64(context, builder, register_allocas, idx_reg.0)?;
+            // Compute byte offset: 16 (header) + idx * 8
+            let eight = context.i64_type().const_int(8, false);
+            let sixteen = context.i64_type().const_int(16, false);
+            let idx_offset = builder
+                .build_int_mul(idx_val, eight, "idx_offset")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let byte_offset = builder
+                .build_int_add(sixteen, idx_offset, "byte_offset")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let field_ptr = unsafe {
+                builder
+                    .build_gep(
+                        context.i8_type(),
+                        obj_ptr,
+                        &[byte_offset],
+                        "index_ptr",
+                    )
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            };
+            let val = builder
+                .build_load(context.i64_type(), field_ptr, "index_val")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                .into_int_value();
+            store(builder, register_allocas, dst.0, val)?;
+        }
+        Instruction::IndexStore(ptr_reg, idx_reg, src) => {
+            let obj_ptr = load_ptr(context, builder, register_allocas, ptr_reg.0)?;
+            let idx_val = load_i64(context, builder, register_allocas, idx_reg.0)?;
+            let eight = context.i64_type().const_int(8, false);
+            let sixteen = context.i64_type().const_int(16, false);
+            let idx_offset = builder
+                .build_int_mul(idx_val, eight, "idx_offset")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let byte_offset = builder
+                .build_int_add(sixteen, idx_offset, "byte_offset")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let field_ptr = unsafe {
+                builder
+                    .build_gep(
+                        context.i8_type(),
+                        obj_ptr,
+                        &[byte_offset],
+                        "index_ptr",
+                    )
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            };
+            let val = load_i64(context, builder, register_allocas, src.0)?;
+            builder
+                .build_store(field_ptr, val)
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?;
         }
     }
@@ -1192,6 +1558,8 @@ fn emit_call<'ctx>(
     builder: &Builder<'ctx>,
     program: &Program,
     register_allocas: &HashMap<u32, PointerValue<'ctx>>,
+    str_ptr_allocas: &HashMap<u32, PointerValue<'ctx>>,
+    str_len_allocas: &HashMap<u32, PointerValue<'ctx>>,
     reg_string_info: &mut HashMap<u32, RegStringInfo>,
     string_constants: &[(GlobalValue<'ctx>, u64)],
     function_map: &HashMap<u32, FunctionValue<'ctx>>,
@@ -1267,13 +1635,33 @@ fn emit_call<'ctx>(
                         llvm_args.push(len);
                     }
                     _ => {
-                        llvm_args.push(
-                            context
-                                .ptr_type(AddressSpace::default())
-                                .const_null()
-                                .into(),
-                        );
-                        llvm_args.push(context.i64_type().const_zero().into());
+                        // Fallback: load from companion allocas (handles control-flow
+                        // cases where reg_string_info was overwritten by another branch)
+                        if let (Some(&ptr_al), Some(&len_al)) = (
+                            str_ptr_allocas.get(&arg_reg.0),
+                            str_len_allocas.get(&arg_reg.0),
+                        ) {
+                            let ptr = builder
+                                .build_load(
+                                    context.ptr_type(AddressSpace::default()),
+                                    ptr_al,
+                                    "str_alloca_ptr",
+                                )
+                                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                            let len = builder
+                                .build_load(context.i64_type(), len_al, "str_alloca_len")
+                                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                            llvm_args.push(ptr);
+                            llvm_args.push(len);
+                        } else {
+                            llvm_args.push(
+                                context
+                                    .ptr_type(AddressSpace::default())
+                                    .const_null()
+                                    .into(),
+                            );
+                            llvm_args.push(context.i64_type().const_zero().into());
+                        }
                     }
                 }
             } else {

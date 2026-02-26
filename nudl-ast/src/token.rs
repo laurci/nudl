@@ -94,6 +94,7 @@ pub enum TokenKind {
     FatArrow, // =>
     DotDot,   // ..
     DotDotEq, // ..=
+    PipeGt,   // |>
 
     // Punctuation
     Dot,
@@ -105,6 +106,9 @@ pub enum TokenKind {
     At,
     Question,
     Underscore,
+
+    // Labels (e.g., 'label)
+    Label,
 
     // Special
     Eof,

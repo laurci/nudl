@@ -1,0 +1,35 @@
+// Test: Basic fixed-size arrays
+// Covers: array literals, indexing, mutable index assignment, array repeat
+
+extern {
+    fn write(fd: i32, buf: RawPtr, count: u64) -> i64;
+}
+
+fn print(s: string) {
+    write(1, __str_ptr(s), __str_len(s));
+}
+
+fn println(s: string) {
+    print(s);
+    print("\n");
+}
+
+fn main() {
+    // Array literal
+    let arr: [i32; 3] = [1, 2, 3];
+
+    // Index access
+    let first = arr[0];
+    let second = arr[1];
+    let third = arr[2];
+
+    // Mutable array with index assignment
+    let mut mutable: [i32; 3] = [10, 20, 30];
+    mutable[0] = 100;
+    mutable[1] = 200;
+
+    // Array repeat syntax
+    let zeros: [i32; 5] = [0; 5];
+
+    println("arrays ok");
+}

@@ -59,8 +59,13 @@ pub enum TypeKind {
     Primitive(PrimitiveType),
     String,
     RawPtr,
+    MutRawPtr,
+    CStr,
+    Never,
     Function { params: Vec<TypeId>, ret: TypeId },
     Struct { name: String, fields: Vec<(String, TypeId)> },
+    Tuple(Vec<TypeId>),
+    FixedArray { element: TypeId, length: usize },
     Error,
 }
 
@@ -88,7 +93,10 @@ impl TypeInterner {
         interner.intern(TypeKind::Primitive(PrimitiveType::Unit)); // 12
         interner.intern(TypeKind::String); // 13
         interner.intern(TypeKind::RawPtr); // 14
-        interner.intern(TypeKind::Error); // 15
+        interner.intern(TypeKind::MutRawPtr); // 15
+        interner.intern(TypeKind::CStr); // 16
+        interner.intern(TypeKind::Never); // 17
+        interner.intern(TypeKind::Error); // 18
         interner
     }
 
@@ -154,12 +162,34 @@ impl TypeInterner {
     pub fn raw_ptr(&self) -> TypeId {
         TypeId(14)
     }
-    pub fn error(&self) -> TypeId {
+    pub fn mut_raw_ptr(&self) -> TypeId {
         TypeId(15)
+    }
+    pub fn cstr(&self) -> TypeId {
+        TypeId(16)
+    }
+    pub fn never(&self) -> TypeId {
+        TypeId(17)
+    }
+    pub fn error(&self) -> TypeId {
+        TypeId(18)
     }
 
     pub fn is_struct(&self, id: TypeId) -> bool {
         matches!(self.resolve(id), TypeKind::Struct { .. })
+    }
+
+    pub fn is_tuple(&self, id: TypeId) -> bool {
+        matches!(self.resolve(id), TypeKind::Tuple(_))
+    }
+
+    pub fn is_fixed_array(&self, id: TypeId) -> bool {
+        matches!(self.resolve(id), TypeKind::FixedArray { .. })
+    }
+
+    /// Returns true if this type is a reference type (heap-allocated, ARC-managed)
+    pub fn is_reference_type(&self, id: TypeId) -> bool {
+        matches!(self.resolve(id), TypeKind::Struct { .. } | TypeKind::String)
     }
 
     pub fn iter_types(&self) -> impl Iterator<Item = (TypeId, &TypeKind)> {

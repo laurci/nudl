@@ -1,0 +1,50 @@
+// Test: Basic for-in loops
+// Covers: range iteration (exclusive, inclusive), array iteration, nested for loops
+
+extern {
+    fn write(fd: i32, buf: RawPtr, count: u64) -> i64;
+}
+
+fn print(s: string) {
+    write(1, __str_ptr(s), __str_len(s));
+}
+
+fn println(s: string) {
+    print(s);
+    print("\n");
+}
+
+fn main() {
+    // For-in over exclusive range
+    let mut sum_excl = 0;
+    for i in 0..5 {
+        sum_excl = sum_excl + i;
+    }
+    // sum_excl = 0+1+2+3+4 = 10
+
+    // For-in over inclusive range
+    let mut sum_incl = 0;
+    for i in 0..=5 {
+        sum_incl = sum_incl + i;
+    }
+    // sum_incl = 0+1+2+3+4+5 = 15
+
+    // For-in over array
+    let arr: [i32; 4] = [10, 20, 30, 40];
+    let mut total = 0;
+    for item in arr {
+        total = total + item;
+    }
+    // total = 100
+
+    // Nested for loops
+    let mut pairs = 0;
+    for i in 0..3 {
+        for j in 0..3 {
+            pairs = pairs + 1;
+        }
+    }
+    // pairs = 9
+
+    println("for loops ok");
+}

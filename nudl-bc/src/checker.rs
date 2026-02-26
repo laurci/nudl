@@ -128,6 +128,8 @@ impl Checker {
                 "char" => self.types.char_type(),
                 "string" => self.types.string(),
                 "RawPtr" => self.types.raw_ptr(),
+                "MutRawPtr" => self.types.mut_raw_ptr(),
+                "CStr" => self.types.cstr(),
                 _ => {
                     if let Some(&struct_ty) = self.structs.get(name.as_str()) {
                         return struct_ty;
@@ -139,6 +141,17 @@ impl Checker {
                     self.types.error()
                 }
             },
+            TypeExpr::Tuple(elements) => {
+                let element_types: Vec<TypeId> = elements
+                    .iter()
+                    .map(|e| self.resolve_type(e))
+                    .collect();
+                self.types.intern(TypeKind::Tuple(element_types))
+            }
+            TypeExpr::FixedArray { element, length } => {
+                let elem_ty = self.resolve_type(element);
+                self.types.intern(TypeKind::FixedArray { element: elem_ty, length: *length })
+            }
         }
     }
 
@@ -150,8 +163,18 @@ impl Checker {
             },
             TypeKind::String => "string".into(),
             TypeKind::RawPtr => "RawPtr".into(),
+            TypeKind::MutRawPtr => "MutRawPtr".into(),
+            TypeKind::CStr => "CStr".into(),
+            TypeKind::Never => "!".into(),
             TypeKind::Function { .. } => "fn(...)".into(),
             TypeKind::Struct { name, .. } => name.clone(),
+            TypeKind::Tuple(elements) => {
+                let parts: Vec<String> = elements.iter().map(|e| self.type_name(*e)).collect();
+                format!("({})", parts.join(", "))
+            }
+            TypeKind::FixedArray { element, length } => {
+                format!("[{}; {}]", self.type_name(*element), length)
+            }
             TypeKind::Error => "<error>".into(),
         }
     }
@@ -180,6 +203,37 @@ impl Checker {
             self.types.resolve(ty),
             TypeKind::Primitive(p) if p.is_signed()
         )
+    }
+
+    /// Walk an lvalue expression (field access chain, index access) to find the
+    /// root variable name.  Returns `None` for non-trivial expressions.
+    fn root_variable_name<'e>(&self, expr: &'e Expr) -> Option<&'e str> {
+        match expr {
+            Expr::Ident(name) => Some(name.as_str()),
+            Expr::FieldAccess { object, .. } => self.root_variable_name(&object.node),
+            Expr::IndexAccess { object, .. } => self.root_variable_name(&object.node),
+            _ => None,
+        }
+    }
+
+    /// Check that the root variable of an lvalue is mutable.  Emits an
+    /// `ImmutableAssignment` diagnostic if it isn't.
+    fn check_lvalue_mutability(
+        &mut self,
+        target: &Spanned<Expr>,
+        locals: &ScopedLocals<LocalInfo>,
+    ) {
+        if let Some(root) = self.root_variable_name(&target.node) {
+            if let Some(info) = locals.get(root) {
+                if !info.is_mut {
+                    self.diagnostics
+                        .add(&CheckerDiagnostic::ImmutableAssignment {
+                            span: target.span,
+                            name: root.to_string(),
+                        });
+                }
+            }
+        }
     }
 
     // --- Pass 1: Collect declarations ---
@@ -409,6 +463,40 @@ impl Checker {
                     );
                 }
             }
+            Stmt::Const { name, ty, value } => {
+                let val_ty = self.check_expr(value, locals);
+                if let Some(type_expr) = ty {
+                    let declared_ty = self.resolve_type(type_expr);
+                    let is_coercible = self.is_unsuffixed_int_literal(&value.node)
+                        && self.is_integer_type(declared_ty);
+                    if val_ty != declared_ty
+                        && val_ty != self.types.error()
+                        && declared_ty != self.types.error()
+                        && !is_coercible
+                    {
+                        self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                            span: value.span,
+                            expected: self.type_name(declared_ty),
+                            found: self.type_name(val_ty),
+                        });
+                    }
+                    locals.insert(
+                        name.clone(),
+                        LocalInfo {
+                            ty: declared_ty,
+                            is_mut: false,
+                        },
+                    );
+                } else {
+                    locals.insert(
+                        name.clone(),
+                        LocalInfo {
+                            ty: val_ty,
+                            is_mut: false,
+                        },
+                    );
+                }
+            }
             Stmt::Item(item) => self.collect_item(item),
         }
     }
@@ -555,6 +643,18 @@ impl Checker {
                         }
                         left_ty
                     }
+                    BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor => {
+                        if !self.is_integer_type(left_ty) {
+                            self.diagnostics
+                                .add(&CheckerDiagnostic::InvalidOperatorType {
+                                    span: expr.span,
+                                    op: format!("{:?}", op).to_lowercase(),
+                                    ty: self.type_name(left_ty),
+                                });
+                            return self.types.error();
+                        }
+                        left_ty
+                    }
                     BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
                         self.types.bool()
                     }
@@ -604,6 +704,18 @@ impl Checker {
                         }
                         self.types.bool()
                     }
+                    UnaryOp::BitNot => {
+                        if !self.is_integer_type(operand_ty) {
+                            self.diagnostics
+                                .add(&CheckerDiagnostic::InvalidOperatorType {
+                                    span: expr.span,
+                                    op: "~".into(),
+                                    ty: self.type_name(operand_ty),
+                                });
+                            return self.types.error();
+                        }
+                        operand_ty
+                    }
                 }
             }
 
@@ -636,6 +748,7 @@ impl Checker {
                         });
                     }
                 } else if let Expr::FieldAccess { object, field } = &target.node {
+                    self.check_lvalue_mutability(target, locals);
                     let obj_ty = self.check_expr(object, locals);
                     if obj_ty != self.types.error() {
                         match self.types.resolve(obj_ty).clone() {
@@ -670,6 +783,40 @@ impl Checker {
                             }
                         }
                     }
+                } else if let Expr::IndexAccess { object, index } = &target.node {
+                    self.check_lvalue_mutability(target, locals);
+                    let obj_ty = self.check_expr(object, locals);
+                    let idx_ty = self.check_expr(index, locals);
+                    if obj_ty != self.types.error() && idx_ty != self.types.error() {
+                        if !self.is_integer_type(idx_ty) {
+                            self.diagnostics.add(&CheckerDiagnostic::InvalidOperatorType {
+                                span: index.span,
+                                op: "index".into(),
+                                ty: self.type_name(idx_ty),
+                            });
+                        }
+                        match self.types.resolve(obj_ty).clone() {
+                            TypeKind::FixedArray { element, .. } => {
+                                if val_ty != element
+                                    && val_ty != self.types.error()
+                                    && element != self.types.error()
+                                {
+                                    self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                                        span: value.span,
+                                        expected: self.type_name(element),
+                                        found: self.type_name(val_ty),
+                                    });
+                                }
+                            }
+                            _ => {
+                                self.diagnostics.add(&CheckerDiagnostic::InvalidOperatorType {
+                                    span: target.span,
+                                    op: "index".into(),
+                                    ty: self.type_name(obj_ty),
+                                });
+                            }
+                        }
+                    }
                 }
                 self.types.unit()
             }
@@ -686,7 +833,13 @@ impl Checker {
                                 });
                         }
                         let target_ty = info.ty;
-                        if !self.is_numeric(target_ty) && target_ty != self.types.error() {
+                        let is_valid = match op {
+                            BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor => {
+                                self.is_integer_type(target_ty)
+                            }
+                            _ => self.is_numeric(target_ty),
+                        };
+                        if !is_valid && target_ty != self.types.error() {
                             self.diagnostics
                                 .add(&CheckerDiagnostic::InvalidOperatorType {
                                     span: expr.span,
@@ -750,7 +903,33 @@ impl Checker {
                 }
             }
 
-            Expr::While { condition, body } => {
+            Expr::Cast { expr, target_type } => {
+                let src_ty = self.check_expr(expr, locals);
+                let dst_ty = self.resolve_type(target_type);
+                if src_ty == self.types.error() || dst_ty == self.types.error() {
+                    return self.types.error();
+                }
+                // Allow casts between numeric types, bool→int, char↔u32
+                let is_valid = (self.is_numeric(src_ty) && self.is_numeric(dst_ty))
+                    || (src_ty == self.types.bool() && self.is_integer_type(dst_ty))
+                    || (src_ty == self.types.char_type() && dst_ty == self.types.u32())
+                    || (src_ty == self.types.u32() && dst_ty == self.types.char_type())
+                    || (src_ty == self.types.raw_ptr() && dst_ty == self.types.mut_raw_ptr())
+                    || (src_ty == self.types.mut_raw_ptr() && dst_ty == self.types.raw_ptr())
+                    || (src_ty == self.types.raw_ptr() && dst_ty == self.types.cstr())
+                    || (src_ty == self.types.cstr() && dst_ty == self.types.raw_ptr());
+                if !is_valid {
+                    self.diagnostics.add(&CheckerDiagnostic::InvalidOperatorType {
+                        span: expr.span,
+                        op: "as".into(),
+                        ty: format!("{} as {}", self.type_name(src_ty), self.type_name(dst_ty)),
+                    });
+                    return self.types.error();
+                }
+                dst_ty
+            }
+
+            Expr::While { condition, body, .. } => {
                 let cond_ty = self.check_expr(condition, locals);
                 if cond_ty != self.types.bool()
                     && cond_ty != self.types.error()
@@ -765,17 +944,19 @@ impl Checker {
                 self.types.unit()
             }
 
-            Expr::Loop { body } => {
+            Expr::Loop { body, .. } => {
                 self.check_block(&body.node, locals);
                 self.types.unit()
             }
 
-            Expr::Break(_value) => {
-                // break-with-value not fully supported yet
+            Expr::Break { value, .. } => {
+                if let Some(val) = value {
+                    self.check_expr(val, locals);
+                }
                 self.types.unit()
             }
 
-            Expr::Continue => self.types.unit(),
+            Expr::Continue { .. } => self.types.unit(),
 
             Expr::Grouped(inner) => self.check_expr(inner, locals),
 
@@ -853,6 +1034,28 @@ impl Checker {
                             self.types.error()
                         }
                     }
+                    TypeKind::Tuple(elements) => {
+                        // Numeric field access on tuples: .0, .1, etc.
+                        if let Ok(idx) = field.parse::<usize>() {
+                            if idx < elements.len() {
+                                elements[idx]
+                            } else {
+                                self.diagnostics.add(&CheckerDiagnostic::InvalidOperatorType {
+                                    span: expr.span,
+                                    op: "tuple index".into(),
+                                    ty: format!("index {} out of bounds for {}-element tuple", idx, elements.len()),
+                                });
+                                self.types.error()
+                            }
+                        } else {
+                            self.diagnostics
+                                .add(&CheckerDiagnostic::FieldAccessOnNonStruct {
+                                    span: expr.span,
+                                    ty: self.type_name(obj_ty),
+                                });
+                            self.types.error()
+                        }
+                    }
                     _ => {
                         self.diagnostics
                             .add(&CheckerDiagnostic::FieldAccessOnNonStruct {
@@ -862,6 +1065,149 @@ impl Checker {
                         self.types.error()
                     }
                 }
+            }
+
+            Expr::TupleLiteral(elements) => {
+                let element_types: Vec<TypeId> = elements
+                    .iter()
+                    .map(|e| self.check_expr(e, locals))
+                    .collect();
+                self.types.intern(TypeKind::Tuple(element_types))
+            }
+
+            Expr::ArrayLiteral(elements) => {
+                if elements.is_empty() {
+                    // Empty array — can't infer type without annotation
+                    // For now return error; type annotation needed
+                    self.types.error()
+                } else {
+                    let first_ty = self.check_expr(&elements[0], locals);
+                    for elem in &elements[1..] {
+                        let elem_ty = self.check_expr(elem, locals);
+                        if elem_ty != first_ty
+                            && elem_ty != self.types.error()
+                            && first_ty != self.types.error()
+                        {
+                            self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                                span: elem.span,
+                                expected: self.type_name(first_ty),
+                                found: self.type_name(elem_ty),
+                            });
+                        }
+                    }
+                    self.types.intern(TypeKind::FixedArray {
+                        element: first_ty,
+                        length: elements.len(),
+                    })
+                }
+            }
+
+            Expr::ArrayRepeat { value, count } => {
+                let elem_ty = self.check_expr(value, locals);
+                self.types.intern(TypeKind::FixedArray {
+                    element: elem_ty,
+                    length: *count,
+                })
+            }
+
+            Expr::IndexAccess { object, index } => {
+                let obj_ty = self.check_expr(object, locals);
+                let idx_ty = self.check_expr(index, locals);
+
+                if obj_ty == self.types.error() || idx_ty == self.types.error() {
+                    return self.types.error();
+                }
+
+                if !self.is_integer_type(idx_ty) {
+                    self.diagnostics.add(&CheckerDiagnostic::InvalidOperatorType {
+                        span: index.span,
+                        op: "index".into(),
+                        ty: self.type_name(idx_ty),
+                    });
+                    return self.types.error();
+                }
+
+                match self.types.resolve(obj_ty).clone() {
+                    TypeKind::FixedArray { element, .. } => element,
+                    _ => {
+                        self.diagnostics.add(&CheckerDiagnostic::InvalidOperatorType {
+                            span: expr.span,
+                            op: "index".into(),
+                            ty: self.type_name(obj_ty),
+                        });
+                        self.types.error()
+                    }
+                }
+            }
+
+            Expr::Range { start, end, .. } => {
+                let start_ty = self.check_expr(start, locals);
+                let end_ty = self.check_expr(end, locals);
+
+                if start_ty == self.types.error() || end_ty == self.types.error() {
+                    return self.types.error();
+                }
+
+                if start_ty != end_ty {
+                    self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                        span: end.span,
+                        expected: self.type_name(start_ty),
+                        found: self.type_name(end_ty),
+                    });
+                }
+
+                if !self.is_integer_type(start_ty) {
+                    self.diagnostics.add(&CheckerDiagnostic::InvalidOperatorType {
+                        span: expr.span,
+                        op: "range".into(),
+                        ty: self.type_name(start_ty),
+                    });
+                }
+
+                // Range type is unit for now — ranges are only used in for-loops
+                self.types.unit()
+            }
+
+            Expr::For { binding, iter, body } => {
+                let iter_ty = self.check_expr(iter, locals);
+
+                // Determine the element type based on the iterator
+                let elem_ty = match &iter.node {
+                    Expr::Range { start, .. } => {
+                        // For ranges, element type is the range's integer type
+                        self.check_expr(start, locals)
+                    }
+                    _ => {
+                        // For arrays, element type is the array's element type
+                        if iter_ty != self.types.error() {
+                            match self.types.resolve(iter_ty).clone() {
+                                TypeKind::FixedArray { element, .. } => element,
+                                _ => {
+                                    self.diagnostics.add(&CheckerDiagnostic::InvalidOperatorType {
+                                        span: iter.span,
+                                        op: "for-in".into(),
+                                        ty: self.type_name(iter_ty),
+                                    });
+                                    self.types.error()
+                                }
+                            }
+                        } else {
+                            self.types.error()
+                        }
+                    }
+                };
+
+                locals.push_scope();
+                locals.insert(
+                    binding.clone(),
+                    LocalInfo {
+                        ty: elem_ty,
+                        is_mut: false,
+                    },
+                );
+                self.check_block(&body.node, locals);
+                locals.pop_scope();
+                self.types.unit()
             }
         }
     }
@@ -1313,5 +1659,109 @@ fn main() {
 "#,
         );
         assert!(diags.has_errors(), "inner should be undefined outside the while block");
+    }
+
+    #[test]
+    fn immutable_struct_field_assign_error() {
+        let (_, diags) = check_source(
+            r#"
+struct Point { x: i32, y: i32 }
+fn main() {
+    let p = Point { x: 1, y: 2 };
+    p.x = 10;
+}
+"#,
+        );
+        assert!(diags.has_errors(), "field assignment on immutable struct should be rejected");
+        assert!(
+            diags.reports().iter().any(|r| r.message.contains("immutable")),
+            "expected immutable error, got: {:?}",
+            diags.reports()
+        );
+    }
+
+    #[test]
+    fn mutable_struct_field_assign_ok() {
+        let (_, diags) = check_source(
+            r#"
+struct Point { x: i32, y: i32 }
+fn main() {
+    let mut p = Point { x: 1, y: 2 };
+    p.x = 10;
+}
+"#,
+        );
+        assert!(
+            !diags.has_errors(),
+            "field assignment on mutable struct should be allowed: {:?}",
+            diags.reports()
+        );
+    }
+
+    #[test]
+    fn immutable_array_index_assign_error() {
+        let (_, diags) = check_source(
+            r#"
+fn main() {
+    let arr: [i32; 3] = [1, 2, 3];
+    arr[0] = 99;
+}
+"#,
+        );
+        assert!(diags.has_errors(), "index assignment on immutable array should be rejected");
+        assert!(
+            diags.reports().iter().any(|r| r.message.contains("immutable")),
+            "expected immutable error, got: {:?}",
+            diags.reports()
+        );
+    }
+
+    #[test]
+    fn mutable_array_index_assign_ok() {
+        let (_, diags) = check_source(
+            r#"
+fn main() {
+    let mut arr: [i32; 3] = [1, 2, 3];
+    arr[0] = 99;
+}
+"#,
+        );
+        assert!(
+            !diags.has_errors(),
+            "index assignment on mutable array should be allowed: {:?}",
+            diags.reports()
+        );
+    }
+
+    #[test]
+    fn immutable_param_field_assign_error() {
+        let (_, diags) = check_source(
+            r#"
+struct Point { x: i32, y: i32 }
+fn try_mutate(p: Point) {
+    p.x = 99;
+}
+fn main() {}
+"#,
+        );
+        assert!(diags.has_errors(), "field assignment on immutable param should be rejected");
+    }
+
+    #[test]
+    fn mutable_param_field_assign_ok() {
+        let (_, diags) = check_source(
+            r#"
+struct Point { x: i32, y: i32 }
+fn mutate(mut p: Point) {
+    p.x = 99;
+}
+fn main() {}
+"#,
+        );
+        assert!(
+            !diags.has_errors(),
+            "field assignment on mutable param should be allowed: {:?}",
+            diags.reports()
+        );
     }
 }

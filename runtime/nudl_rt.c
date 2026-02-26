@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 /*
  * nudl ARC runtime — slow paths for reference counting.
@@ -23,6 +24,20 @@ typedef struct {
     uint32_t type_tag;
     uint32_t _padding;
 } NudlArcHeader;
+
+/* Type descriptor — see nudl_rt.h for full documentation. */
+typedef struct {
+    const char *type_name;
+    uint8_t  kind;
+    uint16_t child_count;
+    union {
+        uint16_t offsets[1];
+        struct {
+            uint16_t start;
+            uint16_t stride;
+        } array;
+    };
+} NudlTypeDesc;
 
 /* Allocate a new ARC object. total_size includes the 16-byte header. */
 void *__nudl_arc_alloc(uint64_t total_size, uint32_t type_tag) {
@@ -51,6 +66,45 @@ void __nudl_arc_release_slow(void *ptr, void (*drop_fn)(void *)) {
     NudlArcHeader *hdr = (NudlArcHeader *)ptr;
     if (hdr->weak_count == 0) {
         free(ptr);
+    }
+}
+
+/* Compiler-generated globals — weak symbols so the runtime compiles
+ * standalone (tests, etc.) without the compiler providing them. */
+__attribute__((weak)) const NudlTypeDesc *__nudl_type_table[] = { 0 };
+__attribute__((weak)) uint32_t __nudl_type_table_len = 0;
+
+/* Generic drop: walk the type descriptor to release reference-typed children. */
+void __nudl_arc_drop(void *ptr) {
+    NudlArcHeader *hdr = (NudlArcHeader *)ptr;
+    uint32_t tag = hdr->type_tag;
+    if (tag >= __nudl_type_table_len) return;
+    const NudlTypeDesc *desc = __nudl_type_table[tag];
+    if (!desc) return;
+
+    for (uint16_t i = 0; i < desc->child_count; i++) {
+        uint16_t off = (desc->kind == 1)
+            ? desc->array.start + i * desc->array.stride
+            : desc->offsets[i];
+        void *child = *(void **)((char *)ptr + off);
+        if (child) {
+            NudlArcHeader *chdr = (NudlArcHeader *)child;
+            if (--chdr->strong_count == 0) {
+                __nudl_arc_release_slow(child, __nudl_arc_drop);
+            }
+        }
+    }
+
+    if (desc->type_name) {
+        const char *prefix = "dropping ";
+        const char *suffix = "\n";
+        write(1, prefix, 9);
+        /* compute name length */
+        const char *p = desc->type_name;
+        size_t len = 0;
+        while (p[len]) len++;
+        write(1, desc->type_name, len);
+        write(1, suffix, 1);
     }
 }
 
