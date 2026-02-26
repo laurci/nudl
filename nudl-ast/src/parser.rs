@@ -260,8 +260,39 @@ impl Parser {
     fn parse_type(&mut self) -> Option<Spanned<TypeExpr>> {
         if self.peek_kind() == TokenKind::LParen {
             let start = self.advance().span;
+            // Unit type: ()
+            if self.peek_kind() == TokenKind::RParen {
+                let end = self.advance().span;
+                return Some(Spanned::new(TypeExpr::Unit, start.merge(end)));
+            }
+            // Tuple type: (T1, T2, ...)
+            let mut elements = Vec::new();
+            elements.push(self.parse_type()?);
+            while self.eat(TokenKind::Comma) {
+                if self.peek_kind() == TokenKind::RParen {
+                    break; // trailing comma
+                }
+                elements.push(self.parse_type()?);
+            }
             let end = self.expect(TokenKind::RParen)?.span;
-            return Some(Spanned::new(TypeExpr::Unit, start.merge(end)));
+            return Some(Spanned::new(TypeExpr::Tuple(elements), start.merge(end)));
+        }
+
+        // Fixed array type: [T; N]
+        if self.peek_kind() == TokenKind::LBracket {
+            let start = self.advance().span;
+            let element = self.parse_type()?;
+            self.expect(TokenKind::Semi)?;
+            let len_tok = self.expect(TokenKind::IntLiteral)?;
+            let length: usize = len_tok.text.parse().unwrap_or(0);
+            let end = self.expect(TokenKind::RBracket)?.span;
+            return Some(Spanned::new(
+                TypeExpr::FixedArray {
+                    element: Box::new(element),
+                    length,
+                },
+                start.merge(end),
+            ));
         }
 
         if self.peek_kind() == TokenKind::Ident {
@@ -393,24 +424,67 @@ impl Parser {
         loop {
             let kind = self.peek_kind();
 
-            // Postfix: field access (dot)
+            // Postfix: field access (dot) — handles both named fields and tuple .0, .1
             if kind == TokenKind::Dot {
                 let dot_tok = self.advance().clone();
-                let field_tok = self.expect(TokenKind::Ident)?;
-                let span = lhs.span.merge(field_tok.span);
-                lhs = Spanned::new(
-                    Expr::FieldAccess {
-                        object: Box::new(lhs),
-                        field: field_tok.text.clone(),
-                    },
-                    span,
-                );
+                // Tuple element access: .0, .1, etc.
+                if self.peek_kind() == TokenKind::IntLiteral {
+                    let idx_tok = self.advance().clone();
+                    let span = lhs.span.merge(idx_tok.span);
+                    lhs = Spanned::new(
+                        Expr::FieldAccess {
+                            object: Box::new(lhs),
+                            field: idx_tok.text.clone(),
+                        },
+                        span,
+                    );
+                } else {
+                    let field_tok = self.expect(TokenKind::Ident)?;
+                    let span = lhs.span.merge(field_tok.span);
+                    lhs = Spanned::new(
+                        Expr::FieldAccess {
+                            object: Box::new(lhs),
+                            field: field_tok.text.clone(),
+                        },
+                        span,
+                    );
+                }
                 let _ = dot_tok;
                 continue;
             }
 
+            // Postfix: index access (brackets)
+            if kind == TokenKind::LBracket {
+                let start = lhs.span;
+                self.advance(); // consume [
+                let index = self.parse_expr()?;
+                let end = self.expect(TokenKind::RBracket)?.span;
+                lhs = Spanned::new(
+                    Expr::IndexAccess {
+                        object: Box::new(lhs),
+                        index: Box::new(index),
+                    },
+                    start.merge(end),
+                );
+                continue;
+            }
+
             // Postfix: call expressions
+            // Block-like expressions (for, while, loop, if, block) cannot be callees.
+            // Without this check, `for i in 1..5 { body } (lo, hi)` would be
+            // misparsed as Call(For(...), [lo, hi]).
             if kind == TokenKind::LParen {
+                let is_block_like = matches!(
+                    lhs.node,
+                    Expr::For { .. }
+                        | Expr::While { .. }
+                        | Expr::Loop { .. }
+                        | Expr::If { .. }
+                        | Expr::Block(_)
+                );
+                if is_block_like {
+                    break;
+                }
                 let start = lhs.span;
                 self.advance(); // (
                 let args = self.parse_call_args();
@@ -428,7 +502,7 @@ impl Parser {
             // Postfix: `as` type cast
             if kind == TokenKind::As {
                 // `as` has very high precedence (between infix and unary)
-                let as_bp: u8 = 23;
+                let as_bp: u8 = 24;
                 if as_bp < min_bp {
                     break;
                 }
@@ -482,6 +556,22 @@ impl Parser {
                     break;
                 }
                 let op_tok = self.advance().clone();
+
+                // Range operators: `a..b` or `a..=b`
+                if op_tok.kind == TokenKind::DotDot || op_tok.kind == TokenKind::DotDotEq {
+                    let inclusive = op_tok.kind == TokenKind::DotDotEq;
+                    let rhs = self.parse_expr_bp(r_bp)?;
+                    let span = lhs.span.merge(rhs.span);
+                    lhs = Spanned::new(
+                        Expr::Range {
+                            start: Box::new(lhs),
+                            end: Box::new(rhs),
+                            inclusive,
+                        },
+                        span,
+                    );
+                    continue;
+                }
 
                 // Pipe operator desugaring: `x |> f` → `f(x)`, `x |> f(y)` → `f(x, y)`
                 if op_tok.kind == TokenKind::PipeGt {
@@ -654,11 +744,66 @@ impl Parser {
                         span,
                     ));
                 }
-                let inner = self.parse_expr()?;
-                let end = self.expect(TokenKind::RParen)?.span;
-                let span = start.span.merge(end);
-                Some(Spanned::new(Expr::Grouped(Box::new(inner)), span))
+                let first = self.parse_expr()?;
+                // If followed by comma, this is a tuple literal
+                if self.peek_kind() == TokenKind::Comma {
+                    let mut elements = vec![first];
+                    while self.eat(TokenKind::Comma) {
+                        if self.peek_kind() == TokenKind::RParen {
+                            break; // trailing comma
+                        }
+                        elements.push(self.parse_expr()?);
+                    }
+                    let end = self.expect(TokenKind::RParen)?.span;
+                    let span = start.span.merge(end);
+                    Some(Spanned::new(Expr::TupleLiteral(elements), span))
+                } else {
+                    // Grouped expression
+                    let end = self.expect(TokenKind::RParen)?.span;
+                    let span = start.span.merge(end);
+                    Some(Spanned::new(Expr::Grouped(Box::new(first)), span))
+                }
             }
+            TokenKind::LBracket => {
+                let start = self.advance().clone(); // consume [
+                // Empty array: []
+                if self.peek_kind() == TokenKind::RBracket {
+                    let end = self.advance().span;
+                    return Some(Spanned::new(
+                        Expr::ArrayLiteral(vec![]),
+                        start.span.merge(end),
+                    ));
+                }
+                let first = self.parse_expr()?;
+                // Array repeat: [expr; N]
+                if self.peek_kind() == TokenKind::Semi {
+                    self.advance(); // consume ;
+                    let count_tok = self.expect(TokenKind::IntLiteral)?;
+                    let count: usize = count_tok.text.parse().unwrap_or(0);
+                    let end = self.expect(TokenKind::RBracket)?.span;
+                    return Some(Spanned::new(
+                        Expr::ArrayRepeat {
+                            value: Box::new(first),
+                            count,
+                        },
+                        start.span.merge(end),
+                    ));
+                }
+                // Array literal: [expr, expr, ...]
+                let mut elements = vec![first];
+                while self.eat(TokenKind::Comma) {
+                    if self.peek_kind() == TokenKind::RBracket {
+                        break; // trailing comma
+                    }
+                    elements.push(self.parse_expr()?);
+                }
+                let end = self.expect(TokenKind::RBracket)?.span;
+                Some(Spanned::new(
+                    Expr::ArrayLiteral(elements),
+                    start.span.merge(end),
+                ))
+            }
+            TokenKind::For => self.parse_for_expr(),
             TokenKind::LBrace => {
                 let block = self.parse_block()?;
                 let span = block.span;
@@ -765,6 +910,24 @@ impl Parser {
         ))
     }
 
+    fn parse_for_expr(&mut self) -> Option<SpannedExpr> {
+        let start = self.expect(TokenKind::For)?.span;
+        let binding = self.expect(TokenKind::Ident)?.text.clone();
+        self.expect(TokenKind::In)?;
+        let iter = self.parse_expr()?;
+        let body = self.parse_block()?;
+        let end = body.span;
+
+        Some(Spanned::new(
+            Expr::For {
+                binding,
+                iter: Box::new(iter),
+                body: Box::new(body),
+            },
+            start.merge(end),
+        ))
+    }
+
     fn parse_const_stmt(&mut self) -> Option<SpannedStmt> {
         let start = self.expect(TokenKind::Const)?.span;
         let name = self.expect(TokenKind::Ident)?.text.clone();
@@ -846,27 +1009,29 @@ impl Parser {
 /// Returns (left_bp, right_bp) for infix operators.
 fn infix_binding_power(kind: TokenKind) -> Option<(u8, u8)> {
     match kind {
-        // Pipe: left-associative (lowest infix precedence)
-        TokenKind::PipeGt => Some((3, 4)),
+        // Range: non-associative (between assignment and pipe)
+        TokenKind::DotDot | TokenKind::DotDotEq => Some((2, 3)),
+        // Pipe: left-associative (lowest regular infix precedence)
+        TokenKind::PipeGt => Some((4, 5)),
         // Logical or: left-associative
-        TokenKind::PipePipe => Some((5, 6)),
+        TokenKind::PipePipe => Some((6, 7)),
         // Logical and: left-associative
-        TokenKind::AmpAmp => Some((7, 8)),
+        TokenKind::AmpAmp => Some((8, 9)),
         // Bitwise or: left-associative
-        TokenKind::Pipe => Some((9, 10)),
+        TokenKind::Pipe => Some((10, 11)),
         // Bitwise xor: left-associative
-        TokenKind::Caret => Some((11, 12)),
+        TokenKind::Caret => Some((12, 13)),
         // Bitwise and: left-associative
-        TokenKind::Amp => Some((13, 14)),
+        TokenKind::Amp => Some((14, 15)),
         // Comparison: non-associative
         TokenKind::EqEq | TokenKind::BangEq | TokenKind::Lt | TokenKind::Gt
-        | TokenKind::LtEq | TokenKind::GtEq => Some((15, 16)),
+        | TokenKind::LtEq | TokenKind::GtEq => Some((16, 17)),
         // Shift: left-associative
-        TokenKind::LtLt | TokenKind::GtGt => Some((17, 18)),
+        TokenKind::LtLt | TokenKind::GtGt => Some((18, 19)),
         // Addition/subtraction: left-associative
-        TokenKind::Plus | TokenKind::Minus => Some((19, 20)),
+        TokenKind::Plus | TokenKind::Minus => Some((20, 21)),
         // Multiplication/division/modulo: left-associative
-        TokenKind::Star | TokenKind::Slash | TokenKind::Percent => Some((21, 22)),
+        TokenKind::Star | TokenKind::Slash | TokenKind::Percent => Some((22, 23)),
         _ => None,
     }
 }

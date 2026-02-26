@@ -736,26 +736,34 @@ fn emit_function<'ctx>(
 
     // Create allocas for all SSA registers
     let mut register_allocas: HashMap<u32, PointerValue<'ctx>> = HashMap::new();
+    let mut str_ptr_allocas: HashMap<u32, PointerValue<'ctx>> = HashMap::new();
+    let mut str_len_allocas: HashMap<u32, PointerValue<'ctx>> = HashMap::new();
     for r in 0..func.register_count {
         let alloca = builder
             .build_alloca(context.i64_type(), &format!("r{}", r))
             .map_err(|e| BackendError::LlvmError(e.to_string()))?;
         register_allocas.insert(r, alloca);
+        // Companion allocas for string ptr/len — used when string values
+        // flow through control flow (if-else branches, loops).
+        let ptr_alloca = builder
+            .build_alloca(
+                context.ptr_type(AddressSpace::default()),
+                &format!("r{}_str_ptr", r),
+            )
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        let len_alloca = builder
+            .build_alloca(context.i64_type(), &format!("r{}_str_len", r))
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        str_ptr_allocas.insert(r, ptr_alloca);
+        str_len_allocas.insert(r, len_alloca);
     }
 
     // Store incoming parameters
     for (param_idx, &(first_llvm, count)) in layout.entries.iter().enumerate() {
         if count == 2 {
-            // String param: create separate ptr/len allocas
-            let ptr_alloca = builder
-                .build_alloca(
-                    context.ptr_type(AddressSpace::default()),
-                    &format!("r{}_str_ptr", param_idx),
-                )
-                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-            let len_alloca = builder
-                .build_alloca(context.i64_type(), &format!("r{}_str_len", param_idx))
-                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            // String param: store ptr/len into the pre-allocated companion allocas
+            let ptr_alloca = str_ptr_allocas[&(param_idx as u32)];
+            let len_alloca = str_len_allocas[&(param_idx as u32)];
 
             let ptr_param = fn_val.get_nth_param(first_llvm).unwrap();
             let len_param = fn_val.get_nth_param(first_llvm + 1).unwrap();
@@ -824,6 +832,8 @@ fn emit_function<'ctx>(
                 context,
                 builder,
                 &register_allocas,
+                &str_ptr_allocas,
+                &str_len_allocas,
                 reg_string_info,
                 string_constants,
                 function_map,
@@ -852,9 +862,19 @@ fn emit_function<'ctx>(
                             None,
                         );
                         builder.set_current_debug_location(loc);
-                        if let Some(alloca) = register_allocas.get(&0) {
-                            let zero = context.i64_type().const_zero();
-                            let _ = builder.build_store(*alloca, zero);
+                        // Emit a dummy store for the debugger stop, but NOT
+                        // to the return register — that would clobber the value.
+                        let ret_reg_idx = match &block.terminator {
+                            Terminator::Return(r) => Some(r.0),
+                            _ => None,
+                        };
+                        // Pick a register that isn't the return register for the dummy store.
+                        let dummy_idx = if ret_reg_idx == Some(0) { None } else { Some(0u32) };
+                        if let Some(idx) = dummy_idx {
+                            if let Some(alloca) = register_allocas.get(&idx) {
+                                let zero = context.i64_type().const_zero();
+                                let _ = builder.build_store(*alloca, zero);
+                            }
                         }
                     }
                 }
@@ -888,6 +908,8 @@ fn emit_instruction<'ctx>(
     context: &'ctx Context,
     builder: &Builder<'ctx>,
     register_allocas: &HashMap<u32, PointerValue<'ctx>>,
+    str_ptr_allocas: &HashMap<u32, PointerValue<'ctx>>,
+    str_len_allocas: &HashMap<u32, PointerValue<'ctx>>,
     reg_string_info: &mut HashMap<u32, RegStringInfo>,
     string_constants: &[(GlobalValue<'ctx>, u64)],
     function_map: &HashMap<u32, FunctionValue<'ctx>>,
@@ -930,6 +952,21 @@ fn emit_instruction<'ctx>(
         }
         Instruction::Const(reg, ConstValue::StringLiteral(idx)) => {
             reg_string_info.insert(reg.0, RegStringInfo::StringLiteral(*idx));
+            // Also store resolved ptr/len to companion allocas so string values
+            // survive control flow (if-else, loops) where Copy propagates allocas.
+            let (global, len) = &string_constants[*idx as usize];
+            let ptr = gep_string_ptr(context, builder, global, *len)?;
+            let len_val = context.i64_type().const_int(*len, false);
+            if let Some(&ptr_alloca) = str_ptr_allocas.get(&reg.0) {
+                builder
+                    .build_store(ptr_alloca, ptr)
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            }
+            if let Some(&len_alloca) = str_len_allocas.get(&reg.0) {
+                builder
+                    .build_store(len_alloca, len_val)
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            }
         }
         Instruction::Const(_, ConstValue::Unit) | Instruction::ConstUnit(_) => {}
 
@@ -950,7 +987,21 @@ fn emit_instruction<'ctx>(
                         .map_err(|e| BackendError::LlvmError(e.to_string()))?
                         .into_pointer_value()
                 }
-                _ => context.ptr_type(AddressSpace::default()).const_null(),
+                _ => {
+                    // Fallback to companion alloca
+                    if let Some(&ptr_al) = str_ptr_allocas.get(&src.0) {
+                        builder
+                            .build_load(
+                                context.ptr_type(AddressSpace::default()),
+                                ptr_al,
+                                "str_alloca_ptr",
+                            )
+                            .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                            .into_pointer_value()
+                    } else {
+                        context.ptr_type(AddressSpace::default()).const_null()
+                    }
+                }
             };
             let v = builder
                 .build_ptr_to_int(ptr_val, context.i64_type(), "ptr_to_i64")
@@ -1118,6 +1169,8 @@ fn emit_instruction<'ctx>(
                 builder,
                 program,
                 register_allocas,
+                str_ptr_allocas,
+                str_len_allocas,
                 reg_string_info,
                 string_constants,
                 function_map,
@@ -1132,8 +1185,36 @@ fn emit_instruction<'ctx>(
         Instruction::Copy(dst, src) => {
             let val = load_i64(context, builder, register_allocas, src.0)?;
             store(builder, register_allocas, dst.0, val)?;
-            if let Some(info) = reg_string_info.get(&src.0).cloned() {
-                reg_string_info.insert(dst.0, info);
+            // Note: we intentionally do NOT propagate reg_string_info here.
+            // The companion allocas (str_ptr_allocas, str_len_allocas) are copied
+            // below and correctly handle control flow (if/else branches).
+            // Propagating reg_string_info would cause the last-compiled branch
+            // to hardcode its string literal for the destination register.
+
+            // Copy string companion allocas for control-flow correctness
+            if let (Some(&src_ptr), Some(&dst_ptr)) =
+                (str_ptr_allocas.get(&src.0), str_ptr_allocas.get(&dst.0))
+            {
+                let ptr_val = builder
+                    .build_load(
+                        context.ptr_type(AddressSpace::default()),
+                        src_ptr,
+                        "copy_str_ptr",
+                    )
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                builder
+                    .build_store(dst_ptr, ptr_val)
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            }
+            if let (Some(&src_len), Some(&dst_len)) =
+                (str_len_allocas.get(&src.0), str_len_allocas.get(&dst.0))
+            {
+                let len_val = builder
+                    .build_load(context.i64_type(), src_len, "copy_str_len")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                builder
+                    .build_store(dst_len, len_val)
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
             }
         }
 
@@ -1222,6 +1303,137 @@ fn emit_instruction<'ctx>(
                 .build_direct_call(arc.arc_release, &[obj_ptr.into(), drop_fn_ptr.into()], "")
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?;
         }
+
+        // Tuple/Array operations — heap-allocated like structs for now
+        Instruction::TupleAlloc(dst, type_id, elements) | Instruction::FixedArrayAlloc(dst, type_id, elements) => {
+            // Allocate: header (16 bytes) + elements (8 bytes each)
+            let header_size = 16u64;
+            let field_size = elements.len() as u64 * 8;
+            let total_size = context.i64_type().const_int(header_size + field_size, false);
+            let type_tag = context.i32_type().const_int(type_id.0 as u64, false);
+            let call_result = builder
+                .build_direct_call(arc.arc_alloc, &[total_size.into(), type_tag.into()], "alloc")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let ptr = call_result
+                .try_as_basic_value()
+                .basic()
+                .expect("arc_alloc should return a pointer")
+                .into_pointer_value();
+            // Store elements
+            for (i, elem_reg) in elements.iter().enumerate() {
+                let byte_offset = 16u64 + (i as u64) * 8;
+                let field_ptr = unsafe {
+                    builder
+                        .build_gep(
+                            context.i8_type(),
+                            ptr,
+                            &[context.i64_type().const_int(byte_offset, false)],
+                            "elem_ptr",
+                        )
+                        .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                };
+                let val = load_i64(context, builder, register_allocas, elem_reg.0)?;
+                builder
+                    .build_store(field_ptr, val)
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            }
+            // Store pointer as i64
+            let ptr_as_i64 = builder
+                .build_ptr_to_int(ptr, context.i64_type(), "ptr_to_i64")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            store(builder, register_allocas, dst.0, ptr_as_i64)?;
+        }
+        Instruction::TupleLoad(dst, ptr_reg, offset) => {
+            let obj_ptr = load_ptr(context, builder, register_allocas, ptr_reg.0)?;
+            let byte_offset = 16u64 + (*offset as u64) * 8;
+            let field_ptr = unsafe {
+                builder
+                    .build_gep(
+                        context.i8_type(),
+                        obj_ptr,
+                        &[context.i64_type().const_int(byte_offset, false)],
+                        "tuple_field_ptr",
+                    )
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            };
+            let val = builder
+                .build_load(context.i64_type(), field_ptr, "tuple_field_val")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                .into_int_value();
+            store(builder, register_allocas, dst.0, val)?;
+        }
+        Instruction::TupleStore(ptr_reg, offset, src) => {
+            let obj_ptr = load_ptr(context, builder, register_allocas, ptr_reg.0)?;
+            let byte_offset = 16u64 + (*offset as u64) * 8;
+            let field_ptr = unsafe {
+                builder
+                    .build_gep(
+                        context.i8_type(),
+                        obj_ptr,
+                        &[context.i64_type().const_int(byte_offset, false)],
+                        "tuple_field_ptr",
+                    )
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            };
+            let val = load_i64(context, builder, register_allocas, src.0)?;
+            builder
+                .build_store(field_ptr, val)
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        }
+        Instruction::IndexLoad(dst, ptr_reg, idx_reg, _elem_type) => {
+            let obj_ptr = load_ptr(context, builder, register_allocas, ptr_reg.0)?;
+            let idx_val = load_i64(context, builder, register_allocas, idx_reg.0)?;
+            // Compute byte offset: 16 (header) + idx * 8
+            let eight = context.i64_type().const_int(8, false);
+            let sixteen = context.i64_type().const_int(16, false);
+            let idx_offset = builder
+                .build_int_mul(idx_val, eight, "idx_offset")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let byte_offset = builder
+                .build_int_add(sixteen, idx_offset, "byte_offset")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let field_ptr = unsafe {
+                builder
+                    .build_gep(
+                        context.i8_type(),
+                        obj_ptr,
+                        &[byte_offset],
+                        "index_ptr",
+                    )
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            };
+            let val = builder
+                .build_load(context.i64_type(), field_ptr, "index_val")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                .into_int_value();
+            store(builder, register_allocas, dst.0, val)?;
+        }
+        Instruction::IndexStore(ptr_reg, idx_reg, src) => {
+            let obj_ptr = load_ptr(context, builder, register_allocas, ptr_reg.0)?;
+            let idx_val = load_i64(context, builder, register_allocas, idx_reg.0)?;
+            let eight = context.i64_type().const_int(8, false);
+            let sixteen = context.i64_type().const_int(16, false);
+            let idx_offset = builder
+                .build_int_mul(idx_val, eight, "idx_offset")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let byte_offset = builder
+                .build_int_add(sixteen, idx_offset, "byte_offset")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let field_ptr = unsafe {
+                builder
+                    .build_gep(
+                        context.i8_type(),
+                        obj_ptr,
+                        &[byte_offset],
+                        "index_ptr",
+                    )
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            };
+            let val = load_i64(context, builder, register_allocas, src.0)?;
+            builder
+                .build_store(field_ptr, val)
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        }
     }
     Ok(())
 }
@@ -1231,6 +1443,8 @@ fn emit_call<'ctx>(
     builder: &Builder<'ctx>,
     program: &Program,
     register_allocas: &HashMap<u32, PointerValue<'ctx>>,
+    str_ptr_allocas: &HashMap<u32, PointerValue<'ctx>>,
+    str_len_allocas: &HashMap<u32, PointerValue<'ctx>>,
     reg_string_info: &mut HashMap<u32, RegStringInfo>,
     string_constants: &[(GlobalValue<'ctx>, u64)],
     function_map: &HashMap<u32, FunctionValue<'ctx>>,
@@ -1306,13 +1520,33 @@ fn emit_call<'ctx>(
                         llvm_args.push(len);
                     }
                     _ => {
-                        llvm_args.push(
-                            context
-                                .ptr_type(AddressSpace::default())
-                                .const_null()
-                                .into(),
-                        );
-                        llvm_args.push(context.i64_type().const_zero().into());
+                        // Fallback: load from companion allocas (handles control-flow
+                        // cases where reg_string_info was overwritten by another branch)
+                        if let (Some(&ptr_al), Some(&len_al)) = (
+                            str_ptr_allocas.get(&arg_reg.0),
+                            str_len_allocas.get(&arg_reg.0),
+                        ) {
+                            let ptr = builder
+                                .build_load(
+                                    context.ptr_type(AddressSpace::default()),
+                                    ptr_al,
+                                    "str_alloca_ptr",
+                                )
+                                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                            let len = builder
+                                .build_load(context.i64_type(), len_al, "str_alloca_len")
+                                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                            llvm_args.push(ptr);
+                            llvm_args.push(len);
+                        } else {
+                            llvm_args.push(
+                                context
+                                    .ptr_type(AddressSpace::default())
+                                    .const_null()
+                                    .into(),
+                            );
+                            llvm_args.push(context.i64_type().const_zero().into());
+                        }
                     }
                 }
             } else {

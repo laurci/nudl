@@ -64,6 +64,8 @@ pub enum TypeKind {
     Never,
     Function { params: Vec<TypeId>, ret: TypeId },
     Struct { name: String, fields: Vec<(String, TypeId)> },
+    Tuple(Vec<TypeId>),
+    FixedArray { element: TypeId, length: usize },
     Error,
 }
 
@@ -175,6 +177,19 @@ impl TypeInterner {
 
     pub fn is_struct(&self, id: TypeId) -> bool {
         matches!(self.resolve(id), TypeKind::Struct { .. })
+    }
+
+    pub fn is_tuple(&self, id: TypeId) -> bool {
+        matches!(self.resolve(id), TypeKind::Tuple(_))
+    }
+
+    pub fn is_fixed_array(&self, id: TypeId) -> bool {
+        matches!(self.resolve(id), TypeKind::FixedArray { .. })
+    }
+
+    /// Returns true if this type is a reference type (heap-allocated, ARC-managed)
+    pub fn is_reference_type(&self, id: TypeId) -> bool {
+        matches!(self.resolve(id), TypeKind::Struct { .. } | TypeKind::String)
     }
 
     pub fn iter_types(&self) -> impl Iterator<Item = (TypeId, &TypeKind)> {

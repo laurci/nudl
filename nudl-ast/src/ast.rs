@@ -136,6 +136,26 @@ pub enum Expr {
         object: Box<SpannedExpr>,
         field: String,
     },
+    TupleLiteral(Vec<SpannedExpr>),
+    ArrayLiteral(Vec<SpannedExpr>),
+    ArrayRepeat {
+        value: Box<SpannedExpr>,
+        count: usize,
+    },
+    IndexAccess {
+        object: Box<SpannedExpr>,
+        index: Box<SpannedExpr>,
+    },
+    Range {
+        start: Box<SpannedExpr>,
+        end: Box<SpannedExpr>,
+        inclusive: bool,
+    },
+    For {
+        binding: String,
+        iter: Box<SpannedExpr>,
+        body: Box<Spanned<Block>>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -205,4 +225,9 @@ pub struct CallArg {
 pub enum TypeExpr {
     Named(String),
     Unit,
+    Tuple(Vec<Spanned<TypeExpr>>),
+    FixedArray {
+        element: Box<Spanned<TypeExpr>>,
+        length: usize,
+    },
 }

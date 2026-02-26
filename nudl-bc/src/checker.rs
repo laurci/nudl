@@ -141,6 +141,17 @@ impl Checker {
                     self.types.error()
                 }
             },
+            TypeExpr::Tuple(elements) => {
+                let element_types: Vec<TypeId> = elements
+                    .iter()
+                    .map(|e| self.resolve_type(e))
+                    .collect();
+                self.types.intern(TypeKind::Tuple(element_types))
+            }
+            TypeExpr::FixedArray { element, length } => {
+                let elem_ty = self.resolve_type(element);
+                self.types.intern(TypeKind::FixedArray { element: elem_ty, length: *length })
+            }
         }
     }
 
@@ -157,6 +168,13 @@ impl Checker {
             TypeKind::Never => "!".into(),
             TypeKind::Function { .. } => "fn(...)".into(),
             TypeKind::Struct { name, .. } => name.clone(),
+            TypeKind::Tuple(elements) => {
+                let parts: Vec<String> = elements.iter().map(|e| self.type_name(*e)).collect();
+                format!("({})", parts.join(", "))
+            }
+            TypeKind::FixedArray { element, length } => {
+                format!("[{}; {}]", self.type_name(*element), length)
+            }
             TypeKind::Error => "<error>".into(),
         }
     }
@@ -733,6 +751,39 @@ impl Checker {
                             }
                         }
                     }
+                } else if let Expr::IndexAccess { object, index } = &target.node {
+                    let obj_ty = self.check_expr(object, locals);
+                    let idx_ty = self.check_expr(index, locals);
+                    if obj_ty != self.types.error() && idx_ty != self.types.error() {
+                        if !self.is_integer_type(idx_ty) {
+                            self.diagnostics.add(&CheckerDiagnostic::InvalidOperatorType {
+                                span: index.span,
+                                op: "index".into(),
+                                ty: self.type_name(idx_ty),
+                            });
+                        }
+                        match self.types.resolve(obj_ty).clone() {
+                            TypeKind::FixedArray { element, .. } => {
+                                if val_ty != element
+                                    && val_ty != self.types.error()
+                                    && element != self.types.error()
+                                {
+                                    self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                                        span: value.span,
+                                        expected: self.type_name(element),
+                                        found: self.type_name(val_ty),
+                                    });
+                                }
+                            }
+                            _ => {
+                                self.diagnostics.add(&CheckerDiagnostic::InvalidOperatorType {
+                                    span: target.span,
+                                    op: "index".into(),
+                                    ty: self.type_name(obj_ty),
+                                });
+                            }
+                        }
+                    }
                 }
                 self.types.unit()
             }
@@ -950,6 +1001,28 @@ impl Checker {
                             self.types.error()
                         }
                     }
+                    TypeKind::Tuple(elements) => {
+                        // Numeric field access on tuples: .0, .1, etc.
+                        if let Ok(idx) = field.parse::<usize>() {
+                            if idx < elements.len() {
+                                elements[idx]
+                            } else {
+                                self.diagnostics.add(&CheckerDiagnostic::InvalidOperatorType {
+                                    span: expr.span,
+                                    op: "tuple index".into(),
+                                    ty: format!("index {} out of bounds for {}-element tuple", idx, elements.len()),
+                                });
+                                self.types.error()
+                            }
+                        } else {
+                            self.diagnostics
+                                .add(&CheckerDiagnostic::FieldAccessOnNonStruct {
+                                    span: expr.span,
+                                    ty: self.type_name(obj_ty),
+                                });
+                            self.types.error()
+                        }
+                    }
                     _ => {
                         self.diagnostics
                             .add(&CheckerDiagnostic::FieldAccessOnNonStruct {
@@ -959,6 +1032,149 @@ impl Checker {
                         self.types.error()
                     }
                 }
+            }
+
+            Expr::TupleLiteral(elements) => {
+                let element_types: Vec<TypeId> = elements
+                    .iter()
+                    .map(|e| self.check_expr(e, locals))
+                    .collect();
+                self.types.intern(TypeKind::Tuple(element_types))
+            }
+
+            Expr::ArrayLiteral(elements) => {
+                if elements.is_empty() {
+                    // Empty array — can't infer type without annotation
+                    // For now return error; type annotation needed
+                    self.types.error()
+                } else {
+                    let first_ty = self.check_expr(&elements[0], locals);
+                    for elem in &elements[1..] {
+                        let elem_ty = self.check_expr(elem, locals);
+                        if elem_ty != first_ty
+                            && elem_ty != self.types.error()
+                            && first_ty != self.types.error()
+                        {
+                            self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                                span: elem.span,
+                                expected: self.type_name(first_ty),
+                                found: self.type_name(elem_ty),
+                            });
+                        }
+                    }
+                    self.types.intern(TypeKind::FixedArray {
+                        element: first_ty,
+                        length: elements.len(),
+                    })
+                }
+            }
+
+            Expr::ArrayRepeat { value, count } => {
+                let elem_ty = self.check_expr(value, locals);
+                self.types.intern(TypeKind::FixedArray {
+                    element: elem_ty,
+                    length: *count,
+                })
+            }
+
+            Expr::IndexAccess { object, index } => {
+                let obj_ty = self.check_expr(object, locals);
+                let idx_ty = self.check_expr(index, locals);
+
+                if obj_ty == self.types.error() || idx_ty == self.types.error() {
+                    return self.types.error();
+                }
+
+                if !self.is_integer_type(idx_ty) {
+                    self.diagnostics.add(&CheckerDiagnostic::InvalidOperatorType {
+                        span: index.span,
+                        op: "index".into(),
+                        ty: self.type_name(idx_ty),
+                    });
+                    return self.types.error();
+                }
+
+                match self.types.resolve(obj_ty).clone() {
+                    TypeKind::FixedArray { element, .. } => element,
+                    _ => {
+                        self.diagnostics.add(&CheckerDiagnostic::InvalidOperatorType {
+                            span: expr.span,
+                            op: "index".into(),
+                            ty: self.type_name(obj_ty),
+                        });
+                        self.types.error()
+                    }
+                }
+            }
+
+            Expr::Range { start, end, .. } => {
+                let start_ty = self.check_expr(start, locals);
+                let end_ty = self.check_expr(end, locals);
+
+                if start_ty == self.types.error() || end_ty == self.types.error() {
+                    return self.types.error();
+                }
+
+                if start_ty != end_ty {
+                    self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                        span: end.span,
+                        expected: self.type_name(start_ty),
+                        found: self.type_name(end_ty),
+                    });
+                }
+
+                if !self.is_integer_type(start_ty) {
+                    self.diagnostics.add(&CheckerDiagnostic::InvalidOperatorType {
+                        span: expr.span,
+                        op: "range".into(),
+                        ty: self.type_name(start_ty),
+                    });
+                }
+
+                // Range type is unit for now — ranges are only used in for-loops
+                self.types.unit()
+            }
+
+            Expr::For { binding, iter, body } => {
+                let iter_ty = self.check_expr(iter, locals);
+
+                // Determine the element type based on the iterator
+                let elem_ty = match &iter.node {
+                    Expr::Range { start, .. } => {
+                        // For ranges, element type is the range's integer type
+                        self.check_expr(start, locals)
+                    }
+                    _ => {
+                        // For arrays, element type is the array's element type
+                        if iter_ty != self.types.error() {
+                            match self.types.resolve(iter_ty).clone() {
+                                TypeKind::FixedArray { element, .. } => element,
+                                _ => {
+                                    self.diagnostics.add(&CheckerDiagnostic::InvalidOperatorType {
+                                        span: iter.span,
+                                        op: "for-in".into(),
+                                        ty: self.type_name(iter_ty),
+                                    });
+                                    self.types.error()
+                                }
+                            }
+                        } else {
+                            self.types.error()
+                        }
+                    }
+                };
+
+                locals.push_scope();
+                locals.insert(
+                    binding.clone(),
+                    LocalInfo {
+                        ty: elem_ty,
+                        is_mut: false,
+                    },
+                );
+                self.check_block(&body.node, locals);
+                locals.pop_scope();
+                self.types.unit()
             }
         }
     }

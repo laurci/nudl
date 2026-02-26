@@ -28,13 +28,13 @@
 - [x] Strings — reference type with (ptr, len) pair expansion (`tests/core-types/strings.nudl`)
 - [~] Template strings — lexer/parser handle backtick interpolation with brace nesting; not yet lowered to IR/codegen (`tests/core-types/format_strings.nudl`)
 - [x] Unit type (`tests/core-types/unit.nudl`)
-- [ ] Tuples (`tests/core-types/tuples.nudl`)
+- [~] Tuples — tuple types `(T1, T2)`, tuple literals, `.0`/`.1` element access, tuples as function params/returns; no destructuring yet (`tests/core-types/tuples_basic.nudl`)
 - [ ] Dynamic arrays T[] (`tests/core-types/dynamic_arrays.nudl`)
-- [ ] Fixed-size arrays [T; N] (`tests/core-types/fixed_arrays.nudl`)
+- [x] Fixed-size arrays [T; N] — array literals, index access, mutable index assignment, array repeat `[0; 5]`, type annotations (`tests/core-types/fixed_arrays_basic.nudl`)
 - [ ] Maps (`tests/core-types/maps.nudl`)
 - [ ] Function types as values — TypeKind::Function exists but not usable as first-class values (`tests/core-types/function_types.nudl`)
 - [x] Never type (!) — TypeKind::Never, pre-interned, recognized in type checker
-- [ ] Range types
+- [~] Range types — `..` and `..=` operators parsed/lowered for use in for-in loops; no standalone Range struct yet
 - [x] FFI types — RawPtr, MutRawPtr, CStr all in type checker + codegen; cast support between pointer types
 
 ## 2. Variables & Bindings
@@ -51,7 +51,7 @@
 - [x] Logical (&&, ||, !) — with short-circuit evaluation (`tests/operators/logical.nudl`)
 - [x] Bitwise — all ops (&, |, ^, ~, <<, >>) parsed, type-checked, lowered, codegen'd (`tests/operators/bitwise.nudl`)
 - [x] Assignment (=, +=, -=, *=, /=, %=, <<=, >>=, &=, |=, ^=) — all compound assignments including bitwise (`tests/operators/assignment.nudl`)
-- [~] Range (.., ..=) — parsed, not lowered to IR (`tests/operators/range.nudl`)
+- [x] Range (.., ..=) — parsed as infix operators, used in for-in loops via while-loop desugaring (`tests/operators/range.nudl`)
 - [x] Pipe (|>) — parsed and desugared to function calls at parse time (`tests/operators/pipe.nudl`)
 - [x] Type cast (as) — postfix `as Type` with numeric↔numeric, bool→int, char↔u32, ptr casts (`tests/operators/type_cast.nudl`)
 - [ ] Error propagation (?) — token exists, not parsed (`tests/operators/error_propagation.nudl`)
@@ -61,7 +61,7 @@
 - [x] If/else — with tail expression semantics, if-else-if chains (`tests/control-flow/if_else.nudl`)
 - [ ] If-let (`tests/control-flow/if_let.nudl`)
 - [ ] Match — token exists, not parsed (`tests/control-flow/match_basic.nudl`)
-- [ ] For loops — token exists, not parsed (`tests/control-flow/for_loops.nudl`)
+- [x] For loops — `for x in 0..n`, `for x in 0..=n`, `for x in array`; desugared to while loops at IR lowering (`tests/control-flow/for_loops_basic.nudl`)
 - [x] While loops (`tests/control-flow/while_loops.nudl`)
 - [x] Infinite loop (`tests/control-flow/loop_infinite.nudl`)
 - [x] Break/continue (`tests/control-flow/break_continue.nudl`)

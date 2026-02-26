@@ -544,6 +544,93 @@ impl Vm {
                     self.heap.remove(&id);
                 }
             }
+
+            // Tuple/Array operations — use same heap object representation
+            Instruction::TupleAlloc(dst, type_id, elements) | Instruction::FixedArrayAlloc(dst, type_id, elements) => {
+                let id = self.next_heap_id;
+                self.next_heap_id += 1;
+                let fields: Vec<Value> = elements.iter().map(|r| registers[r.0 as usize].clone()).collect();
+                self.heap.insert(id, HeapObject {
+                    fields,
+                    strong_count: 1,
+                    weak_count: 0,
+                    type_tag: type_id.0,
+                });
+                registers[dst.0 as usize] = Value::HeapRef(id);
+            }
+            Instruction::TupleLoad(dst, ptr_reg, offset) => {
+                let id = match &registers[ptr_reg.0 as usize] {
+                    Value::HeapRef(id) => *id,
+                    other => return Err(VmError::TypeError {
+                        message: format!("TupleLoad expected HeapRef, got {:?}", other),
+                    }),
+                };
+                let obj = self.heap.get(&id).ok_or_else(|| VmError::TypeError {
+                    message: format!("TupleLoad from freed heap object {}", id),
+                })?;
+                let val = obj.fields.get(*offset as usize).cloned().unwrap_or(Value::Unit);
+                registers[dst.0 as usize] = val;
+            }
+            Instruction::TupleStore(ptr_reg, offset, src) => {
+                let id = match &registers[ptr_reg.0 as usize] {
+                    Value::HeapRef(id) => *id,
+                    other => return Err(VmError::TypeError {
+                        message: format!("TupleStore expected HeapRef, got {:?}", other),
+                    }),
+                };
+                let val = registers[src.0 as usize].clone();
+                let obj = self.heap.get_mut(&id).ok_or_else(|| VmError::TypeError {
+                    message: format!("TupleStore to freed heap object {}", id),
+                })?;
+                let idx = *offset as usize;
+                if idx >= obj.fields.len() {
+                    obj.fields.resize(idx + 1, Value::Unit);
+                }
+                obj.fields[idx] = val;
+            }
+            Instruction::IndexLoad(dst, ptr_reg, idx_reg, _elem_type) => {
+                let id = match &registers[ptr_reg.0 as usize] {
+                    Value::HeapRef(id) => *id,
+                    other => return Err(VmError::TypeError {
+                        message: format!("IndexLoad expected HeapRef, got {:?}", other),
+                    }),
+                };
+                let idx = match &registers[idx_reg.0 as usize] {
+                    Value::I32(v) => *v as usize,
+                    Value::I64(v) => *v as usize,
+                    other => return Err(VmError::TypeError {
+                        message: format!("IndexLoad expected integer index, got {:?}", other),
+                    }),
+                };
+                let obj = self.heap.get(&id).ok_or_else(|| VmError::TypeError {
+                    message: format!("IndexLoad from freed heap object {}", id),
+                })?;
+                let val = obj.fields.get(idx).cloned().unwrap_or(Value::Unit);
+                registers[dst.0 as usize] = val;
+            }
+            Instruction::IndexStore(ptr_reg, idx_reg, src) => {
+                let id = match &registers[ptr_reg.0 as usize] {
+                    Value::HeapRef(id) => *id,
+                    other => return Err(VmError::TypeError {
+                        message: format!("IndexStore expected HeapRef, got {:?}", other),
+                    }),
+                };
+                let idx = match &registers[idx_reg.0 as usize] {
+                    Value::I32(v) => *v as usize,
+                    Value::I64(v) => *v as usize,
+                    other => return Err(VmError::TypeError {
+                        message: format!("IndexStore expected integer index, got {:?}", other),
+                    }),
+                };
+                let val = registers[src.0 as usize].clone();
+                let obj = self.heap.get_mut(&id).ok_or_else(|| VmError::TypeError {
+                    message: format!("IndexStore to freed heap object {}", id),
+                })?;
+                if idx >= obj.fields.len() {
+                    obj.fields.resize(idx + 1, Value::Unit);
+                }
+                obj.fields[idx] = val;
+            }
         }
 
         Ok(())

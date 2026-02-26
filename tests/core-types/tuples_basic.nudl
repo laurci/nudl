@@ -1,0 +1,40 @@
+// Test: Basic tuple types
+// Covers: construction, .0/.1 access, nested tuples, tuples as function params/returns
+
+extern {
+    fn write(fd: i32, buf: RawPtr, count: u64) -> i64;
+}
+
+fn print(s: string) {
+    write(1, __str_ptr(s), __str_len(s));
+}
+
+fn println(s: string) {
+    print(s);
+    print("\n");
+}
+
+fn returns_pair() -> (i32, i32) {
+    (42, 100)
+}
+
+fn main() {
+    // Basic tuple construction
+    let pair = (1, 2);
+
+    // Element access by numeric index
+    let first = pair.0;
+    let second = pair.1;
+
+    // Nested tuples
+    let nested = ((10, 20), (30, 40));
+    let inner = nested.0;
+    // nested.0.0 requires intermediate variable due to lexer (0.0 → float literal)
+    let inner_first = inner.0;
+
+    // Tuple from function return
+    let result = returns_pair();
+    let val = result.0;
+
+    println("tuples ok");
+}

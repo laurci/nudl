@@ -556,6 +556,44 @@ fn fmt_ast_expr(expr: &Expr, out: &mut String, level: usize) {
             fmt_ast_expr(&object.node, out, level);
             out.push_str(&format!(".{}", field));
         }
+        Expr::TupleLiteral(elements) => {
+            out.push_str("Tuple(");
+            for (i, elem) in elements.iter().enumerate() {
+                if i > 0 { out.push_str(", "); }
+                fmt_ast_expr(&elem.node, out, level);
+            }
+            out.push(')');
+        }
+        Expr::ArrayLiteral(elements) => {
+            out.push('[');
+            for (i, elem) in elements.iter().enumerate() {
+                if i > 0 { out.push_str(", "); }
+                fmt_ast_expr(&elem.node, out, level);
+            }
+            out.push(']');
+        }
+        Expr::ArrayRepeat { value, count } => {
+            out.push('[');
+            fmt_ast_expr(&value.node, out, level);
+            out.push_str(&format!("; {}]", count));
+        }
+        Expr::IndexAccess { object, index } => {
+            fmt_ast_expr(&object.node, out, level);
+            out.push('[');
+            fmt_ast_expr(&index.node, out, level);
+            out.push(']');
+        }
+        Expr::Range { start, end, inclusive } => {
+            fmt_ast_expr(&start.node, out, level);
+            if *inclusive { out.push_str("..="); } else { out.push_str(".."); }
+            fmt_ast_expr(&end.node, out, level);
+        }
+        Expr::For { binding, iter, body } => {
+            out.push_str(&format!("For {} in ", binding));
+            fmt_ast_expr(&iter.node, out, level);
+            out.push('\n');
+            fmt_ast_block(&body.node, out, level + 1);
+        }
     }
 }
 
@@ -563,6 +601,13 @@ fn fmt_type_expr(ty: &TypeExpr) -> String {
     match ty {
         TypeExpr::Named(name) => name.clone(),
         TypeExpr::Unit => "()".into(),
+        TypeExpr::Tuple(elements) => {
+            let parts: Vec<String> = elements.iter().map(|e| fmt_type_expr(&e.node)).collect();
+            format!("({})", parts.join(", "))
+        }
+        TypeExpr::FixedArray { element, length } => {
+            format!("[{}; {}]", fmt_type_expr(&element.node), length)
+        }
     }
 }
 
@@ -769,6 +814,27 @@ fn fmt_instruction(
             } else {
                 out.push_str(&format!("Release(r{})", reg.0));
             }
+        }
+        // Tuple/Array operations
+        Instruction::TupleAlloc(dst, type_id, elems) => {
+            let regs: Vec<String> = elems.iter().map(|r| format!("r{}", r.0)).collect();
+            out.push_str(&format!("r{} = TupleAlloc(type_id={}, [{}])", dst.0, type_id.0, regs.join(", ")));
+        }
+        Instruction::FixedArrayAlloc(dst, type_id, elems) => {
+            let regs: Vec<String> = elems.iter().map(|r| format!("r{}", r.0)).collect();
+            out.push_str(&format!("r{} = FixedArrayAlloc(type_id={}, [{}])", dst.0, type_id.0, regs.join(", ")));
+        }
+        Instruction::TupleLoad(dst, ptr, offset) => {
+            out.push_str(&format!("r{} = TupleLoad(r{}, offset={})", dst.0, ptr.0, offset));
+        }
+        Instruction::TupleStore(ptr, offset, src) => {
+            out.push_str(&format!("TupleStore(r{}, offset={}, r{})", ptr.0, offset, src.0));
+        }
+        Instruction::IndexLoad(dst, ptr, idx, _elem_type) => {
+            out.push_str(&format!("r{} = IndexLoad(r{}, r{})", dst.0, ptr.0, idx.0));
+        }
+        Instruction::IndexStore(ptr, idx, src) => {
+            out.push_str(&format!("IndexStore(r{}, r{}, r{})", ptr.0, idx.0, src.0));
         }
     }
 }

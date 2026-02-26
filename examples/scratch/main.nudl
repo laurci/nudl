@@ -1,55 +1,390 @@
+// nudl kitchen sink -- every working feature in one program
+
+// -- FFI --
 extern {
     fn write(fd: i32, buf: RawPtr, count: u64) -> i64;
 }
 
+// -- Printing helpers (no stdlib yet) --
 fn print(s: string) {
-    let output = write(1, __str_ptr(s), __str_len(s));
+    write(1, __str_ptr(s), __str_len(s));
 }
 
-fn print_digit(i: i32) {
-    if i == 0 {
-        print("0");
-    } else if i == 1 {
-        print("1");
-    } else if i == 2 {
-        print("2");
-    } else if i == 3 {
-        print("3");
-    } else if i == 4 {
-        print("4");
-    } else if i == 5 {
-        print("5");
-    } else if i == 6 {
-        print("6");
-    } else if i == 7 {
-        print("7");
-    } else if i == 8 {
-        print("8");
-    } else if i == 9 {
-        print("9");
-    }
-}
-
-fn print_number(i: i32) {
-    if i > 9 {
-        print_number(i / 10);
-    }
-    print_digit(i % 10);
-}
-
-fn multiply_number(i: i32, factor: i32) -> i32 {
-    i * factor  
-}
-
-fn main() {
-    print("hello world!\n");
-    let x = 11;
-    let y = 23;
-    let n = {
-        let z = x + y;
-        z * 2
-    };
-    print("n * 3 = ");
-    n |> multiply_number(3) |> print_number;
+fn println(s: string) {
+    print(s);
     print("\n");
+}
+
+fn print_digit(d: i32) {
+    if d == 0 { print("0"); }
+    else if d == 1 { print("1"); }
+    else if d == 2 { print("2"); }
+    else if d == 3 { print("3"); }
+    else if d == 4 { print("4"); }
+    else if d == 5 { print("5"); }
+    else if d == 6 { print("6"); }
+    else if d == 7 { print("7"); }
+    else if d == 8 { print("8"); }
+    else if d == 9 { print("9"); }
+}
+
+fn print_number(mut n: i32) {
+    if n < 0 {
+        print("-");
+        n = -n;
+    }
+    if n == 0 {
+        print("0");
+        return;
+    }
+    let mut div = 1;
+    while div * 10 <= n {
+        div = div * 10;
+    }
+    while div > 0 {
+        print_digit(n / div);
+        n = n % div;
+        div = div / 10;
+    }
+}
+
+fn print_num_ln(n: i32) {
+    print_number(n);
+    print("\n");
+}
+
+// -- Structs --
+struct Vec2 { x: i32, y: i32 }
+
+fn vec2_new(x: i32, y: i32) -> Vec2 {
+    Vec2 { x: x, y: y }
+}
+
+fn vec2_add(a: Vec2, b: Vec2) -> Vec2 {
+    Vec2 { x: a.x + b.x, y: a.y + b.y }
+}
+
+fn vec2_dot(a: Vec2, b: Vec2) -> i32 {
+    a.x * b.x + a.y * b.y
+}
+
+fn vec2_print(v: Vec2) {
+    print("(");
+    print_number(v.x);
+    print(", ");
+    print_number(v.y);
+    print(")");
+}
+
+// -- Tuples --
+fn swap(pair: (i32, i32)) -> (i32, i32) {
+    (pair.1, pair.0)
+}
+
+fn min_max(arr: [i32; 5]) -> (i32, i32) {
+    let mut lo = arr[0];
+    let mut hi = arr[0];
+    for i in 1..5 {
+        if arr[i] < lo { lo = arr[i]; }
+        if arr[i] > hi { hi = arr[i]; }
+    }
+    (lo, hi)
+}
+
+// -- Higher-order via pipe --
+fn double(n: i32) -> i32 { n * 2 }
+fn add_one(n: i32) -> i32 { n + 1 }
+fn square(n: i32) -> i32 { n * n }
+
+// -- Bit manipulation --
+fn count_set_bits(mut n: i32) -> i32 {
+    let mut count = 0;
+    while n != 0 {
+        count = count + (n & 1);
+        n = n >> 1;
+    }
+    count
+}
+
+fn is_power_of_two(n: i32) -> bool {
+    n > 0 && (n & (n - 1)) == 0
+}
+
+// -- Fizzbuzz with labeled loop --
+fn fizzbuzz(limit: i32) {
+    print("fizzbuzz(");
+    print_number(limit);
+    print("): ");
+
+    let mut i = 1;
+    'outer: while i <= limit {
+        if i % 15 == 0 {
+            print("FizzBuzz ");
+        } else if i % 3 == 0 {
+            print("Fizz ");
+        } else if i % 5 == 0 {
+            print("Buzz ");
+        } else {
+            print_number(i);
+            print(" ");
+        }
+        i = i + 1;
+    }
+    print("\n");
+}
+
+// -- Array algorithms --
+fn bubble_sort(mut arr: [i32; 6]) -> [i32; 6] {
+    let n = 6;
+    for i in 0..n {
+        for j in 0..(n - 1 - i) {
+            if arr[j] > arr[j + 1] {
+                let tmp = arr[j];
+                arr[j] = arr[j + 1];
+                arr[j + 1] = tmp;
+            }
+        }
+    }
+    arr
+}
+
+fn print_array6(arr: [i32; 6]) {
+    print("[");
+    for i in 0..6 {
+        if i > 0 { print(", "); }
+        print_number(arr[i]);
+    }
+    print("]");
+}
+
+// -- Fibonacci with for loop --
+fn fib(n: i32) -> i32 {
+    if n <= 1 { return n; }
+    let mut a = 0;
+    let mut b = 1;
+    for i in 2..=n {
+        let tmp = b;
+        b = a + b;
+        a = tmp;
+    }
+    b
+}
+
+// -- Collatz conjecture --
+fn collatz_steps(mut n: i32) -> i32 {
+    let mut steps = 0;
+    'collatz: loop {
+        if n == 1 { break 'collatz; }
+        if n % 2 == 0 {
+            n = n / 2;
+        } else {
+            n = n * 3 + 1;
+        }
+        steps = steps + 1;
+    }
+    steps
+}
+
+// -- Type casting --
+fn celsius_to_fahrenheit(c: i32) -> i32 {
+    let f64_c = c as f64;
+    let result = f64_c * 1.8 + 32.0;
+    result as i32
+}
+
+// =========================================================
+// main -- tie it all together
+// =========================================================
+fn main() {
+    println("=== nudl kitchen sink ===");
+    println("");
+
+    // ── 1. Basic types & arithmetic ──
+    print("section: types & arithmetic\n");
+    let x: i32 = 42;
+    let pi: f64 = 3.14159;
+    let alive: bool = true;
+    let ch: char = 'N';
+    let greeting: string = "hello nudl!";
+
+    print("  x = "); print_num_ln(x);
+    print("  alive = "); println(if alive { "true" } else { "false" });
+    print("  greeting = "); println(greeting);
+
+    // ── 2. Block expressions ──
+    let computed = {
+        let a = 10;
+        let b = 20;
+        a * b + 5
+    };
+    print("  block expr = "); print_num_ln(computed);
+
+    // ── 3. Mutability & compound assignment ──
+    print("\nsection: mutability\n");
+    let mut counter = 0;
+    counter += 10;
+    counter *= 3;
+    counter -= 5;
+    print("  counter = "); print_num_ln(counter);
+
+    // ── 4. Structs ──
+    print("\nsection: structs\n");
+    let a = vec2_new(3, 4);
+    let b = vec2_new(1, -2);
+    let c = vec2_add(a, b);
+    print("  a = "); vec2_print(a); print("\n");
+    print("  b = "); vec2_print(b); print("\n");
+    print("  a + b = "); vec2_print(c); print("\n");
+    print("  a . b = "); print_num_ln(vec2_dot(a, b));
+
+    let mut p = vec2_new(0, 0);
+    p.x = 100;
+    p.y = 200;
+    print("  mutated = "); vec2_print(p); print("\n");
+
+    // ── 5. Tuples ──
+    print("\nsection: tuples\n");
+    let pair = (10, 20);
+    let swapped = swap(pair);
+    print("  pair = ("); print_number(pair.0); print(", "); print_number(pair.1); print(")\n");
+    print("  swapped = ("); print_number(swapped.0); print(", "); print_number(swapped.1); print(")\n");
+
+    let nested = ((1, 2), (3, 4));
+    let inner = nested.1;
+    print("  nested.1.0 = "); print_num_ln(inner.0);
+
+    // ── 6. Fixed-size arrays ──
+    print("\nsection: arrays\n");
+    let data: [i32; 6] = [64, 25, 12, 22, 11, 90];
+    print("  unsorted = "); print_array6(data); print("\n");
+    let sorted = bubble_sort(data);
+    print("  sorted   = "); print_array6(sorted); print("\n");
+
+    let zeros: [i32; 5] = [0; 5];
+    print("  zeros = [");
+    for i in 0..5 {
+        if i > 0 { print(", "); }
+        print_number(zeros[i]);
+    }
+    print("]\n");
+
+    let vals: [i32; 5] = [42, 7, 99, 3, 51];
+    let bounds = min_max(vals);
+    print("  min = "); print_number(bounds.0);
+    print(", max = "); print_num_ln(bounds.1);
+
+    // ── 7. For loops & ranges ──
+    print("\nsection: for loops\n");
+    let mut sum = 0;
+    for i in 1..=10 {
+        sum += i;
+    }
+    print("  sum(1..=10) = "); print_num_ln(sum);
+
+    let mut array_sum = 0;
+    let items: [i32; 4] = [10, 20, 30, 40];
+    for item in items {
+        array_sum += item;
+    }
+    print("  array sum = "); print_num_ln(array_sum);
+
+    // nested: multiplication table row
+    print("  3x table: ");
+    for i in 1..=5 {
+        print_number(3 * i);
+        print(" ");
+    }
+    print("\n");
+
+    // ── 8. Pipe operator ──
+    print("\nsection: pipe operator\n");
+    let result = 5 |> double |> add_one |> square;
+    print("  5 |> double |> add_one |> square = "); print_num_ln(result);
+
+    // ── 9. Bitwise operations ──
+    print("\nsection: bitwise\n");
+    let flags: i32 = 0b1010_1100 as i32;
+    print("  set bits in 0xAC = "); print_num_ln(count_set_bits(flags));
+    print("  is_power_of_two(64) = ");
+    println(if is_power_of_two(64) { "true" } else { "false" });
+    print("  is_power_of_two(65) = ");
+    println(if is_power_of_two(65) { "true" } else { "false" });
+
+    let mut mask: i32 = 0;
+    mask |= 1 << 3;
+    mask |= 1 << 5;
+    mask ^= 1 << 3;
+    print("  mask after set/clear bit 3,5 = "); print_num_ln(mask);
+
+    // ── 10. Labeled loops & break/continue ──
+    print("\nsection: control flow\n");
+
+    // find first number divisible by 7 in range
+    let mut found = 0;
+    let mut search_i = 50;
+    'search: while search_i < 100 {
+        if search_i % 7 == 0 {
+            found = search_i;
+            break 'search;
+        }
+        search_i += 1;
+    }
+    print("  first div-by-7 in 50..100 = "); print_num_ln(found);
+
+    // skip multiples of 3 while summing
+    let mut partial_sum = 0;
+    for i in 1..=20 {
+        if i % 3 == 0 { continue; }
+        partial_sum += i;
+    }
+    print("  sum(1..=20, skip %3) = "); print_num_ln(partial_sum);
+
+    fizzbuzz(20);
+
+    // ── 11. Type casting & constants ──
+    print("\nsection: type casts\n");
+    print("  100C = "); print_number(celsius_to_fahrenheit(100)); print("F\n");
+    print("  0C = "); print_number(celsius_to_fahrenheit(0)); print("F\n");
+    const MAX_ITER: i32 = 100;
+    print("  MAX_ITER = "); print_num_ln(MAX_ITER);
+
+    let big: i64 = 1000000;
+    let small = big as i32;
+    print("  i64 -> i32: "); print_num_ln(small);
+
+    let flag = true;
+    print("  true as i32 = "); print_num_ln(flag as i32);
+
+    // ── 12. Algorithms ──
+    print("\nsection: algorithms\n");
+
+    // fibonacci
+    print("  fib(10) = "); print_num_ln(fib(10));
+    print("  fib sequence: ");
+    for i in 0..10 {
+        print_number(fib(i));
+        print(" ");
+    }
+    print("\n");
+
+    // collatz
+    print("  collatz(27) = "); print_number(collatz_steps(27)); print(" steps\n");
+
+    // ── 13. Nested data ──
+    print("\nsection: nested data\n");
+    let triangle: [Vec2; 3] = [
+        vec2_new(0, 0),
+        vec2_new(10, 0),
+        vec2_new(5, 8),
+    ];
+    print("  triangle vertices:\n");
+    for i in 0..3 {
+        print("    ");
+        vec2_print(triangle[i]);
+        print("\n");
+    }
+
+    // ── Wrap up ──
+    println("");
+    println("=== all features exercised ===");
 }

@@ -21,12 +21,12 @@ Complete all of STATUS.md §1-5 plus supporting infrastructure (enums, pattern m
 
 > **All 5 tasks in Phase 1 can be done in parallel.**
 
-### Phase 2: Compound Types — [ ] Not started
+### Phase 2: Compound Types — [x] Complete
 | Task | Status | File | Summary | Depends On |
 |------|--------|------|---------|------------|
-| 06 | [ ] | [06-tuple-types.md](06-tuple-types.md) | Tuple types, literals, `.0` access | — |
-| 07 | [ ] | [07-fixed-arrays.md](07-fixed-arrays.md) | `[T; N]` type, index access | — |
-| 08 | [ ] | [08-range-and-for-loops.md](08-range-and-for-loops.md) | Range types, for-in loops | 07 (array iteration) |
+| 06 | [x] | [06-tuple-types.md](06-tuple-types.md) | Tuple types, literals, `.0` access | — |
+| 07 | [x] | [07-fixed-arrays.md](07-fixed-arrays.md) | `[T; N]` type, index access | — |
+| 08 | [x] | [08-range-and-for-loops.md](08-range-and-for-loops.md) | Range types, for-in loops | 07 (array iteration) |
 
 > **06 and 07 can be done in parallel. 08 depends on 07 for array iteration (range iteration is independent).**
 

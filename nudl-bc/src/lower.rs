@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use nudl_core::intern::StringInterner;
 use nudl_core::span::Span;
-use nudl_core::types::TypeInterner;
+use nudl_core::types::{TypeInterner, TypeKind};
 
 use nudl_ast::ast::*;
 
@@ -145,17 +145,30 @@ impl Lowerer {
             interner: &mut self.interner,
             function_sigs: &self.function_sigs,
             struct_defs: &self.struct_defs,
-            types: &self.types,
+            types: &mut self.types,
             loop_stack: Vec::new(),
         };
 
         // Lower body — returns the register holding the result
         let result_reg = ctx.lower_block_expr(&body.node);
 
-        // Callee-release: emit Release for struct-typed params at function exit
+        // Callee-release: emit Release for reference-typed params at function exit
         for (i, (_pname, pty)) in sig.params.iter().enumerate() {
+            let param_reg = Register(i as u32);
             if ctx.types.is_struct(*pty) {
-                ctx.push_inst(Instruction::Release(Register(i as u32), Some(*pty)));
+                ctx.push_inst(Instruction::Release(param_reg, Some(*pty)));
+            } else if let TypeKind::FixedArray { element, length } = ctx.types.resolve(*pty) {
+                let elem = *element;
+                let len = *length;
+                if ctx.types.is_reference_type(elem) {
+                    for idx in 0..len {
+                        let idx_reg = ctx.alloc_register();
+                        ctx.push_inst(Instruction::Const(idx_reg, ConstValue::I32(idx as i32)));
+                        let elem_reg = ctx.alloc_register();
+                        ctx.push_inst(Instruction::IndexLoad(elem_reg, param_reg, idx_reg, elem));
+                        ctx.push_inst(Instruction::Release(elem_reg, Some(elem)));
+                    }
+                }
             }
         }
 
@@ -211,6 +224,7 @@ struct LoopContext {
     label: Option<String>,
     continue_block: BlockId,
     break_block: BlockId,
+    pre_loop_locals: ScopedLocals<Register>,
 }
 
 struct FunctionLowerCtx<'a> {
@@ -228,7 +242,7 @@ struct FunctionLowerCtx<'a> {
     interner: &'a mut StringInterner,
     function_sigs: &'a HashMap<String, FunctionSig>,
     struct_defs: &'a HashMap<String, nudl_core::types::TypeId>,
-    types: &'a TypeInterner,
+    types: &'a mut TypeInterner,
     loop_stack: Vec<LoopContext>,
 }
 
@@ -288,12 +302,24 @@ impl<'a> FunctionLowerCtx<'a> {
             reg
         };
 
-        // Scope release: emit Release for struct-typed locals defined in this scope
+        // Scope release: emit Release for reference-typed locals defined in this scope
         let scope_types = self.local_types.current_scope_entries();
         for (name, type_id) in &scope_types {
-            if self.types.is_struct(*type_id) {
-                if let Some(&reg) = self.locals.get(name) {
+            if let Some(&reg) = self.locals.get(name) {
+                if self.types.is_struct(*type_id) {
                     self.push_inst(Instruction::Release(reg, Some(*type_id)));
+                } else if let TypeKind::FixedArray { element, length } = self.types.resolve(*type_id) {
+                    let elem = *element;
+                    let len = *length;
+                    if self.types.is_reference_type(elem) {
+                        for idx in 0..len {
+                            let idx_reg = self.alloc_register();
+                            self.push_inst(Instruction::Const(idx_reg, ConstValue::I32(idx as i32)));
+                            let elem_reg = self.alloc_register();
+                            self.push_inst(Instruction::IndexLoad(elem_reg, reg, idx_reg, elem));
+                            self.push_inst(Instruction::Release(elem_reg, Some(elem)));
+                        }
+                    }
                 }
             }
         }
@@ -313,9 +339,13 @@ impl<'a> FunctionLowerCtx<'a> {
                 let reg = self.lower_expr(value);
                 self.locals.insert(name.clone(), reg);
 
-                // Track struct-typed locals for scope-exit Release
+                // Track typed locals (structs for scope-exit Release,
+                // tuples/arrays for field/index type inference)
                 if let Some(type_id) = self.infer_expr_type(value) {
-                    if self.types.is_struct(type_id) {
+                    if self.types.is_struct(type_id)
+                        || self.types.is_tuple(type_id)
+                        || self.types.is_fixed_array(type_id)
+                    {
                         self.local_types.insert(name.clone(), type_id);
                     }
                 }
@@ -394,7 +424,24 @@ impl<'a> FunctionLowerCtx<'a> {
                 }
             }
 
-            Expr::Return(Some(inner)) => self.lower_expr(inner),
+            Expr::Return(value) => {
+                let ret_reg = if let Some(inner) = value {
+                    self.lower_expr(inner)
+                } else {
+                    let reg = self.alloc_register();
+                    self.push_inst(Instruction::ConstUnit(reg));
+                    reg
+                };
+                // Terminate current block with a Return and start a dead block
+                // for any subsequent code in the same scope.
+                let dead_block = self.new_block_id();
+                self.finish_block(Terminator::Return(ret_reg));
+                self.start_block(dead_block);
+                // Return unit since the code after this is unreachable
+                let unit_reg = self.alloc_register();
+                self.push_inst(Instruction::ConstUnit(unit_reg));
+                unit_reg
+            }
 
             Expr::Binary { op, left, right } => {
                 // Short-circuit for && and ||
@@ -469,7 +516,18 @@ impl<'a> FunctionLowerCtx<'a> {
 
             Expr::FieldAccess { object, field } => {
                 let obj_reg = self.lower_expr(object);
-                // Resolve object type to find field index
+                // Check if this is a tuple field access (.0, .1, etc.)
+                if let Ok(idx) = field.parse::<u32>() {
+                    let obj_type = self.infer_expr_type(object);
+                    if let Some(tid) = obj_type {
+                        if self.types.is_tuple(tid) {
+                            let dst = self.alloc_register();
+                            self.push_inst(Instruction::TupleLoad(dst, obj_reg, idx));
+                            return dst;
+                        }
+                    }
+                }
+                // Resolve object type to find field index (struct field access)
                 let field_idx = self.resolve_field_index(object, field);
                 let dst = self.alloc_register();
                 self.push_inst(Instruction::Load(dst, obj_reg, field_idx));
@@ -492,6 +550,10 @@ impl<'a> FunctionLowerCtx<'a> {
                     let obj_reg = self.lower_expr(object);
                     let field_idx = self.resolve_field_index(object, field);
                     self.push_inst(Instruction::Store(obj_reg, field_idx, val_reg));
+                } else if let Expr::IndexAccess { object, index } = &target.node {
+                    let obj_reg = self.lower_expr(object);
+                    let idx_reg = self.lower_expr(index);
+                    self.push_inst(Instruction::IndexStore(obj_reg, idx_reg, val_reg));
                 }
                 let unit_reg = self.alloc_register();
                 self.push_inst(Instruction::ConstUnit(unit_reg));
@@ -539,6 +601,9 @@ impl<'a> FunctionLowerCtx<'a> {
                 // Pre-allocate result register
                 let result_reg = self.alloc_register();
 
+                // Snapshot locals before branching so we can reconcile mutations
+                let pre_if_locals = self.locals.flatten();
+
                 // End current block with branch
                 self.finish_block(Terminator::Branch(cond_reg, then_block, else_block));
 
@@ -547,6 +612,13 @@ impl<'a> FunctionLowerCtx<'a> {
                 let then_result = self.lower_block_expr(&then_branch.node);
                 self.push_inst(Instruction::Copy(result_reg, then_result));
                 self.finish_block(Terminator::Jump(merge_block));
+                let then_block_idx = self.blocks.len() - 1;
+                let post_then_locals = self.locals.flatten();
+
+                // Restore locals to pre-if state before lowering else branch
+                for (name, reg) in &pre_if_locals {
+                    self.locals.update(name, *reg);
+                }
 
                 // Else block
                 self.start_block(else_block);
@@ -557,6 +629,37 @@ impl<'a> FunctionLowerCtx<'a> {
                     self.push_inst(Instruction::ConstUnit(result_reg));
                 }
                 self.finish_block(Terminator::Jump(merge_block));
+                let else_block_idx = self.blocks.len() - 1;
+                let post_else_locals = self.locals.flatten();
+
+                // Reconcile: for any variable mutated differently in the two
+                // branches, emit Copy instructions into both branch blocks so
+                // they agree on a single merge register.
+                for (name, pre_reg) in &pre_if_locals {
+                    let then_reg = post_then_locals.get(name).copied().unwrap_or(*pre_reg);
+                    let else_reg = post_else_locals.get(name).copied().unwrap_or(*pre_reg);
+
+                    if then_reg != else_reg {
+                        // Both branches have different registers — merge them
+                        let merge_reg = self.alloc_register();
+                        self.blocks[then_block_idx]
+                            .instructions
+                            .push(Instruction::Copy(merge_reg, then_reg));
+                        self.blocks[then_block_idx]
+                            .spans
+                            .push(self.current_span);
+                        self.blocks[else_block_idx]
+                            .instructions
+                            .push(Instruction::Copy(merge_reg, else_reg));
+                        self.blocks[else_block_idx]
+                            .spans
+                            .push(self.current_span);
+                        self.locals.update(name, merge_reg);
+                    } else if then_reg != *pre_reg {
+                        // Both branches mutated to the same register
+                        self.locals.update(name, then_reg);
+                    }
+                }
 
                 // Merge block
                 self.start_block(merge_block);
@@ -590,6 +693,7 @@ impl<'a> FunctionLowerCtx<'a> {
                     label: label.clone(),
                     continue_block: cond_block,
                     break_block: exit_block,
+                    pre_loop_locals: pre_loop_locals.clone(),
                 });
                 self.lower_block_expr(&body.node);
                 self.loop_stack.pop();
@@ -621,6 +725,7 @@ impl<'a> FunctionLowerCtx<'a> {
                     label: label.clone(),
                     continue_block: body_block,
                     break_block: exit_block,
+                    pre_loop_locals: pre_loop_locals.clone(),
                 });
                 self.lower_block_expr(&body.node);
                 self.loop_stack.pop();
@@ -638,13 +743,14 @@ impl<'a> FunctionLowerCtx<'a> {
             }
 
             Expr::Break { label, .. } => {
-                let target = if let Some(label) = label {
+                let lc_info = if let Some(label) = label {
                     self.loop_stack.iter().rev().find(|lc| lc.label.as_deref() == Some(label))
-                        .map(|lc| lc.break_block)
+                        .map(|lc| (lc.break_block, lc.pre_loop_locals.clone()))
                 } else {
-                    self.loop_stack.last().map(|lc| lc.break_block)
+                    self.loop_stack.last().map(|lc| (lc.break_block, lc.pre_loop_locals.clone()))
                 };
-                if let Some(break_block) = target {
+                if let Some((break_block, pre_loop_locals)) = lc_info {
+                    self.emit_loop_copyback(&pre_loop_locals);
                     self.finish_block(Terminator::Jump(break_block));
                     let dead = self.new_block_id();
                     self.start_block(dead);
@@ -655,13 +761,14 @@ impl<'a> FunctionLowerCtx<'a> {
             }
 
             Expr::Continue { label } => {
-                let target = if let Some(label) = label {
+                let lc_info = if let Some(label) = label {
                     self.loop_stack.iter().rev().find(|lc| lc.label.as_deref() == Some(label))
-                        .map(|lc| lc.continue_block)
+                        .map(|lc| (lc.continue_block, lc.pre_loop_locals.clone()))
                 } else {
-                    self.loop_stack.last().map(|lc| lc.continue_block)
+                    self.loop_stack.last().map(|lc| (lc.continue_block, lc.pre_loop_locals.clone()))
                 };
-                if let Some(continue_block) = target {
+                if let Some((continue_block, pre_loop_locals)) = lc_info {
+                    self.emit_loop_copyback(&pre_loop_locals);
                     self.finish_block(Terminator::Jump(continue_block));
                     let dead = self.new_block_id();
                     self.start_block(dead);
@@ -674,6 +781,77 @@ impl<'a> FunctionLowerCtx<'a> {
             Expr::Grouped(inner) => self.lower_expr(inner),
 
             Expr::Block(block) => self.lower_block_expr(block),
+
+            Expr::TupleLiteral(elements) => {
+                let elem_regs: Vec<Register> = elements.iter().map(|e| self.lower_expr(e)).collect();
+                let elem_types: Vec<nudl_core::types::TypeId> = elements
+                    .iter()
+                    .map(|e| self.infer_expr_type(e).unwrap_or(self.types.i32()))
+                    .collect();
+                let type_id = self.types.intern(nudl_core::types::TypeKind::Tuple(elem_types));
+                let dst = self.alloc_register();
+                self.push_inst(Instruction::TupleAlloc(dst, type_id, elem_regs));
+                dst
+            }
+
+            Expr::ArrayLiteral(elements) => {
+                let elem_regs: Vec<Register> = elements.iter().map(|e| self.lower_expr(e)).collect();
+                let elem_type = if !elements.is_empty() {
+                    self.infer_expr_type(&elements[0]).unwrap_or(self.types.i32())
+                } else {
+                    self.types.i32()
+                };
+                let type_id = self.types.intern(nudl_core::types::TypeKind::FixedArray {
+                    element: elem_type,
+                    length: elements.len(),
+                });
+                let dst = self.alloc_register();
+                self.push_inst(Instruction::FixedArrayAlloc(dst, type_id, elem_regs));
+                dst
+            }
+
+            Expr::ArrayRepeat { value, count } => {
+                let val_reg = self.lower_expr(value);
+                let elem_type = self.infer_expr_type(value).unwrap_or(self.types.i32());
+                let elem_regs: Vec<Register> = (0..*count).map(|_| val_reg).collect();
+                let type_id = self.types.intern(nudl_core::types::TypeKind::FixedArray {
+                    element: elem_type,
+                    length: *count,
+                });
+                let dst = self.alloc_register();
+                self.push_inst(Instruction::FixedArrayAlloc(dst, type_id, elem_regs));
+                dst
+            }
+
+            Expr::IndexAccess { object, index } => {
+                let obj_reg = self.lower_expr(object);
+                let idx_reg = self.lower_expr(index);
+                let elem_type = self.infer_index_element_type(object);
+                let dst = self.alloc_register();
+                self.push_inst(Instruction::IndexLoad(dst, obj_reg, idx_reg, elem_type));
+                dst
+            }
+
+            Expr::Range { .. } => {
+                // Ranges are only used in for-loops; standalone range expressions
+                // produce unit for now
+                let reg = self.alloc_register();
+                self.push_inst(Instruction::ConstUnit(reg));
+                reg
+            }
+
+            Expr::For { binding, iter, body } => {
+                // Desugar for-in to while loop
+                match &iter.node {
+                    Expr::Range { start, end, inclusive } => {
+                        self.lower_for_range(binding, start, end, *inclusive, &body.node)
+                    }
+                    _ => {
+                        // Array iteration
+                        self.lower_for_array(binding, iter, &body.node)
+                    }
+                }
+            }
 
             _ => {
                 let reg = self.alloc_register();
@@ -759,7 +937,7 @@ impl<'a> FunctionLowerCtx<'a> {
 
     /// Resolve the field index for a field access expression.
     fn resolve_field_index(
-        &self,
+        &mut self,
         object: &nudl_core::span::Spanned<Expr>,
         field: &str,
     ) -> u32 {
@@ -777,7 +955,7 @@ impl<'a> FunctionLowerCtx<'a> {
 
     /// Best-effort type inference for an expression (used in lowerer for field lookups).
     fn infer_expr_type(
-        &self,
+        &mut self,
         expr: &nudl_core::span::Spanned<Expr>,
     ) -> Option<nudl_core::types::TypeId> {
         match &expr.node {
@@ -787,15 +965,14 @@ impl<'a> FunctionLowerCtx<'a> {
             }
             Expr::FieldAccess { object, field } => {
                 let obj_type = self.infer_expr_type(object)?;
-                if let nudl_core::types::TypeKind::Struct { fields, .. } =
-                    self.types.resolve(obj_type)
-                {
-                    fields
-                        .iter()
-                        .find(|(n, _)| n == field)
-                        .map(|(_, ty)| *ty)
-                } else {
-                    None
+                match self.types.resolve(obj_type) {
+                    nudl_core::types::TypeKind::Struct { fields, .. } => {
+                        fields.iter().find(|(n, _)| n == field).map(|(_, ty)| *ty)
+                    }
+                    nudl_core::types::TypeKind::Tuple(elements) => {
+                        field.parse::<usize>().ok().and_then(|idx| elements.get(idx).copied())
+                    }
+                    _ => None,
                 }
             }
             Expr::Call { callee, .. } => {
@@ -805,8 +982,247 @@ impl<'a> FunctionLowerCtx<'a> {
                     None
                 }
             }
+            Expr::TupleLiteral(elements) => {
+                let elem_types: Vec<nudl_core::types::TypeId> = elements
+                    .iter()
+                    .filter_map(|e| self.infer_expr_type(e))
+                    .collect();
+                if elem_types.len() == elements.len() {
+                    Some(self.types.intern(nudl_core::types::TypeKind::Tuple(elem_types)))
+                } else {
+                    None
+                }
+            }
+            Expr::ArrayLiteral(elements) => {
+                if elements.is_empty() {
+                    return None;
+                }
+                let elem_type = self.infer_expr_type(&elements[0])?;
+                Some(self.types.intern(nudl_core::types::TypeKind::FixedArray {
+                    element: elem_type,
+                    length: elements.len(),
+                }))
+            }
+            Expr::ArrayRepeat { value, count } => {
+                let elem_type = self.infer_expr_type(value)?;
+                Some(self.types.intern(nudl_core::types::TypeKind::FixedArray {
+                    element: elem_type,
+                    length: *count,
+                }))
+            }
+            Expr::IndexAccess { object, .. } => {
+                let obj_type = self.infer_expr_type(object)?;
+                match self.types.resolve(obj_type) {
+                    nudl_core::types::TypeKind::FixedArray { element, .. } => Some(*element),
+                    _ => None,
+                }
+            }
+            Expr::Literal(Literal::Int(_, Some(suffix))) => {
+                Some(match suffix {
+                    IntSuffix::I8 => self.types.i8(),
+                    IntSuffix::I16 => self.types.i16(),
+                    IntSuffix::I32 => self.types.i32(),
+                    IntSuffix::I64 => self.types.i64(),
+                    IntSuffix::U8 => self.types.u8(),
+                    IntSuffix::U16 => self.types.u16(),
+                    IntSuffix::U32 => self.types.u32(),
+                    IntSuffix::U64 => self.types.u64(),
+                })
+            }
+            Expr::Literal(Literal::Int(_, None)) => Some(self.types.i32()),
+            Expr::Literal(Literal::Float(_)) => Some(self.types.f64()),
+            Expr::Literal(Literal::Bool(_)) => Some(self.types.bool()),
+            Expr::Literal(Literal::Char(_)) => Some(self.types.char_type()),
+            Expr::Literal(Literal::String(_)) => Some(self.types.string()),
             _ => None,
         }
+    }
+
+    /// Infer element type for index access operations.
+    fn infer_index_element_type(
+        &mut self,
+        object: &nudl_core::span::Spanned<Expr>,
+    ) -> nudl_core::types::TypeId {
+        if let Some(obj_type) = self.infer_expr_type(object) {
+            match self.types.resolve(obj_type) {
+                nudl_core::types::TypeKind::FixedArray { element, .. } => return *element,
+                _ => {}
+            }
+        }
+        self.types.i64() // fallback
+    }
+
+    /// Desugar `for i in start..end { body }` to a while loop
+    fn lower_for_range(
+        &mut self,
+        binding: &str,
+        start: &nudl_core::span::Spanned<Expr>,
+        end: &nudl_core::span::Spanned<Expr>,
+        inclusive: bool,
+        body: &Block,
+    ) -> Register {
+        // let mut __iter = start;
+        let iter_reg = self.lower_expr(start);
+        let end_reg = self.lower_expr(end);
+
+        let iter_name = format!("__for_iter_{}", binding);
+        self.locals.insert(iter_name.clone(), iter_reg);
+
+        let cond_block = self.new_block_id();
+        let body_block = self.new_block_id();
+        let incr_block = self.new_block_id();
+        let exit_block = self.new_block_id();
+
+        // Jump to condition
+        self.finish_block(Terminator::Jump(cond_block));
+
+        // Condition: __iter < end (or __iter <= end for inclusive)
+        self.start_block(cond_block);
+        let pre_loop_locals = self.locals.clone();
+        let cur_iter = self.locals.get(&iter_name).copied().unwrap();
+        let cond_reg = self.alloc_register();
+        if inclusive {
+            self.push_inst(Instruction::Le(cond_reg, cur_iter, end_reg));
+        } else {
+            self.push_inst(Instruction::Lt(cond_reg, cur_iter, end_reg));
+        }
+        self.finish_block(Terminator::Branch(cond_reg, body_block, exit_block));
+
+        // Body block
+        self.start_block(body_block);
+        self.loop_stack.push(LoopContext {
+            label: None,
+            continue_block: incr_block,
+            break_block: exit_block,
+            pre_loop_locals: pre_loop_locals.clone(),
+        });
+
+        // let binding = __iter;
+        let binding_reg = self.locals.get(&iter_name).copied().unwrap();
+        self.locals.insert(binding.to_string(), binding_reg);
+
+        self.lower_block_expr(body);
+
+        self.loop_stack.pop();
+
+        // Fall through to increment block
+        self.emit_loop_copyback(&pre_loop_locals);
+        self.finish_block(Terminator::Jump(incr_block));
+
+        // Increment block: __iter = __iter + 1, then jump to cond
+        self.start_block(incr_block);
+        let cur_iter = self.locals.get(&iter_name).copied().unwrap();
+        let one_reg = self.alloc_register();
+        self.push_inst(Instruction::Const(one_reg, ConstValue::I32(1)));
+        let next_iter = self.alloc_register();
+        self.push_inst(Instruction::Add(next_iter, cur_iter, one_reg));
+        self.locals.update(&iter_name, next_iter);
+
+        // Copy-back loop variables
+        self.emit_loop_copyback(&pre_loop_locals);
+        self.finish_block(Terminator::Jump(cond_block));
+
+        // Exit block
+        self.start_block(exit_block);
+        self.locals = pre_loop_locals;
+        let unit_reg = self.alloc_register();
+        self.push_inst(Instruction::ConstUnit(unit_reg));
+        unit_reg
+    }
+
+    /// Desugar `for item in array { body }` to a while loop with indexing
+    fn lower_for_array(
+        &mut self,
+        binding: &str,
+        iter_expr: &nudl_core::span::Spanned<Expr>,
+        body: &Block,
+    ) -> Register {
+        let arr_reg = self.lower_expr(iter_expr);
+        let arr_type = self.infer_expr_type(iter_expr);
+
+        let length = if let Some(tid) = arr_type {
+            match self.types.resolve(tid) {
+                nudl_core::types::TypeKind::FixedArray { length, .. } => *length,
+                _ => 0,
+            }
+        } else {
+            0
+        };
+
+        let elem_type = if let Some(tid) = arr_type {
+            match self.types.resolve(tid) {
+                nudl_core::types::TypeKind::FixedArray { element, .. } => *element,
+                _ => self.types.i64(),
+            }
+        } else {
+            self.types.i64()
+        };
+
+        // let mut __idx = 0;
+        let idx_reg = self.alloc_register();
+        self.push_inst(Instruction::Const(idx_reg, ConstValue::I32(0)));
+        let idx_name = format!("__for_idx_{}", binding);
+        self.locals.insert(idx_name.clone(), idx_reg);
+
+        let len_reg = self.alloc_register();
+        self.push_inst(Instruction::Const(len_reg, ConstValue::I32(length as i32)));
+
+        let cond_block = self.new_block_id();
+        let body_block = self.new_block_id();
+        let incr_block = self.new_block_id();
+        let exit_block = self.new_block_id();
+
+        self.finish_block(Terminator::Jump(cond_block));
+
+        // Condition: __idx < len
+        self.start_block(cond_block);
+        let pre_loop_locals = self.locals.clone();
+        let cur_idx = self.locals.get(&idx_name).copied().unwrap();
+        let cond_reg = self.alloc_register();
+        self.push_inst(Instruction::Lt(cond_reg, cur_idx, len_reg));
+        self.finish_block(Terminator::Branch(cond_reg, body_block, exit_block));
+
+        // Body block
+        self.start_block(body_block);
+        self.loop_stack.push(LoopContext {
+            label: None,
+            continue_block: incr_block,
+            break_block: exit_block,
+            pre_loop_locals: pre_loop_locals.clone(),
+        });
+
+        // let binding = arr[__idx];
+        let cur_idx = self.locals.get(&idx_name).copied().unwrap();
+        let elem_reg = self.alloc_register();
+        self.push_inst(Instruction::IndexLoad(elem_reg, arr_reg, cur_idx, elem_type));
+        self.locals.insert(binding.to_string(), elem_reg);
+
+        self.lower_block_expr(body);
+
+        self.loop_stack.pop();
+
+        // Fall through to increment block
+        self.emit_loop_copyback(&pre_loop_locals);
+        self.finish_block(Terminator::Jump(incr_block));
+
+        // Increment block: __idx = __idx + 1, then jump to cond
+        self.start_block(incr_block);
+        let cur_idx = self.locals.get(&idx_name).copied().unwrap();
+        let one_reg = self.alloc_register();
+        self.push_inst(Instruction::Const(one_reg, ConstValue::I32(1)));
+        let next_idx = self.alloc_register();
+        self.push_inst(Instruction::Add(next_idx, cur_idx, one_reg));
+        self.locals.update(&idx_name, next_idx);
+
+        self.emit_loop_copyback(&pre_loop_locals);
+        self.finish_block(Terminator::Jump(cond_block));
+
+        // Exit block
+        self.start_block(exit_block);
+        self.locals = pre_loop_locals;
+        let unit_reg = self.alloc_register();
+        self.push_inst(Instruction::ConstUnit(unit_reg));
+        unit_reg
     }
 
     fn lower_builtin_call(&mut self, name: &str, args: &[CallArg]) -> Register {
