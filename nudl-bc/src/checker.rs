@@ -6,6 +6,7 @@ use nudl_core::span::{Span, Spanned};
 use nudl_core::types::{PrimitiveType, TypeId, TypeInterner, TypeKind};
 
 use crate::checker_diagnostic::CheckerDiagnostic;
+use crate::scoped_locals::ScopedLocals;
 
 #[derive(Debug, Clone)]
 pub struct FunctionSig {
@@ -261,7 +262,7 @@ impl Checker {
 
     fn check_item(&mut self, item: &SpannedItem) {
         if let Item::FnDef { name, body, .. } = &item.node {
-            let mut locals: HashMap<String, LocalInfo> = HashMap::new();
+            let mut locals = ScopedLocals::<LocalInfo>::new();
 
             // Register params as locals (immutable by default)
             let sig = self.functions.get(name).cloned();
@@ -302,19 +303,22 @@ impl Checker {
     fn check_block(
         &mut self,
         block: &Block,
-        locals: &mut HashMap<String, LocalInfo>,
+        locals: &mut ScopedLocals<LocalInfo>,
     ) -> TypeId {
+        locals.push_scope();
         for stmt in &block.stmts {
             self.check_stmt(stmt, locals);
         }
-        if let Some(tail) = &block.tail_expr {
+        let result = if let Some(tail) = &block.tail_expr {
             self.check_expr(tail, locals)
         } else {
             self.types.unit()
-        }
+        };
+        locals.pop_scope();
+        result
     }
 
-    fn check_stmt(&mut self, stmt: &SpannedStmt, locals: &mut HashMap<String, LocalInfo>) {
+    fn check_stmt(&mut self, stmt: &SpannedStmt, locals: &mut ScopedLocals<LocalInfo>) {
         match &stmt.node {
             Stmt::Expr(expr) => {
                 self.check_expr(expr, locals);
@@ -368,7 +372,7 @@ impl Checker {
     fn check_expr(
         &mut self,
         expr: &SpannedExpr,
-        locals: &mut HashMap<String, LocalInfo>,
+        locals: &mut ScopedLocals<LocalInfo>,
     ) -> TypeId {
         match &expr.node {
             Expr::Literal(Literal::String(_)) => self.types.string(),
@@ -1076,5 +1080,74 @@ fn main() {
             "unexpected errors: {:?}",
             diags.reports()
         );
+    }
+
+    #[test]
+    fn block_scoping_hides_inner_variables() {
+        let (_, diags) = check_source(
+            r#"
+fn main() {
+    let n = {
+        let z = 42;
+        z
+    };
+    n;
+}
+"#,
+        );
+        assert!(
+            !diags.has_errors(),
+            "unexpected errors: {:?}",
+            diags.reports()
+        );
+
+        // z should NOT be accessible outside the block
+        let (_, diags) = check_source(
+            r#"
+fn id(x: i32) -> i32 { x }
+fn main() {
+    let n = {
+        let z = 42;
+        z
+    };
+    id(z);
+}
+"#,
+        );
+        assert!(diags.has_errors(), "z should be undefined outside the block");
+    }
+
+    #[test]
+    fn if_scoping_hides_inner_variables() {
+        let (_, diags) = check_source(
+            r#"
+fn id(x: i32) -> i32 { x }
+fn main() {
+    if true {
+        let y = 10;
+    }
+    id(y);
+}
+"#,
+        );
+        assert!(diags.has_errors(), "y should be undefined outside the if block");
+    }
+
+    #[test]
+    fn while_scoping_hides_inner_variables() {
+        let (_, diags) = check_source(
+            r#"
+fn id(x: i32) -> i32 { x }
+fn main() {
+    let mut x: i32 = 0;
+    while x < 1 {
+        let inner = 5;
+        x = x + 1;
+    }
+    id(inner);
+}
+"#,
+        );
+        assert!(diags.has_errors(), "inner should be undefined outside the while block");
     }
 }

@@ -43,8 +43,11 @@ fn main() {
     print("hello world!\n");
     let x = 11;
     let y = 23;
-    let z = x + y;
-    print("x + y = ");
-    print_number(z * 2);
+    let n = {
+        let z = x + y;
+        z * 2
+    };
+    print("n = ");
+    print_number(n);
     print("\n");
 }

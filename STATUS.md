@@ -2,77 +2,78 @@
 
 ## Legend
 - [ ] Not started
-- [x] Complete
+- [~] Partially implemented (see notes)
+- [x] Complete (works end-to-end: source → type check → IR → native code)
 
 ## Pipeline Infrastructure
 - [x] Lexer framework
-- [x] Parser framework (recursive descent)
-- [x] Type checker framework (two-pass)
+- [x] Parser framework (recursive descent + Pratt precedence)
+- [x] Type checker framework (two-pass: collect declarations → check bodies)
 - [x] SSA IR lowering framework
-- [x] ARM64 codegen framework
-- [x] Mach-O packer
-- [ ] ELF packer
-- [x] CLI (build, run, check commands)
-- [x] VM interpreter
-- [x] Diagnostic system with error codes
+- [x] LLVM backend via Inkwell (replaced ARM64 codegen + Mach-O/ELF packers)
+- [x] CLI (build, run, check, fmt commands + --dump-ast, --dump-ir, --dump-llvm-ir, --dump-asm)
+- [x] VM interpreter (register-based, step-limited, for comptime eval)
+- [x] Diagnostic system with error codes and severity levels
 - [x] Source map and span tracking
 - [x] String interning
+- [x] LSP server (diagnostics on document change)
+- [x] Debug symbols (DWARF) generation
 
 ## 1. Core Types
-- [ ] Integers — i32 ✓, i64 ✓, u64 ✓; i8/i16/u8/u16/u32 not yet (`tests/core-types/integers.nudl`)
-- [ ] Floats — f32, f64 (`tests/core-types/floats.nudl`)
-- [ ] Booleans (`tests/core-types/bool.nudl`)
-- [ ] Characters (`tests/core-types/char.nudl`)
-- [ ] Strings (`tests/core-types/strings.nudl`)
-- [ ] Format strings (`tests/core-types/format_strings.nudl`)
-- [ ] Unit type (`tests/core-types/unit.nudl`)
+- [x] Integers — all types (i8, i16, i32, i64, u8, u16, u32, u64) in type checker; IR constants for i32, i64, u64; others coerce from unsuffixed literals (`tests/core-types/integers.nudl`)
+- [~] Floats — f64 in type checker + IR; f32 in type checker only (`tests/core-types/floats.nudl`)
+- [x] Booleans (`tests/core-types/bool.nudl`)
+- [x] Characters (`tests/core-types/char.nudl`)
+- [x] Strings — reference type with (ptr, len) pair expansion (`tests/core-types/strings.nudl`)
+- [~] Template strings — lexer/parser handle backtick interpolation with brace nesting; not yet lowered to IR/codegen (`tests/core-types/format_strings.nudl`)
+- [x] Unit type (`tests/core-types/unit.nudl`)
 - [ ] Tuples (`tests/core-types/tuples.nudl`)
 - [ ] Dynamic arrays T[] (`tests/core-types/dynamic_arrays.nudl`)
 - [ ] Fixed-size arrays [T; N] (`tests/core-types/fixed_arrays.nudl`)
 - [ ] Maps (`tests/core-types/maps.nudl`)
-- [ ] Function types as values (`tests/core-types/function_types.nudl`)
+- [ ] Function types as values — TypeKind::Function exists but not usable as first-class values (`tests/core-types/function_types.nudl`)
 - [ ] Never type (!)
 - [ ] Range types
-- [ ] FFI types — RawPtr ✓ in checker; MutRawPtr, CStr not yet
+- [~] FFI types — RawPtr ✓ in type checker + codegen; MutRawPtr, CStr not yet
 
 ## 2. Variables & Bindings
-- [ ] Let bindings — immutable ✓, mut parsed but not enforced (`tests/variables/let_bindings.nudl`)
+- [x] Let bindings — immutable and mutable, with mutability enforcement in type checker (`tests/variables/let_bindings.nudl`)
 - [ ] Destructuring (`tests/variables/destructuring.nudl`)
-- [ ] Type annotations — basic types ✓, complex types not yet (`tests/variables/type_annotations.nudl`)
+- [x] Type annotations — primitive types and string; complex types not yet (`tests/variables/type_annotations.nudl`)
 - [ ] Constants (`tests/variables/constants.nudl`)
 - [ ] Comptime constants (`tests/variables/const_comptime.nudl`)
 - [ ] Weak references (`tests/variables/weak_references.nudl`)
 
 ## 3. Operators
-- [ ] Arithmetic (+, -, *, /, %) (`tests/operators/arithmetic.nudl`)
-- [ ] Comparison (==, !=, <, >, <=, >=) (`tests/operators/comparison.nudl`)
-- [ ] Logical (&&, ||, !) (`tests/operators/logical.nudl`)
-- [ ] Bitwise (&, |, ^, <<, >>) (`tests/operators/bitwise.nudl`)
-- [ ] Assignment (=, +=, -=, etc.) (`tests/operators/assignment.nudl`)
-- [ ] Range (.., ..=) (`tests/operators/range.nudl`)
-- [ ] Pipe (|>) (`tests/operators/pipe.nudl`)
-- [ ] Type cast (as) (`tests/operators/type_cast.nudl`)
-- [ ] Error propagation (?) (`tests/operators/error_propagation.nudl`)
-- [ ] Precedence (`tests/operators/precedence.nudl`)
+- [x] Arithmetic (+, -, *, /, %, unary -) (`tests/operators/arithmetic.nudl`)
+- [x] Comparison (==, !=, <, >, <=, >=) (`tests/operators/comparison.nudl`)
+- [x] Logical (&&, ||, !) — with short-circuit evaluation (`tests/operators/logical.nudl`)
+- [~] Bitwise — <<, >> implemented; &, |, ^, ~ not yet parsed (`tests/operators/bitwise.nudl`)
+- [x] Assignment (=, +=, -=, *=, /=, %=, <<=, >>=) — &=, |=, ^= tokens exist but bitwise ops not lowered (`tests/operators/assignment.nudl`)
+- [~] Range (.., ..=) — parsed, not lowered to IR (`tests/operators/range.nudl`)
+- [ ] Pipe (|>) — token exists, not parsed (`tests/operators/pipe.nudl`)
+- [ ] Type cast (as) — token exists, not parsed in expressions (`tests/operators/type_cast.nudl`)
+- [ ] Error propagation (?) — token exists, not parsed (`tests/operators/error_propagation.nudl`)
+- [x] Precedence — Pratt climbing with correct binding power levels (`tests/operators/precedence.nudl`)
 
 ## 4. Control Flow
-- [ ] If/else (`tests/control-flow/if_else.nudl`)
+- [x] If/else — with tail expression semantics, if-else-if chains (`tests/control-flow/if_else.nudl`)
 - [ ] If-let (`tests/control-flow/if_let.nudl`)
-- [ ] Match (`tests/control-flow/match_basic.nudl`)
-- [ ] For loops (`tests/control-flow/for_loops.nudl`)
-- [ ] While loops (`tests/control-flow/while_loops.nudl`)
-- [ ] Infinite loop (`tests/control-flow/loop_infinite.nudl`)
-- [ ] Break/continue (`tests/control-flow/break_continue.nudl`)
+- [ ] Match — token exists, not parsed (`tests/control-flow/match_basic.nudl`)
+- [ ] For loops — token exists, not parsed (`tests/control-flow/for_loops.nudl`)
+- [x] While loops (`tests/control-flow/while_loops.nudl`)
+- [x] Infinite loop (`tests/control-flow/loop_infinite.nudl`)
+- [x] Break/continue (`tests/control-flow/break_continue.nudl`)
 - [ ] Labeled loops (`tests/control-flow/labeled_loops.nudl`)
 
 ## 5. Functions
 - [x] Basic declarations & calls (`tests/functions/basic.nudl`)
-- [ ] Named arguments (`tests/functions/named_arguments.nudl`)
+- [ ] Named arguments — AST field exists, parser never sets it (`tests/functions/named_arguments.nudl`)
 - [ ] Argument shorthand (`tests/functions/argument_shorthand.nudl`)
 - [ ] Default parameters (`tests/functions/default_params.nudl`)
 - [ ] Optional parameters (`tests/functions/optional_params.nudl`)
 - [ ] Closures (`tests/functions/closures.nudl`)
-- [ ] Methods — not yet (need structs + impl) (`tests/functions/methods.nudl`)
+- [ ] Methods — need structs + impl (`tests/functions/methods.nudl`)
 - [ ] Trailing lambdas (`tests/functions/trailing_lambda.nudl`)
 
 ## 6. User-Defined Types
@@ -126,7 +127,7 @@
 - [ ] ARC sharing (`tests/memory-management/arc_sharing.nudl`)
 - [ ] ARC deallocation (`tests/memory-management/arc_deallocation.nudl`)
 - [ ] Value type copy (`tests/memory-management/value_type_copy.nudl`)
-- [ ] Mutability — parsed, not enforced (`tests/memory-management/mutability.nudl`)
+- [x] Mutability enforcement — type checker rejects assignment to immutable bindings (`tests/memory-management/mutability.nudl`)
 - [ ] Defer (`tests/memory-management/defer.nudl`)
 - [ ] Drop interface (`tests/memory-management/drop_interface.nudl`)
 - [ ] Clone interface (`tests/memory-management/clone_interface.nudl`)
@@ -165,13 +166,13 @@
 
 ## 15. Misc
 - [x] Comments (line + nested block) (`tests/misc/comments.nudl`)
-- [ ] Block expressions as values (`tests/misc/block_expressions.nudl`)
+- [x] Block expressions as values — tail expression semantics (`tests/misc/block_expressions.nudl`)
 - [ ] Method chaining (`tests/misc/method_chaining.nudl`)
 - [ ] Spread operator (`tests/misc/spread_operator.nudl`)
 
 ## Features Without Dedicated Tests
-- [ ] FFI extern blocks (partially working, no dedicated test)
-- [ ] String interpolation nesting
+- [x] FFI extern blocks — extern function declarations and calls work end-to-end
+- [~] String interpolation nesting — lexer handles brace-depth tracking, not lowered
 - [ ] Derive macros
 - [ ] Build scripts (build.nudl)
 - [ ] Package/dependency management (nudl.toml)

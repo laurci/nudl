@@ -8,6 +8,7 @@ use nudl_ast::ast::*;
 
 use crate::checker::{CheckedModule, FunctionKind, FunctionSig};
 use crate::ir::*;
+use crate::scoped_locals::ScopedLocals;
 
 /// Lowers AST to SSA bytecode. Consumes CheckedModule for function signatures.
 pub struct Lowerer {
@@ -114,7 +115,7 @@ impl Lowerer {
             .collect();
 
         // Build locals map from params: param[i].name → Register(i)
-        let mut locals: HashMap<String, Register> = HashMap::new();
+        let mut locals = ScopedLocals::<Register>::new();
         let mut next_register = 0u32;
         for param in params {
             locals.insert(param.name.clone(), Register(next_register));
@@ -200,7 +201,7 @@ struct FunctionLowerCtx<'a> {
     current_span: Span,
     next_block_id: u32,
     next_register: u32,
-    locals: HashMap<String, Register>,
+    locals: ScopedLocals<Register>,
     string_constants: &'a mut Vec<String>,
     interner: &'a mut StringInterner,
     function_sigs: &'a HashMap<String, FunctionSig>,
@@ -247,18 +248,22 @@ impl<'a> FunctionLowerCtx<'a> {
         self.current_spans.push(self.current_span);
     }
 
-    /// Lower a block and return the register holding its value
+    /// Lower a block and return the register holding its value.
+    /// Pushes a new scope so variables defined inside are not visible outside.
     fn lower_block_expr(&mut self, block: &Block) -> Register {
+        self.locals.push_scope();
         for stmt in &block.stmts {
             self.lower_stmt(stmt);
         }
-        if let Some(tail) = &block.tail_expr {
+        let result = if let Some(tail) = &block.tail_expr {
             self.lower_expr(tail)
         } else {
             let reg = self.alloc_register();
             self.push_inst(Instruction::ConstUnit(reg));
             reg
-        }
+        };
+        self.locals.pop_scope();
+        result
     }
 
     fn lower_stmt(&mut self, stmt: &nudl_core::span::Spanned<Stmt>) {
@@ -394,7 +399,7 @@ impl<'a> FunctionLowerCtx<'a> {
             Expr::Assign { target, value } => {
                 let val_reg = self.lower_expr(value);
                 if let Expr::Ident(name) = &target.node {
-                    self.locals.insert(name.clone(), val_reg);
+                    self.locals.update(name, val_reg);
                 }
                 let unit_reg = self.alloc_register();
                 self.push_inst(Instruction::ConstUnit(unit_reg));
@@ -418,7 +423,7 @@ impl<'a> FunctionLowerCtx<'a> {
                 };
                 self.push_inst(inst);
                 if let Expr::Ident(name) = &target.node {
-                    self.locals.insert(name.clone(), result_reg);
+                    self.locals.update(name, result_reg);
                 }
                 let unit_reg = self.alloc_register();
                 self.push_inst(Instruction::ConstUnit(unit_reg));
@@ -569,14 +574,15 @@ impl<'a> FunctionLowerCtx<'a> {
 
     /// Emit Copy instructions at the end of a loop body to propagate updated
     /// local variables back to the registers that the loop header references.
-    fn emit_loop_copyback(&mut self, pre_loop_locals: &HashMap<String, Register>) {
-        for (name, &pre_reg) in pre_loop_locals {
+    fn emit_loop_copyback(&mut self, pre_loop_locals: &ScopedLocals<Register>) {
+        let pre_flat = pre_loop_locals.flatten();
+        for (name, pre_reg) in &pre_flat {
             if let Some(&current_reg) = self.locals.get(name) {
-                if current_reg != pre_reg {
-                    self.push_inst(Instruction::Copy(pre_reg, current_reg));
+                if current_reg != *pre_reg {
+                    self.push_inst(Instruction::Copy(*pre_reg, current_reg));
                     // Reset locals to use the original register so the condition
                     // block's hardcoded references remain valid
-                    self.locals.insert(name.clone(), pre_reg);
+                    self.locals.update(name, *pre_reg);
                 }
             }
         }
