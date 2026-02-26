@@ -340,7 +340,7 @@ impl Point {
 "#,
         );
         assert_eq!(module.items.len(), 2);
-        if let Item::ImplBlock { type_name, methods } = &module.items[1].node {
+        if let Item::ImplBlock { type_name, methods, .. } = &module.items[1].node {
             assert_eq!(type_name, "Point");
             assert_eq!(methods.len(), 2);
         } else {

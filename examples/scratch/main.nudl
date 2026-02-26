@@ -497,7 +497,106 @@ fn main() {
     ctr2.add(50);
     print("  counter(100, +50) = "); print_num_ln(ctr2.get());
 
+    // ── 17. Enums ──
+    print("\nsection: enums\n");
+
+    let red = Color::Red;
+    let green = Color::Green;
+    let blue = Color::Blue;
+    print("  created Color enum variants\n");
+
+    let circle = Shape::Circle(5);
+    let rect = Shape::Rectangle(10, 20);
+    print("  created Shape enum variants\n");
+
+    // ── 18. Pattern matching (match) ──
+    print("\nsection: pattern matching\n");
+
+    let shape_area = match circle {
+        Shape::Circle(r) => r * r * 3,
+        Shape::Rectangle(w, h) => w * h,
+        _ => 0,
+    };
+    print("  circle area ~= "); print_num_ln(shape_area);
+
+    let rect_area = match rect {
+        Shape::Circle(r) => r * r * 3,
+        Shape::Rectangle(w, h) => w * h,
+        _ => 0,
+    };
+    print("  rect area = "); print_num_ln(rect_area);
+
+    // Match with wildcard
+    let color_code = match red {
+        Color::Red => 1,
+        Color::Green => 2,
+        Color::Blue => 3,
+    };
+    print("  red color code = "); print_num_ln(color_code);
+
+    // ── 19. if-let ──
+    print("\nsection: if-let\n");
+
+    let maybe_circle = Shape::Circle(7);
+    if let Shape::Circle(radius) = maybe_circle {
+        print("  got circle with radius = ");
+        print_num_ln(radius);
+    } else {
+        print("  not a circle\n");
+    }
+
+    if let Shape::Rectangle(w, h) = maybe_circle {
+        print("  got rectangle\n");
+    } else {
+        print("  not a rectangle (correct)\n");
+    }
+
+    // ── 20. Enum methods ──
+    print("\nsection: enum methods\n");
+    let s = Shape::Circle(10);
+    let area = s.area();
+    print("  Circle(10) area = "); print_num_ln(area);
+
+    let s2 = Shape::Rectangle(5, 8);
+    let area2 = s2.area();
+    print("  Rectangle(5,8) area = "); print_num_ln(area2);
+
+    // ── 21. Interfaces (declaration only) ──
+    print("\nsection: interfaces\n");
+    print("  interface declarations parsed OK\n");
+
     // ── Wrap up ──
     println("");
     println("=== all features exercised ===");
+}
+
+// ── Enum definitions ──
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+enum Shape {
+    Circle(i32),
+    Rectangle(i32, i32),
+}
+
+impl Shape {
+    fn area(self) -> i32 {
+        match self {
+            Shape::Circle(r) => r * r * 3,
+            Shape::Rectangle(w, h) => w * h,
+            _ => 0,
+        }
+    }
+}
+
+// ── Interface definitions ──
+interface Printable {
+    fn to_string(self) -> string;
+}
+
+interface Sized {
+    fn size(self) -> i32;
 }

@@ -1,3 +1,5 @@
+use nudl_core::types::EnumVariant;
+
 use super::*;
 
 impl Checker {
@@ -88,19 +90,105 @@ impl Checker {
 
                 self.structs.insert(name.clone(), type_id);
             }
-            Item::ImplBlock {
-                type_name, methods, ..
+            Item::EnumDef {
+                name, variants, ..
             } => {
-                // Resolve the struct type for self parameter
-                let struct_ty = self.structs.get(type_name).copied();
-                if struct_ty.is_none() {
+                if self.enums.contains_key(name) || self.structs.contains_key(name) {
+                    self.diagnostics.add(&CheckerDiagnostic::DuplicateStruct {
+                        span: item.span,
+                        name: name.clone(),
+                    });
+                    return;
+                }
+
+                let resolved_variants: Vec<EnumVariant> = variants
+                    .iter()
+                    .map(|v| {
+                        let fields = match &v.kind {
+                            VariantKind::Unit => Vec::new(),
+                            VariantKind::Tuple(types) => types
+                                .iter()
+                                .enumerate()
+                                .map(|(i, t)| (format!("{}", i), self.resolve_type(t)))
+                                .collect(),
+                            VariantKind::Struct(struct_fields) => struct_fields
+                                .iter()
+                                .map(|f| (f.name.clone(), self.resolve_type(&f.ty)))
+                                .collect(),
+                        };
+                        EnumVariant {
+                            name: v.name.clone(),
+                            fields,
+                        }
+                    })
+                    .collect();
+
+                let type_id = self.types.intern(TypeKind::Enum {
+                    name: name.clone(),
+                    variants: resolved_variants,
+                });
+
+                self.enums.insert(name.clone(), type_id);
+            }
+            Item::InterfaceDef {
+                name, methods, ..
+            } => {
+                let resolved_methods: Vec<nudl_core::types::InterfaceMethod> = methods
+                    .iter()
+                    .map(|m| {
+                        let params: Vec<(String, TypeId)> = m
+                            .params
+                            .iter()
+                            .map(|p| (p.name.clone(), self.resolve_type(&p.ty)))
+                            .collect();
+                        let return_type = m
+                            .return_type
+                            .as_ref()
+                            .map(|t| self.resolve_type(t))
+                            .unwrap_or_else(|| self.types.unit());
+                        nudl_core::types::InterfaceMethod {
+                            name: m.name.clone(),
+                            params,
+                            return_type,
+                        }
+                    })
+                    .collect();
+
+                let type_id = self.types.intern(TypeKind::Interface {
+                    name: name.clone(),
+                    methods: resolved_methods,
+                });
+
+                self.interfaces.insert(name.clone(), type_id);
+            }
+            Item::ImplBlock {
+                type_name,
+                interface_name,
+                methods,
+                ..
+            } => {
+                // Resolve the type for self parameter (struct or enum)
+                let self_ty = self
+                    .structs
+                    .get(type_name)
+                    .or_else(|| self.enums.get(type_name))
+                    .copied();
+                if self_ty.is_none() {
                     self.diagnostics.add(&CheckerDiagnostic::UndefinedStruct {
                         span: item.span,
                         name: type_name.clone(),
                     });
                     return;
                 }
-                let struct_ty = struct_ty.unwrap();
+                let self_ty = self_ty.unwrap();
+
+                // If this is an interface impl, record it
+                if let Some(iface_name) = interface_name {
+                    self.interface_impls
+                        .entry(iface_name.clone())
+                        .or_default()
+                        .push(type_name.clone());
+                }
 
                 // Register each method as a mangled function: TypeName__methodname
                 for method_item in methods {
@@ -113,12 +201,12 @@ impl Checker {
                     {
                         let mangled_name = format!("{}__{}", type_name, method_name);
 
-                        // Resolve params, replacing Self type with the actual struct type
+                        // Resolve params, replacing Self type with the actual type
                         let resolved_params: Vec<(String, TypeId)> = params
                             .iter()
                             .map(|p| {
                                 if p.is_self {
-                                    (p.name.clone(), struct_ty)
+                                    (p.name.clone(), self_ty)
                                 } else {
                                     (p.name.clone(), self.resolve_type(&p.ty))
                                 }

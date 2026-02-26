@@ -28,6 +28,7 @@ pub struct Lowerer {
     pub(super) types: TypeInterner,
     pub(super) function_sigs: HashMap<String, FunctionSig>,
     pub(super) struct_defs: HashMap<String, nudl_core::types::TypeId>,
+    pub(super) enum_defs: HashMap<String, nudl_core::types::TypeId>,
     pub(super) functions: Vec<Function>,
     pub(super) string_constants: Vec<String>,
     pub(super) next_function_id: u32,
@@ -43,6 +44,7 @@ impl Lowerer {
             types: checked.types,
             function_sigs: checked.functions,
             struct_defs: checked.structs,
+            enum_defs: checked.enums,
             functions: Vec::new(),
             string_constants: Vec::new(),
             next_function_id: 0,
@@ -229,6 +231,7 @@ impl Lowerer {
             interner: &mut self.interner,
             function_sigs: &self.function_sigs,
             struct_defs: &self.struct_defs,
+            enum_defs: &self.enum_defs,
             types: &mut self.types,
             loop_stack: Vec::new(),
             param_defaults: &self.param_defaults,
@@ -240,7 +243,9 @@ impl Lowerer {
         // Callee-release: emit Release for reference-typed params at function exit
         for (i, (_pname, pty)) in sig.params.iter().enumerate() {
             let param_reg = Register(i as u32);
-            if ctx.types.is_struct(*pty) {
+            if ctx.types.is_reference_type(*pty)
+                && !matches!(ctx.types.resolve(*pty), TypeKind::String)
+            {
                 ctx.push_inst(Instruction::Release(param_reg, Some(*pty)));
             } else if let TypeKind::FixedArray { element, length } = ctx.types.resolve(*pty) {
                 let elem = *element;

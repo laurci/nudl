@@ -29,9 +29,9 @@
 - [~] Template strings — lexer/parser handle backtick interpolation with brace nesting; not yet lowered to IR/codegen (`tests/core-types/format_strings.nudl`)
 - [x] Unit type (`tests/core-types/unit.nudl`)
 - [~] Tuples — tuple types `(T1, T2)`, tuple literals, `.0`/`.1` element access, tuples as function params/returns; no destructuring yet (`tests/core-types/tuples_basic.nudl`)
-- [ ] Dynamic arrays T[] (`tests/core-types/dynamic_arrays.nudl`)
+- [~] Dynamic arrays T[] — TypeKind::DynamicArray in type system, parsed as `T[]`, type-checked, lowered to Alloc with 3-field layout (ptr, len, capacity); no runtime push/pop/index methods yet (`tests/core-types/dynamic_arrays.nudl`)
 - [x] Fixed-size arrays [T; N] — array literals, index access, mutable index assignment, array repeat `[0; 5]`, type annotations (`tests/core-types/fixed_arrays_basic.nudl`)
-- [ ] Maps (`tests/core-types/maps.nudl`)
+- [~] Maps — TypeKind::Map in type system, parsed as `Map<K, V>`, type-checked, lowered to Alloc with 4-field layout; no runtime insert/get/remove methods yet (`tests/core-types/maps.nudl`)
 - [ ] Function types as values — TypeKind::Function exists but not usable as first-class values (`tests/core-types/function_types.nudl`)
 - [x] Never type (!) — TypeKind::Never, pre-interned, recognized in type checker
 - [~] Range types — `..` and `..=` operators parsed/lowered for use in for-in loops; no standalone Range struct yet
@@ -59,8 +59,8 @@
 
 ## 4. Control Flow
 - [x] If/else — with tail expression semantics, if-else-if chains (`tests/control-flow/if_else.nudl`)
-- [ ] If-let (`tests/control-flow/if_let.nudl`)
-- [ ] Match — token exists, not parsed (`tests/control-flow/match_basic.nudl`)
+- [x] If-let — `if let Pattern = expr { ... } else { ... }` with enum variant destructuring (`tests/control-flow/if_let.nudl`)
+- [x] Match — `match expr { pattern => body }` with wildcard, binding, literal, and enum patterns; lowered to tag-compare + branch chains (`tests/control-flow/match_basic.nudl`)
 - [x] For loops — `for x in 0..n`, `for x in 0..=n`, `for x in array`; desugared to while loops at IR lowering (`tests/control-flow/for_loops_basic.nudl`)
 - [x] While loops (`tests/control-flow/while_loops.nudl`)
 - [x] Infinite loop (`tests/control-flow/loop_infinite.nudl`)
@@ -82,40 +82,40 @@
 - [ ] Tuple structs (`tests/user-defined-types/struct_tuple.nudl`)
 - [~] Named structs — declaration, construction, field access, field assignment, ARC caller-retain/callee-release, scope-exit release, impl blocks with methods (`tests/user-defined-types/struct_simple.nudl`); no generics, destructuring, or spread yet
 - [ ] Struct spread (`tests/user-defined-types/struct_spread.nudl`)
-- [ ] Unit enum variants (`tests/user-defined-types/enum_unit.nudl`)
-- [ ] Struct enum variants (`tests/user-defined-types/enum_struct.nudl`)
-- [ ] Data enum variants (`tests/user-defined-types/enum_data.nudl`)
+- [x] Unit enum variants — `enum Color { Red, Green, Blue }` parsed, type-checked, lowered as tag-only heap objects (`tests/user-defined-types/enum_unit.nudl`)
+- [x] Struct enum variants — `enum Shape { Circle { radius: i32 } }` parsed and type-checked (`tests/user-defined-types/enum_struct.nudl`)
+- [x] Data enum variants — `enum Shape { Circle(i32), Rectangle(i32, i32) }` parsed, type-checked, lowered with tag + fields; impl blocks on enums work (`tests/user-defined-types/enum_data.nudl`)
 - [ ] Type aliases (`tests/user-defined-types/type_aliases.nudl`)
 
 ## 7. Pattern Matching
-- [ ] Literal patterns (`tests/pattern-matching/literal_patterns.nudl`)
-- [ ] Tuple patterns (`tests/pattern-matching/tuple_patterns.nudl`)
+- [x] Literal patterns — integer, bool, string literals in match arms (`tests/pattern-matching/literal_patterns.nudl`)
+- [~] Tuple patterns — parsed but not fully lowered (wildcard semantics currently) (`tests/pattern-matching/tuple_patterns.nudl`)
 - [ ] Struct patterns (`tests/pattern-matching/struct_patterns.nudl`)
-- [ ] Enum patterns (`tests/pattern-matching/enum_patterns.nudl`)
+- [x] Enum patterns — `Enum::Variant(binding)` with tag comparison and field extraction (`tests/pattern-matching/enum_patterns.nudl`)
 - [ ] Nested patterns (`tests/pattern-matching/nested_patterns.nudl`)
 - [ ] Or patterns (`tests/pattern-matching/or_patterns.nudl`)
-- [ ] Binding patterns (`tests/pattern-matching/binding_patterns.nudl`)
-- [ ] Wildcard patterns (`tests/pattern-matching/wildcard_patterns.nudl`)
+- [x] Binding patterns — `name` binds the scrutinee to a variable in the arm body (`tests/pattern-matching/binding_patterns.nudl`)
+- [x] Wildcard patterns — `_` matches anything (`tests/pattern-matching/wildcard_patterns.nudl`)
 - [ ] Range patterns (`tests/pattern-matching/range_patterns.nudl`)
 - [ ] Guard clauses (`tests/pattern-matching/guard_clauses.nudl`)
 - [ ] Exhaustiveness checking (`tests/pattern-matching/exhaustiveness.nudl`)
 
 ## 8. Generics
-- [ ] Generic functions (`tests/generics/generic_functions.nudl`)
-- [ ] Generic structs (`tests/generics/generic_structs.nudl`)
-- [ ] Generic enums (`tests/generics/generic_enums.nudl`)
-- [ ] Bounds (`tests/generics/bounds.nudl`)
+- [~] Generic functions — type parameters `<T>` parsed on function definitions; no monomorphization yet (params parsed, not instantiated) (`tests/generics/generic_functions.nudl`)
+- [~] Generic structs — type parameters parsed on struct definitions; no monomorphization yet (`tests/generics/generic_structs.nudl`)
+- [~] Generic enums — type parameters parsed on enum definitions; no monomorphization yet (`tests/generics/generic_enums.nudl`)
+- [~] Bounds — `<T: Bound>` syntax parsed on type parameters (`tests/generics/bounds.nudl`)
 - [ ] Where clauses (`tests/generics/where_clauses.nudl`)
 - [ ] Turbofish syntax (`tests/generics/turbofish.nudl`)
 - [ ] Monomorphization (`tests/generics/monomorphization.nudl`)
 
 ## 9. Interfaces
-- [ ] Declaration (`tests/interfaces/declaration.nudl`)
-- [ ] Implementation (`tests/interfaces/implementation.nudl`)
-- [ ] Inherent methods (`tests/interfaces/inherent_methods.nudl`)
+- [x] Declaration — `interface Name { fn method(self) -> T; }` parsed and type-checked; interface types registered in type system (`tests/interfaces/declaration.nudl`)
+- [~] Implementation — `impl Interface for Type { ... }` parsed and type-checked; interface impls tracked; no vtable dispatch yet (`tests/interfaces/implementation.nudl`)
+- [x] Inherent methods — impl blocks without interface work for both structs and enums (`tests/interfaces/inherent_methods.nudl`)
 - [ ] Generic interfaces (`tests/interfaces/generic_interfaces.nudl`)
-- [ ] Dynamic dispatch (dyn) (`tests/interfaces/dynamic_dispatch.nudl`)
-- [ ] Method resolution (`tests/interfaces/method_resolution.nudl`)
+- [~] Dynamic dispatch (dyn) — `dyn Interface` type parsed and in type system; no vtable codegen yet (`tests/interfaces/dynamic_dispatch.nudl`)
+- [x] Method resolution — methods resolved via mangled names `Type__method` for both structs and enums (`tests/interfaces/method_resolution.nudl`)
 - [ ] Operator overloading (`tests/interfaces/operator_overloading.nudl`)
 
 ## 10. Error Handling
@@ -125,7 +125,7 @@
 - [ ] ? operator (`tests/error-handling/question_mark.nudl`)
 
 ## 11. Memory Management
-- [~] ARC runtime — C runtime (alloc, release_slow, overflow_abort, weak ops) + inline LLVM retain/release; SSA instructions (Alloc, Load, Store, Retain, Release) in IR + backend + VM; compiler emits Retain/Release for struct types (caller-retain, callee-release, scope-exit release)
+- [~] ARC runtime — C runtime (alloc, release_slow, overflow_abort, weak ops) + inline LLVM retain/release; SSA instructions (Alloc, Load, Store, Retain, Release) in IR + backend + VM; compiler emits Retain/Release for struct and enum types (caller-retain, callee-release, scope-exit release)
 - [ ] ARC sharing (`tests/memory-management/arc_sharing.nudl`)
 - [ ] ARC deallocation (`tests/memory-management/arc_deallocation.nudl`)
 - [ ] Value type copy (`tests/memory-management/value_type_copy.nudl`)

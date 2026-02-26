@@ -42,6 +42,8 @@ pub enum FunctionKind {
 pub struct CheckedModule {
     pub functions: HashMap<String, FunctionSig>,
     pub structs: HashMap<String, TypeId>,
+    pub enums: HashMap<String, TypeId>,
+    pub interfaces: HashMap<String, TypeId>,
     pub types: TypeInterner,
 }
 
@@ -56,6 +58,10 @@ pub struct Checker {
     pub(super) types: TypeInterner,
     pub(super) functions: HashMap<String, FunctionSig>,
     pub(super) structs: HashMap<String, TypeId>,
+    pub(super) enums: HashMap<String, TypeId>,
+    pub(super) interfaces: HashMap<String, TypeId>,
+    /// Map from interface name → set of type names that implement it
+    pub(super) interface_impls: HashMap<String, Vec<String>>,
     pub(super) found_main: bool,
     pub(super) current_return_type: Option<TypeId>,
 }
@@ -67,6 +73,9 @@ impl Checker {
             types: TypeInterner::new(),
             functions: HashMap::new(),
             structs: HashMap::new(),
+            enums: HashMap::new(),
+            interfaces: HashMap::new(),
+            interface_impls: HashMap::new(),
             found_main: false,
             current_return_type: None,
         }
@@ -94,6 +103,8 @@ impl Checker {
         let checked = CheckedModule {
             functions: self.functions,
             structs: self.structs,
+            enums: self.enums,
+            interfaces: self.interfaces,
             types: self.types,
         };
         (checked, self.diagnostics)

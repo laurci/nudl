@@ -119,6 +119,40 @@ impl Checker {
                 method,
                 args,
             } => {
+                // Check if this is an enum tuple variant constructor
+                if let Some(&enum_ty) = self.enums.get(type_name.as_str()) {
+                    let variants = match self.types.resolve(enum_ty).clone() {
+                        TypeKind::Enum { variants, .. } => variants,
+                        _ => Vec::new(),
+                    };
+                    if let Some(var) = variants.iter().find(|v| v.name == *method) {
+                        if args.len() != var.fields.len() {
+                            self.diagnostics
+                                .add(&CheckerDiagnostic::ArgumentCountMismatch {
+                                    span: expr.span,
+                                    expected: var.fields.len().to_string(),
+                                    found: args.len().to_string(),
+                                });
+                        }
+                        for (i, arg) in args.iter().enumerate() {
+                            let arg_ty = self.check_expr(&arg.value, locals);
+                            if let Some((_, expected_ty)) = var.fields.get(i) {
+                                if arg_ty != *expected_ty
+                                    && arg_ty != self.types.error()
+                                    && *expected_ty != self.types.error()
+                                {
+                                    self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                                        span: arg.value.span,
+                                        expected: self.type_name(*expected_ty),
+                                        found: self.type_name(arg_ty),
+                                    });
+                                }
+                            }
+                        }
+                        return enum_ty;
+                    }
+                }
+
                 let mangled_name = format!("{}__{}", type_name, method);
                 let sig = self.functions.get(&mangled_name).cloned();
 
@@ -743,6 +777,7 @@ impl Checker {
                         if iter_ty != self.types.error() {
                             match self.types.resolve(iter_ty).clone() {
                                 TypeKind::FixedArray { element, .. } => element,
+                                TypeKind::DynamicArray { element } => element,
                                 _ => {
                                     self.diagnostics
                                         .add(&CheckerDiagnostic::InvalidOperatorType {
@@ -770,6 +805,205 @@ impl Checker {
                 self.check_block(&body.node, locals);
                 locals.pop_scope();
                 self.types.unit()
+            }
+
+            Expr::EnumLiteral {
+                enum_name,
+                variant,
+                args,
+            } => {
+                // Look up enum type
+                if let Some(&enum_ty) = self.enums.get(enum_name.as_str()) {
+                    let variants = match self.types.resolve(enum_ty).clone() {
+                        TypeKind::Enum { variants, .. } => variants,
+                        _ => return self.types.error(),
+                    };
+                    if let Some(var) = variants.iter().find(|v| v.name == *variant) {
+                        // Check arg count
+                        if args.len() != var.fields.len() {
+                            self.diagnostics
+                                .add(&CheckerDiagnostic::ArgumentCountMismatch {
+                                    span: expr.span,
+                                    expected: var.fields.len().to_string(),
+                                    found: args.len().to_string(),
+                                });
+                        }
+                        // Check arg types
+                        for (i, arg) in args.iter().enumerate() {
+                            let arg_ty = self.check_expr(arg, locals);
+                            if let Some((_, expected_ty)) = var.fields.get(i) {
+                                if arg_ty != *expected_ty
+                                    && arg_ty != self.types.error()
+                                    && *expected_ty != self.types.error()
+                                {
+                                    self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                                        span: arg.span,
+                                        expected: self.type_name(*expected_ty),
+                                        found: self.type_name(arg_ty),
+                                    });
+                                }
+                            }
+                        }
+                    } else {
+                        self.diagnostics.add(&CheckerDiagnostic::UnknownField {
+                            span: expr.span,
+                            name: enum_name.clone(),
+                            field: variant.clone(),
+                        });
+                    }
+                    enum_ty
+                } else {
+                    // Maybe it's a static call on a struct
+                    let mangled_name = format!("{}__{}", enum_name, variant);
+                    if let Some(sig) = self.functions.get(&mangled_name).cloned() {
+                        let call_args: Vec<CallArg> = args
+                            .iter()
+                            .map(|a| CallArg {
+                                name: None,
+                                value: a.clone(),
+                            })
+                            .collect();
+                        return self.check_call_args(expr.span, &sig, &call_args, locals, 0);
+                    }
+                    self.diagnostics.add(&CheckerDiagnostic::UndefinedStruct {
+                        span: expr.span,
+                        name: enum_name.clone(),
+                    });
+                    self.types.error()
+                }
+            }
+
+            Expr::Match { expr: scrutinee, arms } => {
+                let scrutinee_ty = self.check_expr(scrutinee, locals);
+                let mut result_ty = None;
+
+                for arm in arms {
+                    locals.push_scope();
+                    // Introduce bindings from the pattern
+                    self.check_pattern(&arm.pattern, scrutinee_ty, locals);
+
+                    if let Some(guard) = &arm.guard {
+                        let guard_ty = self.check_expr(guard, locals);
+                        if guard_ty != self.types.bool() && guard_ty != self.types.error() {
+                            self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                                span: guard.span,
+                                expected: "bool".into(),
+                                found: self.type_name(guard_ty),
+                            });
+                        }
+                    }
+
+                    let body_ty = self.check_expr(&arm.body, locals);
+                    locals.pop_scope();
+
+                    if let Some(prev_ty) = result_ty {
+                        if body_ty != prev_ty
+                            && body_ty != self.types.error()
+                            && prev_ty != self.types.error()
+                        {
+                            self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                                span: arm.body.span,
+                                expected: self.type_name(prev_ty),
+                                found: self.type_name(body_ty),
+                            });
+                        }
+                    } else {
+                        result_ty = Some(body_ty);
+                    }
+                }
+
+                result_ty.unwrap_or(self.types.unit())
+            }
+
+            Expr::IfLet {
+                pattern,
+                expr: scrutinee,
+                then_branch,
+                else_branch,
+            } => {
+                let scrutinee_ty = self.check_expr(scrutinee, locals);
+
+                locals.push_scope();
+                self.check_pattern(pattern, scrutinee_ty, locals);
+                let then_ty = self.check_block(&then_branch.node, locals);
+                locals.pop_scope();
+
+                if let Some(else_expr) = else_branch {
+                    let else_ty = self.check_expr(else_expr, locals);
+                    if then_ty != else_ty
+                        && then_ty != self.types.error()
+                        && else_ty != self.types.error()
+                    {
+                        self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                            span: else_expr.span,
+                            expected: self.type_name(then_ty),
+                            found: self.type_name(else_ty),
+                        });
+                    }
+                    then_ty
+                } else {
+                    self.types.unit()
+                }
+            }
+        }
+    }
+
+    fn check_pattern(
+        &mut self,
+        pattern: &Spanned<Pattern>,
+        scrutinee_ty: TypeId,
+        locals: &mut ScopedLocals<LocalInfo>,
+    ) {
+        match &pattern.node {
+            Pattern::Wildcard => {}
+            Pattern::Binding(name) => {
+                locals.insert(
+                    name.clone(),
+                    LocalInfo {
+                        ty: scrutinee_ty,
+                        is_mut: false,
+                    },
+                );
+            }
+            Pattern::Literal(_) => {
+                // Literal patterns - type already checked by virtue of being in a match
+            }
+            Pattern::Tuple(elements) => {
+                if let TypeKind::Tuple(elem_types) = self.types.resolve(scrutinee_ty).clone() {
+                    for (i, pat) in elements.iter().enumerate() {
+                        let elem_ty = elem_types.get(i).copied().unwrap_or(self.types.error());
+                        self.check_pattern(pat, elem_ty, locals);
+                    }
+                }
+            }
+            Pattern::Enum {
+                enum_name,
+                variant,
+                fields,
+            } => {
+                // Find the variant and introduce bindings for its fields
+                let enum_ty = if let Some(name) = enum_name {
+                    self.enums.get(name.as_str()).copied()
+                } else {
+                    // Infer from scrutinee
+                    if self.types.is_enum(scrutinee_ty) {
+                        Some(scrutinee_ty)
+                    } else {
+                        None
+                    }
+                };
+
+                if let Some(enum_ty) = enum_ty {
+                    if let TypeKind::Enum { variants, .. } = self.types.resolve(enum_ty).clone() {
+                        if let Some(var) = variants.iter().find(|v| v.name == *variant) {
+                            for (i, pat) in fields.iter().enumerate() {
+                                let field_ty =
+                                    var.fields.get(i).map(|(_, ty)| *ty).unwrap_or(self.types.error());
+                                self.check_pattern(pat, field_ty, locals);
+                            }
+                        }
+                    }
+                }
             }
         }
     }

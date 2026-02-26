@@ -25,7 +25,7 @@ impl<'a> FunctionLowerCtx<'a> {
         let scope_types = self.local_types.current_scope_entries();
         for (name, type_id) in &scope_types {
             if let Some(&reg) = self.locals.get(name) {
-                if self.types.is_struct(*type_id) {
+                if self.types.is_struct(*type_id) || self.types.is_enum(*type_id) {
                     self.push_inst(Instruction::Release(reg, Some(*type_id)));
                 } else if let nudl_core::types::TypeKind::FixedArray { element, length } =
                     self.types.resolve(*type_id)

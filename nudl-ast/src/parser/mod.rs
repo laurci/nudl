@@ -95,4 +95,12 @@ impl Parser {
             false
         }
     }
+
+    pub(super) fn prev_span(&self) -> nudl_core::span::Span {
+        if self.pos > 0 {
+            self.tokens[self.pos - 1].span
+        } else {
+            self.tokens[0].span
+        }
+    }
 }

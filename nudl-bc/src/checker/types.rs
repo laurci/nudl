@@ -55,9 +55,17 @@ impl Checker {
                 "RawPtr" => self.types.raw_ptr(),
                 "MutRawPtr" => self.types.mut_raw_ptr(),
                 "CStr" => self.types.cstr(),
+                // Self placeholder — used in interface method signatures
+                "Self" => self.types.unit(),
                 _ => {
                     if let Some(&struct_ty) = self.structs.get(name.as_str()) {
                         return struct_ty;
+                    }
+                    if let Some(&enum_ty) = self.enums.get(name.as_str()) {
+                        return enum_ty;
+                    }
+                    if let Some(&iface_ty) = self.interfaces.get(name.as_str()) {
+                        return iface_ty;
                     }
                     self.diagnostics.add(&CheckerDiagnostic::UnknownType {
                         span: ty.span,
@@ -78,6 +86,41 @@ impl Checker {
                     length: *length,
                 })
             }
+            TypeExpr::Generic { name, args } => {
+                match name.as_str() {
+                    "Map" if args.len() == 2 => {
+                        let key = self.resolve_type(&args[0]);
+                        let value = self.resolve_type(&args[1]);
+                        self.types.intern(TypeKind::Map { key, value })
+                    }
+                    _ => {
+                        // For generic types, resolve args but return the base type
+                        // This is a simplified approach; full generics would need monomorphization
+                        for arg in args {
+                            self.resolve_type(arg);
+                        }
+                        // Try to find as a struct or enum name
+                        if let Some(&ty) = self.structs.get(name.as_str()) {
+                            return ty;
+                        }
+                        if let Some(&ty) = self.enums.get(name.as_str()) {
+                            return ty;
+                        }
+                        self.diagnostics.add(&CheckerDiagnostic::UnknownType {
+                            span: ty.span,
+                            name: name.clone(),
+                        });
+                        self.types.error()
+                    }
+                }
+            }
+            TypeExpr::DynamicArray { element } => {
+                let elem_ty = self.resolve_type(element);
+                self.types.intern(TypeKind::DynamicArray { element: elem_ty })
+            }
+            TypeExpr::DynInterface { name } => {
+                self.types.intern(TypeKind::DynInterface { name: name.clone() })
+            }
         }
     }
 
@@ -94,12 +137,21 @@ impl Checker {
             TypeKind::Never => "!".into(),
             TypeKind::Function { .. } => "fn(...)".into(),
             TypeKind::Struct { name, .. } => name.clone(),
+            TypeKind::Enum { name, .. } => name.clone(),
+            TypeKind::Interface { name, .. } => name.clone(),
+            TypeKind::DynInterface { name } => format!("dyn {}", name),
             TypeKind::Tuple(elements) => {
                 let parts: Vec<String> = elements.iter().map(|e| self.type_name(*e)).collect();
                 format!("({})", parts.join(", "))
             }
             TypeKind::FixedArray { element, length } => {
                 format!("[{}; {}]", self.type_name(*element), length)
+            }
+            TypeKind::DynamicArray { element } => {
+                format!("{}[]", self.type_name(*element))
+            }
+            TypeKind::Map { key, value } => {
+                format!("Map<{}, {}>", self.type_name(*key), self.type_name(*value))
             }
             TypeKind::Error => "<error>".into(),
         }

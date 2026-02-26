@@ -13,6 +13,7 @@ pub struct Module {
 pub enum Item {
     FnDef {
         name: String,
+        type_params: Vec<TypeParam>,
         params: Vec<Param>,
         return_type: Option<Spanned<TypeExpr>>,
         body: Spanned<Block>,
@@ -20,17 +21,61 @@ pub enum Item {
     },
     StructDef {
         name: String,
+        type_params: Vec<TypeParam>,
         fields: Vec<StructField>,
+        is_pub: bool,
+    },
+    EnumDef {
+        name: String,
+        type_params: Vec<TypeParam>,
+        variants: Vec<EnumVariantDef>,
+        is_pub: bool,
+    },
+    InterfaceDef {
+        name: String,
+        type_params: Vec<TypeParam>,
+        methods: Vec<InterfaceMethodDef>,
         is_pub: bool,
     },
     ImplBlock {
         type_name: String,
+        type_args: Vec<Spanned<TypeExpr>>,
+        interface_name: Option<String>,
         methods: Vec<SpannedItem>,
     },
     ExternBlock {
         library: Option<String>,
         items: Vec<Spanned<ExternFnDecl>>,
     },
+}
+
+#[derive(Debug, Clone)]
+pub struct TypeParam {
+    pub name: String,
+    pub bounds: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct EnumVariantDef {
+    pub name: String,
+    pub kind: VariantKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub enum VariantKind {
+    Unit,
+    Tuple(Vec<Spanned<TypeExpr>>),
+    Struct(Vec<StructField>),
+}
+
+#[derive(Debug, Clone)]
+pub struct InterfaceMethodDef {
+    pub name: String,
+    pub params: Vec<Param>,
+    pub return_type: Option<Spanned<TypeExpr>>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone)]
@@ -172,6 +217,24 @@ pub enum Expr {
         iter: Box<SpannedExpr>,
         body: Box<Spanned<Block>>,
     },
+    /// Enum variant construction: `Color::Red`, `Shape::Circle(5.0)`
+    EnumLiteral {
+        enum_name: String,
+        variant: String,
+        args: Vec<SpannedExpr>,
+    },
+    /// Match expression
+    Match {
+        expr: Box<SpannedExpr>,
+        arms: Vec<MatchArm>,
+    },
+    /// if let pattern = expr { ... } else { ... }
+    IfLet {
+        pattern: Spanned<Pattern>,
+        expr: Box<SpannedExpr>,
+        then_branch: Box<Spanned<Block>>,
+        else_branch: Option<Box<SpannedExpr>>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -238,6 +301,26 @@ pub struct CallArg {
 }
 
 #[derive(Debug, Clone)]
+pub struct MatchArm {
+    pub pattern: Spanned<Pattern>,
+    pub guard: Option<SpannedExpr>,
+    pub body: SpannedExpr,
+}
+
+#[derive(Debug, Clone)]
+pub enum Pattern {
+    Wildcard,
+    Binding(String),
+    Literal(Literal),
+    Tuple(Vec<Spanned<Pattern>>),
+    Enum {
+        enum_name: Option<String>,
+        variant: String,
+        fields: Vec<Spanned<Pattern>>,
+    },
+}
+
+#[derive(Debug, Clone)]
 pub enum TypeExpr {
     Named(String),
     Unit,
@@ -245,5 +328,18 @@ pub enum TypeExpr {
     FixedArray {
         element: Box<Spanned<TypeExpr>>,
         length: usize,
+    },
+    /// Generic type: `Map<K, V>`, `Option<T>`, etc.
+    Generic {
+        name: String,
+        args: Vec<Spanned<TypeExpr>>,
+    },
+    /// Dynamic array type: `T[]`
+    DynamicArray {
+        element: Box<Spanned<TypeExpr>>,
+    },
+    /// Dynamic interface type: `dyn Interface`
+    DynInterface {
+        name: String,
     },
 }

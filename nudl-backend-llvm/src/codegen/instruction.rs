@@ -516,10 +516,23 @@ pub(super) fn emit_instruction<'ctx>(
 
         // ARC / heap operations
         Instruction::Alloc(dst, type_id) => {
-            // Header (16 bytes) + fields (8 bytes each for struct types)
+            // Header (16 bytes) + fields (8 bytes each)
             let header_size = 16u64;
             let field_size = match types.resolve(*type_id) {
                 TypeKind::Struct { fields, .. } => fields.len() as u64 * 8,
+                TypeKind::Enum { variants, .. } => {
+                    // tag (1 slot) + max variant fields
+                    let max_fields = variants.iter().map(|v| v.fields.len()).max().unwrap_or(0);
+                    (1 + max_fields) as u64 * 8
+                }
+                TypeKind::DynamicArray { .. } => {
+                    // ptr, len, capacity = 3 fields
+                    3 * 8
+                }
+                TypeKind::Map { .. } => {
+                    // Internal hash map: entries_ptr, len, capacity, key_hashes_ptr = 4 fields
+                    4 * 8
+                }
                 _ => 0,
             };
             let total_size = context
