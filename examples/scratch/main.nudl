@@ -56,24 +56,78 @@ fn print_num_ln(n: i32) {
 // -- Structs --
 struct Vec2 { x: i32, y: i32 }
 
+impl Vec2 {
+    fn new(x: i32, y: i32) -> Vec2 {
+        Vec2 { x: x, y: y }
+    }
+
+    fn add(self, other: Vec2) -> Vec2 {
+        Vec2 { x: self.x + other.x, y: self.y + other.y }
+    }
+
+    fn dot(self, other: Vec2) -> i32 {
+        self.x * other.x + self.y * other.y
+    }
+
+    fn length_squared(self) -> i32 {
+        self.x * self.x + self.y * self.y
+    }
+
+    fn scale(mut self, factor: i32) {
+        self.x = self.x * factor;
+        self.y = self.y * factor;
+    }
+
+    fn display(self) {
+        print("(");
+        print_number(self.x);
+        print(", ");
+        print_number(self.y);
+        print(")");
+    }
+}
+
+// free-standing wrappers kept for backward compat in this file
 fn vec2_new(x: i32, y: i32) -> Vec2 {
-    Vec2 { x: x, y: y }
+    Vec2::new(x, y: y)
 }
 
 fn vec2_add(a: Vec2, b: Vec2) -> Vec2 {
-    Vec2 { x: a.x + b.x, y: a.y + b.y }
+    a.add(b)
 }
 
 fn vec2_dot(a: Vec2, b: Vec2) -> i32 {
-    a.x * b.x + a.y * b.y
+    a.dot(b)
 }
 
 fn vec2_print(v: Vec2) {
-    print("(");
-    print_number(v.x);
-    print(", ");
-    print_number(v.y);
-    print(")");
+    v.display();
+}
+
+// -- Named args & defaults --
+fn make_rect(x: i32, y: i32, width: i32 = 10, height: i32 = 10) -> i32 {
+    (x + width) * (y + height)
+}
+
+// -- Counter with methods --
+struct Counter { value: i32 }
+
+impl Counter {
+    fn new(start: i32 = 0) -> Counter {
+        Counter { value: start }
+    }
+
+    fn get(self) -> i32 {
+        self.value
+    }
+
+    fn increment(mut self) {
+        self.value = self.value + 1;
+    }
+
+    fn add(mut self, n: i32) {
+        self.value = self.value + n;
+    }
 }
 
 // -- Tuples --
@@ -383,6 +437,65 @@ fn main() {
         vec2_print(triangle[i]);
         print("\n");
     }
+
+    // ── 14. Named arguments & default parameters ──
+    print("\nsection: named args & defaults\n");
+
+    // Named arguments: first positional, rest named
+    let r1 = make_rect(0, y: 0, width: 100, height: 50);
+    print("  rect(0, y:0, w:100, h:50) = "); print_num_ln(r1);
+
+    // Using defaults (omit width and height)
+    let r2 = make_rect(5, y: 5);
+    print("  rect(5, y:5, defaults) = "); print_num_ln(r2);
+
+    // Override just one default
+    let r3 = make_rect(0, y: 0, width: 20);
+    print("  rect(0, y:0, w:20) = "); print_num_ln(r3);
+
+    // ── 15. Argument shorthand & struct field shorthand ──
+    print("\nsection: shorthand\n");
+
+    // Struct field shorthand: { x, y } instead of { x: x, y: y }
+    let x2 = 7;
+    let y2 = 11;
+    let v_short = Vec2 { x: x2, y: y2 };
+    print("  shorthand vec = "); vec2_print(v_short); print("\n");
+
+    // ── 16. Methods (impl blocks, self, static calls) ──
+    print("\nsection: methods\n");
+
+    // Static method as constructor
+    let origin = Vec2::new(0, y: 0);
+    print("  origin = "); origin.display(); print("\n");
+
+    // Immutable method
+    let va = Vec2::new(3, y: 4);
+    print("  va = "); va.display(); print("\n");
+    print("  va.length_squared() = "); print_num_ln(va.length_squared());
+
+    // Method with args
+    let vb = Vec2::new(1, y: 2);
+    let vc = va.add(vb);
+    print("  va + vb = "); vc.display(); print("\n");
+    print("  va . vb = "); print_num_ln(va.dot(vb));
+
+    // Mutable method
+    let mut vm = Vec2::new(5, y: 10);
+    vm.scale(3);
+    print("  scaled(5,10)*3 = "); vm.display(); print("\n");
+
+    // Counter: static constructor with default, mutable methods
+    let mut ctr = Counter::new();
+    ctr.increment();
+    ctr.increment();
+    ctr.increment();
+    ctr.add(7);
+    print("  counter(0, ++, ++, ++, +7) = "); print_num_ln(ctr.get());
+
+    let mut ctr2 = Counter::new(start: 100);
+    ctr2.add(50);
+    print("  counter(100, +50) = "); print_num_ln(ctr2.get());
 
     // ── Wrap up ──
     println("");

@@ -92,6 +92,7 @@ impl Parser {
         match self.peek_kind() {
             TokenKind::Fn => self.parse_fn_def(is_pub),
             TokenKind::Struct => self.parse_struct_def(is_pub),
+            TokenKind::Impl => self.parse_impl_block(),
             TokenKind::Extern => self.parse_extern_block(),
             _ => {
                 if is_pub {
@@ -172,6 +173,31 @@ impl Parser {
         ))
     }
 
+    fn parse_impl_block(&mut self) -> Option<SpannedItem> {
+        let start = self.expect(TokenKind::Impl)?.span;
+        let type_name_tok = self.expect(TokenKind::Ident)?;
+        let type_name = type_name_tok.text.clone();
+        self.expect(TokenKind::LBrace)?;
+
+        let mut methods = Vec::new();
+        while self.peek_kind() != TokenKind::RBrace && !self.at_eof() {
+            if let Some(item) = self.parse_fn_def(false) {
+                methods.push(item);
+            } else {
+                self.advance();
+            }
+        }
+
+        let end = self.expect(TokenKind::RBrace)?.span;
+        Some(Spanned::new(
+            Item::ImplBlock {
+                type_name,
+                methods,
+            },
+            start.merge(end),
+        ))
+    }
+
     fn parse_extern_block(&mut self) -> Option<SpannedItem> {
         let start = self.expect(TokenKind::Extern)?.span;
 
@@ -244,15 +270,42 @@ impl Parser {
 
     fn parse_param(&mut self) -> Option<Param> {
         let is_mut = self.eat(TokenKind::Mut);
+
+        // Handle `self` and `mut self` parameters
+        if self.peek_kind() == TokenKind::Self_ {
+            let self_tok = self.advance().clone();
+            return Some(Param {
+                name: "self".into(),
+                // Placeholder type — the type checker will replace this with the actual struct type
+                ty: Spanned::new(TypeExpr::Named("Self".into()), self_tok.span),
+                is_mut,
+                is_self: true,
+                default_value: None,
+                span: self_tok.span,
+            });
+        }
+
         let name_tok = self.expect(TokenKind::Ident)?;
         let start = name_tok.span;
         self.expect(TokenKind::Colon)?;
         let ty = self.parse_type()?;
-        let end = ty.span;
+        let mut end = ty.span;
+
+        // Parse optional default value: `= expr`
+        let default_value = if self.eat(TokenKind::Eq) {
+            let val = self.parse_expr()?;
+            end = val.span;
+            Some(Box::new(val))
+        } else {
+            None
+        };
+
         Some(Param {
             name: name_tok.text.clone(),
             ty,
             is_mut,
+            is_self: false,
+            default_value,
             span: start.merge(end),
         })
     }
@@ -424,7 +477,7 @@ impl Parser {
         loop {
             let kind = self.peek_kind();
 
-            // Postfix: field access (dot) — handles both named fields and tuple .0, .1
+            // Postfix: field access (dot) — handles named fields, tuple .0/.1, and method calls
             if kind == TokenKind::Dot {
                 let dot_tok = self.advance().clone();
                 // Tuple element access: .0, .1, etc.
@@ -440,14 +493,30 @@ impl Parser {
                     );
                 } else {
                     let field_tok = self.expect(TokenKind::Ident)?;
-                    let span = lhs.span.merge(field_tok.span);
-                    lhs = Spanned::new(
-                        Expr::FieldAccess {
-                            object: Box::new(lhs),
-                            field: field_tok.text.clone(),
-                        },
-                        span,
-                    );
+                    // Check for method call: `obj.method(args)`
+                    if self.peek_kind() == TokenKind::LParen {
+                        let start = lhs.span;
+                        self.advance(); // consume '('
+                        let args = self.parse_call_args();
+                        let end = self.expect(TokenKind::RParen)?.span;
+                        lhs = Spanned::new(
+                            Expr::MethodCall {
+                                object: Box::new(lhs),
+                                method: field_tok.text.clone(),
+                                args,
+                            },
+                            start.merge(end),
+                        );
+                    } else {
+                        let span = lhs.span.merge(field_tok.span);
+                        lhs = Spanned::new(
+                            Expr::FieldAccess {
+                                object: Box::new(lhs),
+                                field: field_tok.text.clone(),
+                            },
+                            span,
+                        );
+                    }
                 }
                 let _ = dot_tok;
                 continue;
@@ -655,14 +724,42 @@ impl Parser {
                 let tok = self.advance().clone();
                 Some(Spanned::new(Expr::Literal(Literal::Bool(false)), tok.span))
             }
+            TokenKind::Self_ => {
+                // `self` used as an expression (inside methods)
+                let tok = self.advance().clone();
+                Some(Spanned::new(Expr::Ident("self".into()), tok.span))
+            }
             TokenKind::Ident => {
-                // Lookahead: if followed by `{` and `ident :` or `}`, parse as struct literal
+                // Lookahead: if followed by `{` and (`ident :` or `ident ,` or `ident }` or `}`), parse as struct literal
                 if self.peek_nth(1).kind == TokenKind::LBrace
                     && (self.peek_nth(2).kind == TokenKind::RBrace
                         || (self.peek_nth(2).kind == TokenKind::Ident
-                            && self.peek_nth(3).kind == TokenKind::Colon))
+                            && (self.peek_nth(3).kind == TokenKind::Colon
+                                || self.peek_nth(3).kind == TokenKind::Comma
+                                || self.peek_nth(3).kind == TokenKind::RBrace)))
                 {
                     return self.parse_struct_literal();
+                }
+                // Static method call: `Type::method(args)`
+                if self.peek_nth(1).kind == TokenKind::ColonColon
+                    && self.peek_nth(2).kind == TokenKind::Ident
+                    && self.peek_nth(3).kind == TokenKind::LParen
+                {
+                    let type_tok = self.advance().clone();
+                    let start = type_tok.span;
+                    self.advance(); // consume '::'
+                    let method_tok = self.advance().clone();
+                    self.advance(); // consume '('
+                    let args = self.parse_call_args();
+                    let end = self.expect(TokenKind::RParen)?.span;
+                    return Some(Spanned::new(
+                        Expr::StaticCall {
+                            type_name: type_tok.text.clone(),
+                            method: method_tok.text.clone(),
+                            args,
+                        },
+                        start.merge(end),
+                    ));
                 }
                 let tok = self.advance().clone();
                 Some(Spanned::new(Expr::Ident(tok.text.clone()), tok.span))
@@ -826,10 +923,21 @@ impl Parser {
 
         let mut fields = Vec::new();
         while self.peek_kind() != TokenKind::RBrace && !self.at_eof() {
-            let field_name = self.expect(TokenKind::Ident)?.text.clone();
-            self.expect(TokenKind::Colon)?;
-            let value = self.parse_expr()?;
-            fields.push((field_name, value));
+            let field_name_tok = self.expect(TokenKind::Ident)?;
+            let field_name = field_name_tok.text.clone();
+            // Support field shorthand: `Foo { x }` is equivalent to `Foo { x: x }`
+            if self.peek_kind() == TokenKind::Colon {
+                self.advance(); // consume ':'
+                let value = self.parse_expr()?;
+                fields.push((field_name, value));
+            } else {
+                // Shorthand: the field name is also used as a variable reference
+                let value = Spanned::new(
+                    Expr::Ident(field_name.clone()),
+                    field_name_tok.span,
+                );
+                fields.push((field_name, value));
+            }
             if !self.eat(TokenKind::Comma) {
                 break;
             }
@@ -992,7 +1100,18 @@ impl Parser {
     fn parse_call_args(&mut self) -> Vec<CallArg> {
         let mut args = Vec::new();
         while self.peek_kind() != TokenKind::RParen && !self.at_eof() {
-            if let Some(expr) = self.parse_expr() {
+            // Check for named argument: `ident: expr`
+            // We look ahead for Ident followed by Colon (but not ColonColon which is path separator)
+            if self.peek_kind() == TokenKind::Ident && self.peek_nth(1).kind == TokenKind::Colon {
+                let name_tok = self.advance().clone();
+                self.advance(); // consume ':'
+                if let Some(value) = self.parse_expr() {
+                    args.push(CallArg {
+                        name: Some(name_tok.text.clone()),
+                        value,
+                    });
+                }
+            } else if let Some(expr) = self.parse_expr() {
                 args.push(CallArg {
                     name: None,
                     value: expr,
@@ -1398,5 +1517,92 @@ mod tests {
             }
             _ => panic!("expected FnDef"),
         }
+    }
+
+    // --- Phase 3 tests ---
+
+    #[test]
+    fn parse_named_args() {
+        let module = parse("fn main() { add(1, b: 2); }");
+        assert_eq!(module.items.len(), 1);
+    }
+
+    #[test]
+    fn parse_default_params() {
+        let module = parse("fn greet(name: string, times: i32 = 1) -> i32 { times }");
+        if let Item::FnDef { params, .. } = &module.items[0].node {
+            assert_eq!(params.len(), 2);
+            assert!(params[0].default_value.is_none());
+            assert!(params[1].default_value.is_some());
+        } else {
+            panic!("expected FnDef");
+        }
+    }
+
+    #[test]
+    fn parse_self_param() {
+        let module = parse("fn get(self) -> i32 { 0 }");
+        if let Item::FnDef { params, .. } = &module.items[0].node {
+            assert_eq!(params.len(), 1);
+            assert!(params[0].is_self);
+            assert!(!params[0].is_mut);
+        } else {
+            panic!("expected FnDef");
+        }
+    }
+
+    #[test]
+    fn parse_mut_self_param() {
+        let module = parse("fn incr(mut self) { }");
+        if let Item::FnDef { params, .. } = &module.items[0].node {
+            assert_eq!(params.len(), 1);
+            assert!(params[0].is_self);
+            assert!(params[0].is_mut);
+        } else {
+            panic!("expected FnDef");
+        }
+    }
+
+    #[test]
+    fn parse_impl_block() {
+        let module = parse(r#"
+struct Point { x: i32, y: i32 }
+impl Point {
+    fn new(x: i32, y: i32) -> Point { Point { x: x, y: y } }
+    fn get_x(self) -> i32 { 0 }
+}
+"#);
+        assert_eq!(module.items.len(), 2);
+        if let Item::ImplBlock { type_name, methods } = &module.items[1].node {
+            assert_eq!(type_name, "Point");
+            assert_eq!(methods.len(), 2);
+        } else {
+            panic!("expected ImplBlock");
+        }
+    }
+
+    #[test]
+    fn parse_method_call() {
+        let module = parse("fn main() { p.get_x(); }");
+        assert_eq!(module.items.len(), 1);
+    }
+
+    #[test]
+    fn parse_static_call() {
+        let module = parse("fn main() { Point::new(1, y: 2); }");
+        assert_eq!(module.items.len(), 1);
+    }
+
+    #[test]
+    fn parse_struct_field_shorthand() {
+        let module = parse(r#"
+struct Point { x: i32, y: i32 }
+fn main() {
+    let x = 1;
+    let y = 2;
+    let p = Point { x, y };
+}
+"#);
+        assert_eq!(module.items.len(), 2);
     }
 }

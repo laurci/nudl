@@ -14,6 +14,14 @@ pub struct FunctionSig {
     pub params: Vec<(String, TypeId)>,
     pub return_type: TypeId,
     pub kind: FunctionKind,
+    /// Number of required (non-default) parameters
+    pub required_params: usize,
+    /// Whether each parameter has a default value (indices correspond to params)
+    pub has_default: Vec<bool>,
+    /// Whether the first parameter is `self` (method)
+    pub is_method: bool,
+    /// Whether the first parameter is `mut self`
+    pub is_mut_method: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,6 +104,10 @@ impl Checker {
                 params: vec![("s".into(), string_ty)],
                 return_type: raw_ptr_ty,
                 kind: FunctionKind::Builtin,
+                required_params: 1,
+                has_default: vec![false],
+                is_method: false,
+                is_mut_method: false,
             },
         );
 
@@ -106,6 +118,10 @@ impl Checker {
                 params: vec![("s".into(), string_ty)],
                 return_type: u64_ty,
                 kind: FunctionKind::Builtin,
+                required_params: 1,
+                has_default: vec![false],
+                is_method: false,
+                is_mut_method: false,
             },
         );
     }
@@ -207,6 +223,46 @@ impl Checker {
 
     // --- Pass 1: Collect declarations ---
 
+    fn collect_fn_sig(&mut self, name: &str, params: &[Param], return_type: &Option<Spanned<TypeExpr>>, span: Span) {
+        if self.functions.contains_key(name) {
+            self.diagnostics.add(&CheckerDiagnostic::DuplicateFunction {
+                span,
+                name: name.into(),
+            });
+            return;
+        }
+
+        let resolved_params: Vec<(String, TypeId)> = params
+            .iter()
+            .map(|p| (p.name.clone(), self.resolve_type(&p.ty)))
+            .collect();
+
+        let has_default: Vec<bool> = params.iter().map(|p| p.default_value.is_some()).collect();
+        let required_params = has_default.iter().take_while(|d| !*d).count();
+
+        let is_method = params.first().map_or(false, |p| p.is_self);
+        let is_mut_method = is_method && params.first().map_or(false, |p| p.is_mut);
+
+        let ret_ty = return_type
+            .as_ref()
+            .map(|t| self.resolve_type(t))
+            .unwrap_or_else(|| self.types.unit());
+
+        self.functions.insert(
+            name.into(),
+            FunctionSig {
+                name: name.into(),
+                params: resolved_params,
+                return_type: ret_ty,
+                kind: FunctionKind::UserDefined,
+                required_params,
+                has_default,
+                is_method,
+                is_mut_method,
+            },
+        );
+    }
+
     fn collect_item(&mut self, item: &SpannedItem) {
         match &item.node {
             Item::FnDef {
@@ -223,33 +279,7 @@ impl Checker {
                     }
                 }
 
-                if self.functions.contains_key(name) {
-                    self.diagnostics.add(&CheckerDiagnostic::DuplicateFunction {
-                        span: item.span,
-                        name: name.clone(),
-                    });
-                    return;
-                }
-
-                let resolved_params: Vec<(String, TypeId)> = params
-                    .iter()
-                    .map(|p| (p.name.clone(), self.resolve_type(&p.ty)))
-                    .collect();
-
-                let ret_ty = return_type
-                    .as_ref()
-                    .map(|t| self.resolve_type(t))
-                    .unwrap_or_else(|| self.types.unit());
-
-                self.functions.insert(
-                    name.clone(),
-                    FunctionSig {
-                        name: name.clone(),
-                        params: resolved_params,
-                        return_type: ret_ty,
-                        kind: FunctionKind::UserDefined,
-                    },
-                );
+                self.collect_fn_sig(name, params, return_type, item.span);
             }
             Item::StructDef {
                 name,
@@ -277,6 +307,78 @@ impl Checker {
 
                 self.structs.insert(name.clone(), type_id);
             }
+            Item::ImplBlock {
+                type_name, methods, ..
+            } => {
+                // Resolve the struct type for self parameter
+                let struct_ty = self.structs.get(type_name).copied();
+                if struct_ty.is_none() {
+                    self.diagnostics.add(&CheckerDiagnostic::UndefinedStruct {
+                        span: item.span,
+                        name: type_name.clone(),
+                    });
+                    return;
+                }
+                let struct_ty = struct_ty.unwrap();
+
+                // Register each method as a mangled function: TypeName__methodname
+                for method_item in methods {
+                    if let Item::FnDef {
+                        name: method_name,
+                        params,
+                        return_type,
+                        ..
+                    } = &method_item.node
+                    {
+                        let mangled_name = format!("{}__{}", type_name, method_name);
+
+                        // Resolve params, replacing Self type with the actual struct type
+                        let resolved_params: Vec<(String, TypeId)> = params
+                            .iter()
+                            .map(|p| {
+                                if p.is_self {
+                                    (p.name.clone(), struct_ty)
+                                } else {
+                                    (p.name.clone(), self.resolve_type(&p.ty))
+                                }
+                            })
+                            .collect();
+
+                        let has_default: Vec<bool> = params.iter().map(|p| p.default_value.is_some()).collect();
+                        let required_params = has_default.iter().take_while(|d| !*d).count();
+
+                        let is_method = params.first().map_or(false, |p| p.is_self);
+                        let is_mut_method = is_method && params.first().map_or(false, |p| p.is_mut);
+
+                        let ret_ty = return_type
+                            .as_ref()
+                            .map(|t| self.resolve_type(t))
+                            .unwrap_or_else(|| self.types.unit());
+
+                        if self.functions.contains_key(&mangled_name) {
+                            self.diagnostics.add(&CheckerDiagnostic::DuplicateFunction {
+                                span: method_item.span,
+                                name: mangled_name,
+                            });
+                            continue;
+                        }
+
+                        self.functions.insert(
+                            mangled_name,
+                            FunctionSig {
+                                name: method_name.clone(),
+                                params: resolved_params,
+                                return_type: ret_ty,
+                                kind: FunctionKind::UserDefined,
+                                required_params,
+                                has_default,
+                                is_method,
+                                is_mut_method,
+                            },
+                        );
+                    }
+                }
+            }
             Item::ExternBlock { items, .. } => {
                 for extern_fn in items {
                     let decl = &extern_fn.node;
@@ -295,6 +397,7 @@ impl Checker {
                         .map(|p| (p.name.clone(), self.resolve_type(&p.ty)))
                         .collect();
 
+                    let param_count = resolved_params.len();
                     let ret_ty = decl
                         .return_type
                         .as_ref()
@@ -308,6 +411,10 @@ impl Checker {
                             params: resolved_params,
                             return_type: ret_ty,
                             kind: FunctionKind::Extern,
+                            required_params: param_count,
+                            has_default: vec![false; param_count],
+                            is_method: false,
+                            is_mut_method: false,
                         },
                     );
                 }
@@ -317,53 +424,71 @@ impl Checker {
 
     // --- Pass 2: Check bodies ---
 
-    fn check_item(&mut self, item: &SpannedItem) {
-        if matches!(&item.node, Item::StructDef { .. }) {
-            return; // Already handled in pass 1
-        }
-        if let Item::FnDef {
-            name,
-            params,
-            body,
-            ..
-        } = &item.node
-        {
-            let mut locals = ScopedLocals::<LocalInfo>::new();
+    fn check_fn_body(&mut self, fn_name: &str, params: &[Param], body: &Spanned<Block>) {
+        let mut locals = ScopedLocals::<LocalInfo>::new();
 
-            // Register params as locals
-            let sig = self.functions.get(name).cloned();
-            let ret_ty = if let Some(ref sig) = sig {
-                for (i, (pname, pty)) in sig.params.iter().enumerate() {
-                    let is_mut = params.get(i).map_or(false, |p| p.is_mut);
-                    locals.insert(
-                        pname.clone(),
-                        LocalInfo {
-                            ty: *pty,
-                            is_mut,
-                        },
-                    );
-                }
-                sig.return_type
-            } else {
-                self.types.unit()
-            };
-
-            self.current_return_type = Some(ret_ty);
-            let body_ty = self.check_block(&body.node, &mut locals);
-            self.current_return_type = None;
-
-            // Check return type
-            if body_ty != ret_ty
-                && body_ty != self.types.error()
-                && ret_ty != self.types.error()
-            {
-                self.diagnostics
-                    .add(&CheckerDiagnostic::ReturnTypeMismatch {
-                        span: body.span,
-                        expected: self.type_name(ret_ty),
-                        found: self.type_name(body_ty),
-                    });
+        let sig = self.functions.get(fn_name).cloned();
+        let ret_ty = if let Some(ref sig) = sig {
+            for (i, (pname, pty)) in sig.params.iter().enumerate() {
+                let is_mut = params.get(i).map_or(false, |p| p.is_mut);
+                locals.insert(
+                    pname.clone(),
+                    LocalInfo {
+                        ty: *pty,
+                        is_mut,
+                    },
+                );
             }
+            sig.return_type
+        } else {
+            self.types.unit()
+        };
+
+        self.current_return_type = Some(ret_ty);
+        let body_ty = self.check_block(&body.node, &mut locals);
+        self.current_return_type = None;
+
+        if body_ty != ret_ty
+            && body_ty != self.types.error()
+            && ret_ty != self.types.error()
+        {
+            self.diagnostics
+                .add(&CheckerDiagnostic::ReturnTypeMismatch {
+                    span: body.span,
+                    expected: self.type_name(ret_ty),
+                    found: self.type_name(body_ty),
+                });
+        }
+    }
+
+    fn check_item(&mut self, item: &SpannedItem) {
+        match &item.node {
+            Item::StructDef { .. } => {} // Already handled in pass 1
+            Item::FnDef {
+                name,
+                params,
+                body,
+                ..
+            } => {
+                self.check_fn_body(name, params, body);
+            }
+            Item::ImplBlock {
+                type_name, methods, ..
+            } => {
+                for method_item in methods {
+                    if let Item::FnDef {
+                        name: method_name,
+                        params,
+                        body,
+                        ..
+                    } = &method_item.node
+                    {
+                        let mangled_name = format!("{}__{}", type_name, method_name);
+                        self.check_fn_body(&mangled_name, params, body);
+                    }
+                }
+            }
+            Item::ExternBlock { .. } => {} // Already handled in pass 1
         }
     }
 
@@ -470,6 +595,129 @@ impl Checker {
         }
     }
 
+    /// Check call arguments with support for named args and defaults.
+    /// `skip_params` is the number of leading parameters to skip (e.g. 1 for self in methods).
+    fn check_call_args(
+        &mut self,
+        call_span: Span,
+        sig: &FunctionSig,
+        args: &[CallArg],
+        locals: &mut ScopedLocals<LocalInfo>,
+        skip_params: usize,
+    ) -> TypeId {
+        let callable_params = &sig.params[skip_params..];
+        let callable_defaults = &sig.has_default[skip_params..];
+        let required = sig.required_params.saturating_sub(skip_params);
+
+        // Build a positional map: for each param, which arg index fills it (if any)
+        let mut filled = vec![false; callable_params.len()];
+
+        // Process positional args first (those without a name)
+        let mut positional_idx = 0;
+        for (arg_idx, arg) in args.iter().enumerate() {
+            if arg.name.is_some() {
+                break; // switch to named args
+            }
+            if positional_idx >= callable_params.len() {
+                self.diagnostics.add(&CheckerDiagnostic::ArgumentCountMismatch {
+                    span: call_span,
+                    expected: callable_params.len().to_string(),
+                    found: args.len().to_string(),
+                });
+                return sig.return_type;
+            }
+            let arg_ty = self.check_expr(&arg.value, locals);
+            let param_ty = callable_params[positional_idx].1;
+            let is_coercible = self.is_unsuffixed_int_literal(&arg.value.node)
+                && self.is_integer_type(param_ty);
+            if arg_ty != param_ty
+                && arg_ty != self.types.error()
+                && param_ty != self.types.error()
+                && !is_coercible
+            {
+                self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                    span: arg.value.span,
+                    expected: self.type_name(param_ty),
+                    found: self.type_name(arg_ty),
+                });
+            }
+            filled[positional_idx] = true;
+            positional_idx += 1;
+            let _ = arg_idx;
+        }
+
+        // Process named args
+        for arg in args.iter().skip(positional_idx) {
+            if let Some(arg_name) = &arg.name {
+                // Find the parameter by name
+                if let Some(pos) = callable_params.iter().position(|(n, _)| n == arg_name) {
+                    let arg_ty = self.check_expr(&arg.value, locals);
+                    let param_ty = callable_params[pos].1;
+                    let is_coercible = self.is_unsuffixed_int_literal(&arg.value.node)
+                        && self.is_integer_type(param_ty);
+                    if arg_ty != param_ty
+                        && arg_ty != self.types.error()
+                        && param_ty != self.types.error()
+                        && !is_coercible
+                    {
+                        self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                            span: arg.value.span,
+                            expected: self.type_name(param_ty),
+                            found: self.type_name(arg_ty),
+                        });
+                    }
+                    filled[pos] = true;
+                } else {
+                    self.check_expr(&arg.value, locals);
+                    self.diagnostics.add(&CheckerDiagnostic::UnknownParameterName {
+                        span: arg.value.span,
+                        name: arg_name.clone(),
+                    });
+                }
+            } else {
+                // Positional arg that came after named — still process by position
+                if positional_idx < callable_params.len() {
+                    let arg_ty = self.check_expr(&arg.value, locals);
+                    let param_ty = callable_params[positional_idx].1;
+                    let is_coercible = self.is_unsuffixed_int_literal(&arg.value.node)
+                        && self.is_integer_type(param_ty);
+                    if arg_ty != param_ty
+                        && arg_ty != self.types.error()
+                        && param_ty != self.types.error()
+                        && !is_coercible
+                    {
+                        self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                            span: arg.value.span,
+                            expected: self.type_name(param_ty),
+                            found: self.type_name(arg_ty),
+                        });
+                    }
+                    filled[positional_idx] = true;
+                    positional_idx += 1;
+                } else {
+                    self.check_expr(&arg.value, locals);
+                    self.diagnostics.add(&CheckerDiagnostic::ArgumentCountMismatch {
+                        span: call_span,
+                        expected: callable_params.len().to_string(),
+                        found: args.len().to_string(),
+                    });
+                }
+            }
+        }
+
+        // Check that all required params are filled
+        for (i, is_filled) in filled.iter().enumerate() {
+            if !is_filled && !callable_defaults[i] {
+                self.diagnostics.add(&CheckerDiagnostic::MissingRequiredArgument {
+                    span: call_span,
+                    name: callable_params[i].0.clone(),
+                });
+            }
+        }
+
+        sig.return_type
+    }
+
     fn check_expr(
         &mut self,
         expr: &SpannedExpr,
@@ -514,32 +762,7 @@ impl Checker {
                 if let Expr::Ident(name) = &callee.node {
                     let sig = self.functions.get(name).cloned();
                     if let Some(sig) = sig {
-                        // Check argument count
-                        if args.len() != sig.params.len() {
-                            self.diagnostics
-                                .add(&CheckerDiagnostic::ArgumentCountMismatch {
-                                    span: expr.span,
-                                    expected: sig.params.len().to_string(),
-                                    found: args.len().to_string(),
-                                });
-                        } else {
-                            // Check argument types
-                            for (i, arg) in args.iter().enumerate() {
-                                let arg_ty = self.check_expr(&arg.value, locals);
-                                let param_ty = sig.params[i].1;
-                                if arg_ty != param_ty
-                                    && arg_ty != self.types.error()
-                                    && param_ty != self.types.error()
-                                {
-                                    self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
-                                        span: arg.value.span,
-                                        expected: self.type_name(param_ty),
-                                        found: self.type_name(arg_ty),
-                                    });
-                                }
-                            }
-                        }
-                        sig.return_type
+                        self.check_call_args(expr.span, &sig, args, locals, 0)
                     } else {
                         self.diagnostics.add(&CheckerDiagnostic::UndefinedFunction {
                             span: callee.span,
@@ -552,6 +775,67 @@ impl Checker {
                     }
                 } else {
                     self.check_expr(callee, locals);
+                    for arg in args {
+                        self.check_expr(&arg.value, locals);
+                    }
+                    self.types.error()
+                }
+            }
+
+            Expr::MethodCall { object, method, args } => {
+                let obj_ty = self.check_expr(object, locals);
+                if obj_ty == self.types.error() {
+                    for arg in args {
+                        self.check_expr(&arg.value, locals);
+                    }
+                    return self.types.error();
+                }
+
+                let type_name = self.type_name(obj_ty);
+                let mangled_name = format!("{}__{}", type_name, method);
+                let sig = self.functions.get(&mangled_name).cloned();
+
+                if let Some(sig) = sig {
+                    // Check mutability for `mut self` methods
+                    if sig.is_mut_method {
+                        // Check if the object is a mutable binding
+                        if let Expr::Ident(var_name) = &object.node {
+                            if let Some(info) = locals.get(var_name) {
+                                if !info.is_mut {
+                                    self.diagnostics.add(&CheckerDiagnostic::MutatingMethodOnImmutable {
+                                        span: expr.span,
+                                        method: method.clone(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    // skip_params=1 to skip the self parameter
+                    self.check_call_args(expr.span, &sig, args, locals, 1)
+                } else {
+                    self.diagnostics.add(&CheckerDiagnostic::UndefinedMethod {
+                        span: expr.span,
+                        ty: type_name,
+                        method: method.clone(),
+                    });
+                    for arg in args {
+                        self.check_expr(&arg.value, locals);
+                    }
+                    self.types.error()
+                }
+            }
+
+            Expr::StaticCall { type_name, method, args } => {
+                let mangled_name = format!("{}__{}", type_name, method);
+                let sig = self.functions.get(&mangled_name).cloned();
+
+                if let Some(sig) = sig {
+                    self.check_call_args(expr.span, &sig, args, locals, 0)
+                } else {
+                    self.diagnostics.add(&CheckerDiagnostic::UndefinedFunction {
+                        span: expr.span,
+                        name: mangled_name,
+                    });
                     for arg in args {
                         self.check_expr(&arg.value, locals);
                     }
@@ -1626,5 +1910,130 @@ fn main() {
 "#,
         );
         assert!(diags.has_errors(), "inner should be undefined outside the while block");
+    }
+
+    // --- Phase 3: Named arguments ---
+
+    #[test]
+    fn named_args_type_check() {
+        let (_, diags) = check_source(
+            r#"
+fn add(a: i32, b: i32) -> i32 { a + b }
+fn main() {
+    let r = add(1, b: 2);
+}
+"#,
+        );
+        assert!(!diags.has_errors(), "named args should type check: {:?}", diags.reports());
+    }
+
+    #[test]
+    fn named_args_wrong_name() {
+        let (_, diags) = check_source(
+            r#"
+fn add(a: i32, b: i32) -> i32 { a + b }
+fn main() {
+    let r = add(1, c: 2);
+}
+"#,
+        );
+        assert!(diags.has_errors(), "unknown named arg 'c' should fail");
+    }
+
+    #[test]
+    fn default_params_type_check() {
+        let (_, diags) = check_source(
+            r#"
+fn greet(name: string, times: i32 = 1) -> i32 { times }
+fn main() {
+    let a = greet("hello");
+    let b = greet("world", times: 3);
+}
+"#,
+        );
+        assert!(!diags.has_errors(), "default params should type check: {:?}", diags.reports());
+    }
+
+    #[test]
+    fn default_params_missing_required() {
+        let (_, diags) = check_source(
+            r#"
+fn greet(name: string, times: i32 = 1) -> i32 { times }
+fn main() {
+    let a = greet();
+}
+"#,
+        );
+        assert!(diags.has_errors(), "missing required arg should fail");
+    }
+
+    // --- Phase 3: Impl blocks ---
+
+    #[test]
+    fn impl_block_static_method_check() {
+        let (checked, diags) = check_source(
+            r#"
+struct Point { x: i32, y: i32 }
+impl Point {
+    fn new(x: i32, y: i32) -> Point {
+        Point { x: x, y: y }
+    }
+}
+fn main() {
+    let p = Point::new(3, y: 4);
+}
+"#,
+        );
+        assert!(!diags.has_errors(), "static method should type check: {:?}", diags.reports());
+        assert!(checked.functions.contains_key("Point__new"), "mangled name should be registered");
+    }
+
+    #[test]
+    fn impl_block_instance_method_check() {
+        let (_, diags) = check_source(
+            r#"
+struct Counter { value: i32 }
+impl Counter {
+    fn new(start: i32) -> Counter { Counter { value: start } }
+    fn get(self) -> i32 { self.value }
+    fn increment(mut self) { self.value = self.value + 1; }
+}
+fn main() {
+    let mut c = Counter::new(0);
+    c.increment();
+    let v = c.get();
+}
+"#,
+        );
+        assert!(!diags.has_errors(), "instance methods should type check: {:?}", diags.reports());
+    }
+
+    #[test]
+    fn impl_block_undefined_method() {
+        let (_, diags) = check_source(
+            r#"
+struct Point { x: i32, y: i32 }
+fn main() {
+    let p = Point { x: 1, y: 2 };
+    p.nonexistent();
+}
+"#,
+        );
+        assert!(diags.has_errors(), "calling undefined method should fail");
+    }
+
+    #[test]
+    fn struct_field_shorthand_check() {
+        let (_, diags) = check_source(
+            r#"
+struct Point { x: i32, y: i32 }
+fn main() {
+    let x = 3;
+    let y = 4;
+    let p = Point { x, y };
+}
+"#,
+        );
+        assert!(!diags.has_errors(), "struct field shorthand should type check: {:?}", diags.reports());
     }
 }

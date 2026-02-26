@@ -30,11 +30,11 @@ Complete all of STATUS.md §1-5 plus supporting infrastructure (enums, pattern m
 
 > **06 and 07 can be done in parallel. 08 depends on 07 for array iteration (range iteration is independent).**
 
-### Phase 3: Function & Method Improvements — [ ] Not started
+### Phase 3: Function & Method Improvements — [x] Complete
 | Task | Status | File | Summary | Depends On |
 |------|--------|------|---------|------------|
-| 09 | [ ] | [09-named-args-defaults.md](09-named-args-defaults.md) | Named args, defaults, shorthand | — |
-| 10 | [ ] | [10-methods.md](10-methods.md) | `impl` blocks, `self`, method calls | — |
+| 09 | [x] | [09-named-args-defaults.md](09-named-args-defaults.md) | Named args, defaults, shorthand | — |
+| 10 | [x] | [10-methods.md](10-methods.md) | `impl` blocks, `self`, method calls | — |
 
 > **09 and 10 can be done in parallel.**
 

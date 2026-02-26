@@ -91,4 +91,27 @@ pub enum CheckerDiagnostic {
     #[message("field access on non-struct type '{ty}'")]
     #[severity(Error)]
     FieldAccessOnNonStruct { span: Span, ty: String },
+
+    #[message("unknown parameter name '{name}'")]
+    #[severity(Error)]
+    UnknownParameterName { span: Span, name: String },
+
+    #[message("missing required argument '{name}'")]
+    #[severity(Error)]
+    MissingRequiredArgument { span: Span, name: String },
+
+    #[message("no method '{method}' on type '{ty}'")]
+    #[severity(Error)]
+    UndefinedMethod {
+        span: Span,
+        ty: String,
+        method: String,
+    },
+
+    #[message("cannot call mutating method '{method}' on immutable binding")]
+    #[severity(Error)]
+    MutatingMethodOnImmutable {
+        span: Span,
+        method: String,
+    },
 }
