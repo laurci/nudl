@@ -3,6 +3,7 @@
   "displayName": "nudl",
   "description": "Nudl language support",
   "version": "0.0.1",
+  "icon": "icons/nudl-logo.png",
   "engines": {
     "vscode": "^1.75.0"
   },
@@ -18,6 +19,10 @@
         "extensions": [
           ".nudl"
         ],
+        "icon": {
+          "light": "./icons/nudl-logo.svg",
+          "dark": "./icons/nudl-logo.svg"
+        },
         "configuration": "./language-configuration.json"
       }
     ],

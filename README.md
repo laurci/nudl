@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/nudl-logo-2x.png" alt="nudl logo" width="147" />
+</p>
+
 # nudl
 
 A high-level, statically-typed, reference-counted, compiled programming language.
