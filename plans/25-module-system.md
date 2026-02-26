@@ -1,4 +1,4 @@
-# Task 21: Module System
+# Task 25: Module System
 
 ## Goal
 Implement multi-file compilation with `import` statements, `pub` visibility, and stdlib path resolution, enabling `import std::io;` and `import my_module;`.

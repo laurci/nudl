@@ -1,7 +1,7 @@
-# Task 23: VM Updates for New IR Instructions
+# Task 27: VM Updates for New IR Instructions
 
 ## Goal
-Update the register-based VM interpreter to handle all new IR instructions added by Tasks 01–22, ensuring comptime evaluation works with the extended instruction set.
+Update the register-based VM interpreter to handle all new IR instructions added by Tasks 01–26, ensuring comptime evaluation works with the extended instruction set.
 
 ## Requirements
 
@@ -23,13 +23,13 @@ From various tasks, the VM needs to execute:
 **Task 11 — Enums:**
 - `EnumAlloc`, `EnumTag`, `EnumPayload`
 
-**Task 13 — Dynamic Arrays:**
+**Task 17 — Dynamic Arrays:**
 - `ArrayAlloc`, `ArrayPush`, `ArrayPop`, `ArrayLen`
 
-**Task 14 — Maps:**
+**Task 18 — Maps:**
 - `MapAlloc`, `MapInsert`, `MapGet`, `MapRemove`, `MapContainsKey`, `MapLen`
 
-**Task 15 — Closures:**
+**Task 19 — Closures:**
 - `ClosureAlloc`, `ClosureCall`, `CaptureLoad`
 
 ### VM Value Type Extensions

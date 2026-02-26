@@ -1,4 +1,4 @@
-# Task 16: Trailing Lambdas
+# Task 20: Trailing Lambdas
 
 ## Goal
 Implement trailing lambda syntax where a closure can be passed as the last argument outside parentheses, and single-parameter closures get an implicit `it` parameter.
@@ -37,7 +37,7 @@ Implement trailing lambda syntax where a closure can be passed as the last argum
 ## Technical Notes
 - This is purely syntactic sugar — desugar to closure before type checking
 - The parser needs to look ahead after `)` for `{`
-- Depends on: Task 15 (closures) for the underlying closure mechanism
+- Depends on: Task 19 (closures) for the underlying closure mechanism
 - Consider: does `f { }` (no parens) work? If so, it means function call with single closure arg
 - The `it` keyword could be a regular identifier that's only special inside trailing lambdas, or a true keyword
 - For MVP, making `it` a regular identifier used as default closure param is simpler

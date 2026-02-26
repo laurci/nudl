@@ -1,4 +1,4 @@
-# Task 22: Standard Library
+# Task 26: Standard Library
 
 ## Goal
 Implement a minimal standard library written in nudl using extern C calls, providing `std::io`, `std::math`, `std::string`, and core utilities.
@@ -64,5 +64,5 @@ std/
   ```
 - The stdlib path must be resolved by the compiler — environment variable or relative to binary
 - Prelude auto-import: the pipeline inserts implicit `import std::prelude::*` at the start of each module
-- Depends on: Task 21 (module system), Task 18 (string runtime), Task 04 (FFI types)
+- Depends on: Task 25 (module system), Task 22 (string runtime), Task 04 (FFI types)
 - Some stdlib functions may need to be compiler builtins if the language doesn't yet support the patterns needed to write them in nudl

@@ -1,4 +1,4 @@
-# Task 17: Option, Result, and Error Propagation (`?`)
+# Task 21: Option, Result, and Error Propagation (`?`)
 
 ## Goal
 Implement built-in `Option<T>` and `Result<T, E>` enum types plus the `?` operator for ergonomic error propagation.
@@ -49,6 +49,6 @@ Implement built-in `Option<T>` and `Result<T, E>` enum types plus the `?` operat
 - Option and Result can be implemented as regular enums using the Task 11 infrastructure, but with special compiler knowledge for the `?` operator
 - The `?` operator desugaring happens during lowering (after type checking validates the types)
 - The token for `?` already exists in the lexer (STATUS.md says "token exists, not parsed")
-- Depends on: Task 11 (enums), Task 12 (pattern matching) for the underlying infrastructure
+- Depends on: Task 11 (enums), Task 12 (pattern matching), Task 14 (generic enums) for the underlying infrastructure
 - Option/Result could be defined as built-in types in the type interner (always available)
 - Consider: should these be actual enums in the IR or have special-case codegen? Using the enum infra is cleaner

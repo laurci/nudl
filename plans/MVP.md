@@ -1,7 +1,7 @@
 # nudl MVP Task Plan
 
 ## Goal
-Complete all of STATUS.md §1-5 plus supporting infrastructure (enums, pattern matching, etc.), a basic module system, and a stdlib written in nudl using extern C. End result: a language supporting string interpolation, stdlib calls, ARC memory management, C FFI, closures, pattern matching, for-loops, methods, arrays, maps, enums, and more.
+Complete all of STATUS.md §1-5 plus supporting infrastructure (enums, pattern matching, generics, interfaces, etc.), a basic module system, and a stdlib written in nudl using extern C. End result: a language supporting string interpolation, stdlib calls, ARC memory management, C FFI, closures, pattern matching, for-loops, methods, generics, interfaces, arrays, maps, enums, and more.
 
 ## Status Legend
 - [ ] Not started
@@ -14,10 +14,10 @@ Complete all of STATUS.md §1-5 plus supporting infrastructure (enums, pattern m
 | Task | Status | File | Summary | Depends On |
 |------|--------|------|---------|------------|
 | 01 | [x] | [01-type-cast-and-f32.md](01-type-cast-and-f32.md) | `as` operator + f32 IR/codegen | — |
-| 02 | [x] | [02-bitwise-operators.md](02-bitwise-operators.md) | `&`, `\|`, `^`, `~` + compound assignments | — |
+| 02 | [x] | [02-bitwise-operators.md](02-bitwise-operators.md) | `&`, `|`, `^`, `~` + compound assignments | — |
 | 03 | [x] | [03-constants-labels-never.md](03-constants-labels-never.md) | `const`, labeled loops, `!` type | — |
 | 04 | [x] | [04-ffi-types.md](04-ffi-types.md) | `MutRawPtr`, `CStr` types | — |
-| 05 | [x] | [05-pipe-operator.md](05-pipe-operator.md) | `\|>` pipe operator | — |
+| 05 | [x] | [05-pipe-operator.md](05-pipe-operator.md) | `|>` pipe operator | — |
 
 > **All 5 tasks in Phase 1 can be done in parallel.**
 
@@ -46,92 +46,112 @@ Complete all of STATUS.md §1-5 plus supporting infrastructure (enums, pattern m
 
 > **11 first, then 12. 12 also uses tuples (06) for tuple patterns.**
 
-### Phase 5: Collections — [ ] Not started
+### Phase 5: Generics & Interfaces — [ ] Not started
 | Task | Status | File | Summary | Depends On |
 |------|--------|------|---------|------------|
-| 13 | [ ] | [13-dynamic-arrays.md](13-dynamic-arrays.md) | `T[]` with push/pop/index | 07 (IndexLoad/IndexStore IR) |
-| 14 | [ ] | [14-map-type.md](14-map-type.md) | `Map<K, V>` with insert/get/remove | — |
+| 13 | [ ] | [13-generic-functions.md](13-generic-functions.md) | Generic functions, type inference, monomorphization | — |
+| 14 | [ ] | [14-generic-types.md](14-generic-types.md) | Generic structs/enums, turbofish `::< >` | 11, 13 |
+| 15 | [ ] | [15-interfaces.md](15-interfaces.md) | `interface` decl, `impl for`, bounds, where clauses | 13, 14 |
+| 16 | [ ] | [16-dyn-dispatch-operators.md](16-dyn-dispatch-operators.md) | `dyn Interface`, vtables, operator overloading | 11, 15 |
 
-> **13 and 14 can be done in parallel (13 reuses index IR from 07).**
+> **Sequential chain: 13 → 14 → 15 → 16. Task 14 also needs enums (11).**
 
-### Phase 6: Higher-Order Functions — [ ] Not started
+### Phase 6: Collections — [ ] Not started
 | Task | Status | File | Summary | Depends On |
 |------|--------|------|---------|------------|
-| 15 | [ ] | [15-closures.md](15-closures.md) | Closures, captures, function values | — |
-| 16 | [ ] | [16-trailing-lambdas.md](16-trailing-lambdas.md) | Trailing lambda syntax, implicit `it` | 15 |
+| 17 | [ ] | [17-dynamic-arrays.md](17-dynamic-arrays.md) | `T[]` with push/pop/index | 07 (IndexLoad/IndexStore IR) |
+| 18 | [ ] | [18-map-type.md](18-map-type.md) | `Map<K, V>` with insert/get/remove | — |
 
-> **15 first, then 16.**
+> **17 and 18 can be done in parallel (17 reuses index IR from 07).**
 
-### Phase 7: Error Handling — [ ] Not started
+### Phase 7: Higher-Order Functions — [ ] Not started
 | Task | Status | File | Summary | Depends On |
 |------|--------|------|---------|------------|
-| 17 | [ ] | [17-option-result-error-prop.md](17-option-result-error-prop.md) | `Option<T>`, `Result<T,E>`, `?` operator | 11, 12 |
+| 19 | [ ] | [19-closures.md](19-closures.md) | Closures, captures, function values | — |
+| 20 | [ ] | [20-trailing-lambdas.md](20-trailing-lambdas.md) | Trailing lambda syntax, implicit `it` | 19 |
 
-### Phase 8: Strings — [ ] Not started
+> **19 first, then 20.**
+
+### Phase 8: Error Handling — [ ] Not started
 | Task | Status | File | Summary | Depends On |
 |------|--------|------|---------|------------|
-| 18 | [ ] | [18-string-runtime-and-templates.md](18-string-runtime-and-templates.md) | String C runtime, template string lowering | — |
+| 21 | [ ] | [21-option-result-error-prop.md](21-option-result-error-prop.md) | `Option<T>`, `Result<T,E>`, `?` operator | 11, 12, 14 |
 
-> **Can be done in parallel with Phases 4-7.**
+> **Needs enums (11), pattern matching (12), and generic enums (14) for `Option<T>`, `Result<T,E>`.**
 
-### Phase 9: Memory Management — [ ] Not started
+### Phase 9: Strings — [ ] Not started
 | Task | Status | File | Summary | Depends On |
 |------|--------|------|---------|------------|
-| 19 | [ ] | [19-arc-and-defer.md](19-arc-and-defer.md) | ARC dealloc, sharing, `defer` | 11 (enum destructors) |
+| 22 | [ ] | [22-string-runtime-and-templates.md](22-string-runtime-and-templates.md) | String C runtime, template string lowering | — |
 
-### Phase 10: Module System & Stdlib — [ ] Not started
+> **Can be done in parallel with Phases 4-8.**
+
+### Phase 10: Memory Management — [ ] Not started
 | Task | Status | File | Summary | Depends On |
 |------|--------|------|---------|------------|
-| 20 | [ ] | [20-destructuring.md](20-destructuring.md) | Let destructuring (tuple, struct) | 06, 12 |
-| 21 | [ ] | [21-module-system.md](21-module-system.md) | Multi-file, imports, `pub`, stdlib paths | — |
-| 22 | [ ] | [22-stdlib.md](22-stdlib.md) | std::io, std::math, std::string, prelude | 18, 21, 04 |
+| 23 | [ ] | [23-arc-and-defer.md](23-arc-and-defer.md) | ARC dealloc, sharing, `defer` | 11 (enum destructors) |
 
-> **20 and 21 can be done in parallel. 22 depends on 21 (modules) and 18 (strings).**
-
-### Phase 11: VM — [ ] Not started
+### Phase 11: Module System & Stdlib — [ ] Not started
 | Task | Status | File | Summary | Depends On |
 |------|--------|------|---------|------------|
-| 23 | [ ] | [23-vm-updates.md](23-vm-updates.md) | VM support for all new IR instructions | All above |
+| 24 | [ ] | [24-destructuring.md](24-destructuring.md) | Let destructuring (tuple, struct) | 06, 12 |
+| 25 | [ ] | [25-module-system.md](25-module-system.md) | Multi-file, imports, `pub`, stdlib paths | — |
+| 26 | [ ] | [26-stdlib.md](26-stdlib.md) | std::io, std::math, std::string, prelude | 22, 25, 04 |
+
+> **24 and 25 can be done in parallel. 26 depends on 25 (modules) and 22 (strings).**
+
+### Phase 12: VM — [ ] Not started
+| Task | Status | File | Summary | Depends On |
+|------|--------|------|---------|------------|
+| 27 | [ ] | [27-vm-updates.md](27-vm-updates.md) | VM support for all new IR instructions | All above |
 
 > **Can be done incrementally alongside each task, or as a final sweep.**
 
 ## Dependency Graph (Critical Path)
 
 ```
-Phase 1: [01] [02] [03] [04] [05]     (all parallel)
-Phase 2: [06] [07] → [08]              (06∥07, then 08)
-Phase 3: [09] [10]                      (parallel)
-Phase 4: [11] → [12]                   (12 needs 06+11)
-Phase 5: [13] [14]                      (parallel, 13 reuses 07)
-Phase 6: [15] → [16]
-Phase 7: [17]                           (needs 11+12)
-Phase 8: [18]                           (independent, parallel with 4-7)
-Phase 9: [19]                           (needs 11)
-Phase 10: [20] [21] → [22]             (22 needs 18+21)
-Phase 11: [23]                          (final sweep)
+Phase 1: [01] [02] [03] [04] [05]          (all parallel)
+Phase 2: [06] [07] → [08]                  (06∥07, then 08)
+Phase 3: [09] [10]                          (parallel)
+Phase 4: [11] → [12]                       (12 needs 06+11)
+Phase 5: [13] → [14] → [15] → [16]        (sequential chain, 14 needs 11)
+Phase 6: [17] [18]                          (parallel, 17 reuses 07)
+Phase 7: [19] → [20]
+Phase 8: [21]                               (needs 11+12+14 for generic Option/Result)
+Phase 9: [22]                               (independent, parallel with 4-8)
+Phase 10: [23]                              (needs 11)
+Phase 11: [24] [25] → [26]                 (26 needs 22+25)
+Phase 12: [27]                              (final sweep)
 ```
 
-**Critical path:** 07 → 08, 11 → 12 → 17, 15 → 16, 21 → 22
+**Critical path:** 11 → 13 → 14 → 15 → 16, and 11 → 12 → 21
 
 ## Maximum Parallelism Schedule
 
 | Wave | Tasks | Notes |
 |------|-------|-------|
-| Wave 1 | 01, 02, 03, 04, 05, 06, 07, 09, 10, 18 | All independent |
-| Wave 2 | 08, 11, 13, 14, 15, 21 | 08 needs 07; others independent |
-| Wave 3 | 12, 16, 19, 20 | 12 needs 06+11; 16 needs 15; 19 needs 11; 20 needs 06+12 |
-| Wave 4 | 17, 22 | 17 needs 11+12; 22 needs 18+21 |
-| Wave 5 | 23 | Final VM sweep |
+| Wave 1 | 01, 02, 03, 04, 05, 06, 07, 09, 10, 22 | All independent |
+| Wave 2 | 08, 11, 17, 18, 19, 25 | 08 needs 07; others independent |
+| Wave 3 | 12, 13, 20, 23, 24 | 12 needs 06+11; 13 independent; 20 needs 19; 23 needs 11; 24 needs 06+12 |
+| Wave 4 | 14 | Needs 11+13 |
+| Wave 5 | 15, 16, 21 | 15 needs 13+14; 16 needs 11+15; 21 needs 11+12+14 |
+| Wave 6 | 26 | Needs 22+25 |
+| Wave 7 | 27 | Final VM sweep |
 
 ## Verification Plan
 1. `cargo test --workspace` — all existing tests pass after each task
 2. Run each test file in `tests/` directories for implemented features
-3. Integration test: program using template strings, stdlib imports, for-loops, match, closures, structs with methods, arrays, and C FFI
+3. Integration test: program using template strings, stdlib imports, for-loops, match, closures, structs with methods, generics, interfaces, arrays, and C FFI
 4. ARC verification: program creating/destroying many heap objects
 5. Module system: multi-file project importing from std
+6. Generics verification: monomorphization produces correct specialized code
+7. Interface verification: static dispatch and dyn dispatch both work correctly
 
 ## Key Architecture Decisions
-- **Methods**: Mangled names (`Type__method`), self as first param, no vtable
+- **Methods**: Mangled names (`Type__method`), self as first param, no vtable for static dispatch
+- **Generics**: Monomorphization (no type erasure) — each instantiation is a separate function/type
+- **Interfaces**: Static dispatch by default, `dyn Interface` for dynamic dispatch via vtables
+- **Operator overloading**: Via built-in interfaces (`Add`, `Eq`, `Ord`, etc.), desugared to method calls
 - **Closures**: Fat pointer (fn_ptr + heap-allocated ARC'd capture struct)
 - **For loops**: While-loop desugaring (no Iterator interface in MVP)
 - **Pattern matching**: Lowered to if-else chains

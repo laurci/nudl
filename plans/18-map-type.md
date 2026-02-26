@@ -1,4 +1,4 @@
-# Task 14: Map Type (`Map<K, V>`)
+# Task 18: Map Type (`Map<K, V>`)
 
 ## Goal
 Implement a hash map type with runtime operations, heap-allocated and ARC-managed.
@@ -53,6 +53,6 @@ Implement a hash map type with runtime operations, heap-allocated and ARC-manage
 - Hash function: FNV-1a or similar for simplicity
 - String keys need special handling (hash the contents, not the pointer)
 - For MVP, `get` can panic on missing key (simpler than Option return)
-- If Option type is available (Task 17), `get` should return `Option<V>`
+- If Option type is available (Task 21), `get` should return `Option<V>`
 - Map methods are compiler builtins (special-cased) until generic methods work
 - Memory: each entry stores key+value inline or as pointers depending on size

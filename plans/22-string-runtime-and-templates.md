@@ -1,4 +1,4 @@
-# Task 18: String Runtime, Template Strings, and Bytes Type
+# Task 22: String Runtime, Template Strings, and Bytes Type
 
 ## Goal
 Implement a C runtime for string operations (concatenation, to_string conversions) with ARC management, lower template strings (backtick interpolation) to string concatenation, and add a first-class `bytes` type with the same infrastructure. Switch string ABI from `(ptr, len)` pairs to single pointer to ARC object.

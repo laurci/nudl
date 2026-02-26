@@ -1,4 +1,4 @@
-# Task 13: Dynamic Arrays (`T[]`)
+# Task 17: Dynamic Arrays (`T[]`)
 
 ## Goal
 Implement dynamically-sized arrays with runtime push/pop/index operations, heap-allocated and ARC-managed.

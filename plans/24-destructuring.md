@@ -1,4 +1,4 @@
-# Task 20: Destructuring
+# Task 24: Destructuring
 
 ## Goal
 Implement let-binding destructuring for tuples and structs, enabling `let (x, y) = get_point();` and `let Foo { x, y } = make_foo();`.
