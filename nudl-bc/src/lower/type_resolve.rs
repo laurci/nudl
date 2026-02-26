@@ -137,6 +137,16 @@ impl<'a> FunctionLowerCtx<'a> {
             Expr::StaticCall {
                 type_name, method, ..
             } => {
+                // Check if this is an enum variant constructor
+                if let Some(&enum_ty) = self.enum_defs.get(type_name.as_str()) {
+                    if let nudl_core::types::TypeKind::Enum { variants, .. } =
+                        self.types.resolve(enum_ty)
+                    {
+                        if variants.iter().any(|v| v.name == *method) {
+                            return Some(enum_ty);
+                        }
+                    }
+                }
                 let mangled = format!("{}__{}", type_name, method);
                 self.function_sigs.get(&mangled).map(|sig| sig.return_type)
             }
@@ -232,10 +242,22 @@ impl<'a> FunctionLowerCtx<'a> {
             Expr::StaticCall {
                 type_name, method, ..
             } => {
+                // Check if this is an enum variant constructor
+                if let Some(&enum_ty) = self.enum_defs.get(type_name.as_str()) {
+                    if let TypeKind::Enum { name, variants, .. } =
+                        self.types.resolve(enum_ty)
+                    {
+                        if variants.iter().any(|v| v.name == *method) {
+                            return Some(name.clone());
+                        }
+                    }
+                }
                 let mangled = format!("{}__{}", type_name, method);
                 if let Some(sig) = self.function_sigs.get(&mangled) {
-                    if let TypeKind::Struct { name, .. } = self.types.resolve(sig.return_type) {
-                        return Some(name.clone());
+                    match self.types.resolve(sig.return_type) {
+                        TypeKind::Struct { name, .. } => return Some(name.clone()),
+                        TypeKind::Enum { name, .. } => return Some(name.clone()),
+                        _ => {}
                     }
                 }
                 None
@@ -243,8 +265,10 @@ impl<'a> FunctionLowerCtx<'a> {
             Expr::Call { callee, .. } => {
                 if let Expr::Ident(fn_name) = &callee.node {
                     if let Some(sig) = self.function_sigs.get(fn_name.as_str()) {
-                        if let TypeKind::Struct { name, .. } = self.types.resolve(sig.return_type) {
-                            return Some(name.clone());
+                        match self.types.resolve(sig.return_type) {
+                            TypeKind::Struct { name, .. } => return Some(name.clone()),
+                            TypeKind::Enum { name, .. } => return Some(name.clone()),
+                            _ => {}
                         }
                     }
                 }
@@ -255,8 +279,10 @@ impl<'a> FunctionLowerCtx<'a> {
                 if let Some(type_name) = self.infer_receiver_type_name(object) {
                     let mangled = format!("{}__{}", type_name, method);
                     if let Some(sig) = self.function_sigs.get(&mangled) {
-                        if let TypeKind::Struct { name, .. } = self.types.resolve(sig.return_type) {
-                            return Some(name.clone());
+                        match self.types.resolve(sig.return_type) {
+                            TypeKind::Struct { name, .. } => return Some(name.clone()),
+                            TypeKind::Enum { name, .. } => return Some(name.clone()),
+                            _ => {}
                         }
                     }
                 }

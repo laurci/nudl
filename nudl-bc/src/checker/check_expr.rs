@@ -119,6 +119,40 @@ impl Checker {
                 method,
                 args,
             } => {
+                // Check if this is an enum tuple variant constructor
+                if let Some(&enum_ty) = self.enums.get(type_name.as_str()) {
+                    let variants = match self.types.resolve(enum_ty).clone() {
+                        TypeKind::Enum { variants, .. } => variants,
+                        _ => Vec::new(),
+                    };
+                    if let Some(var) = variants.iter().find(|v| v.name == *method) {
+                        if args.len() != var.fields.len() {
+                            self.diagnostics
+                                .add(&CheckerDiagnostic::ArgumentCountMismatch {
+                                    span: expr.span,
+                                    expected: var.fields.len().to_string(),
+                                    found: args.len().to_string(),
+                                });
+                        }
+                        for (i, arg) in args.iter().enumerate() {
+                            let arg_ty = self.check_expr(&arg.value, locals);
+                            if let Some((_, expected_ty)) = var.fields.get(i) {
+                                if arg_ty != *expected_ty
+                                    && arg_ty != self.types.error()
+                                    && *expected_ty != self.types.error()
+                                {
+                                    self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                                        span: arg.value.span,
+                                        expected: self.type_name(*expected_ty),
+                                        found: self.type_name(arg_ty),
+                                    });
+                                }
+                            }
+                        }
+                        return enum_ty;
+                    }
+                }
+
                 let mangled_name = format!("{}__{}", type_name, method);
                 let sig = self.functions.get(&mangled_name).cloned();
 

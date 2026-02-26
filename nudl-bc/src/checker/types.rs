@@ -55,6 +55,8 @@ impl Checker {
                 "RawPtr" => self.types.raw_ptr(),
                 "MutRawPtr" => self.types.mut_raw_ptr(),
                 "CStr" => self.types.cstr(),
+                // Self placeholder — used in interface method signatures
+                "Self" => self.types.unit(),
                 _ => {
                     if let Some(&struct_ty) = self.structs.get(name.as_str()) {
                         return struct_ty;

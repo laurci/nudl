@@ -38,29 +38,29 @@ Complete all of STATUS.md §1-5 plus supporting infrastructure (enums, pattern m
 
 > **09 and 10 can be done in parallel.**
 
-### Phase 4: Enums & Pattern Matching — [ ] Not started
+### Phase 4: Enums & Pattern Matching — [x] Complete
 | Task | Status | File | Summary | Depends On |
 |------|--------|------|---------|------------|
-| 11 | [ ] | [11-enums.md](11-enums.md) | Enum types (unit, data, struct variants) | — |
-| 12 | [ ] | [12-pattern-matching.md](12-pattern-matching.md) | `match`, `if let`, patterns, exhaustiveness | 06, 11 |
+| 11 | [x] | [11-enums.md](11-enums.md) | Enum types (unit, data, struct variants) | — |
+| 12 | [x] | [12-pattern-matching.md](12-pattern-matching.md) | `match`, `if let`, patterns, exhaustiveness | 06, 11 |
 
 > **11 first, then 12. 12 also uses tuples (06) for tuple patterns.**
 
-### Phase 5: Generics & Interfaces — [ ] Not started
+### Phase 5: Generics & Interfaces — [x] Complete
 | Task | Status | File | Summary | Depends On |
 |------|--------|------|---------|------------|
-| 13 | [ ] | [13-generic-functions.md](13-generic-functions.md) | Generic functions, type inference, monomorphization | — |
-| 14 | [ ] | [14-generic-types.md](14-generic-types.md) | Generic structs/enums, turbofish `::< >` | 11, 13 |
-| 15 | [ ] | [15-interfaces.md](15-interfaces.md) | `interface` decl, `impl for`, bounds, where clauses | 13, 14 |
-| 16 | [ ] | [16-dyn-dispatch-operators.md](16-dyn-dispatch-operators.md) | `dyn Interface`, vtables, operator overloading | 11, 15 |
+| 13 | [x] | [13-generic-functions.md](13-generic-functions.md) | Generic functions, type inference, monomorphization | — |
+| 14 | [x] | [14-generic-types.md](14-generic-types.md) | Generic structs/enums, turbofish `::< >` | 11, 13 |
+| 15 | [x] | [15-interfaces.md](15-interfaces.md) | `interface` decl, `impl for`, bounds, where clauses | 13, 14 |
+| 16 | [x] | [16-dyn-dispatch-operators.md](16-dyn-dispatch-operators.md) | `dyn Interface`, vtables, operator overloading | 11, 15 |
 
 > **Sequential chain: 13 → 14 → 15 → 16. Task 14 also needs enums (11).**
 
-### Phase 6: Collections — [ ] Not started
+### Phase 6: Collections — [x] Complete
 | Task | Status | File | Summary | Depends On |
 |------|--------|------|---------|------------|
-| 17 | [ ] | [17-dynamic-arrays.md](17-dynamic-arrays.md) | `T[]` with push/pop/index | 07, 13-14 (generics for methods) |
-| 18 | [ ] | [18-map-type.md](18-map-type.md) | `Map<K, V>` with insert/get/remove | 13-14, 21 (generics, Option for `get`) |
+| 17 | [x] | [17-dynamic-arrays.md](17-dynamic-arrays.md) | `T[]` with push/pop/index | 07, 13-14 (generics for methods) |
+| 18 | [x] | [18-map-type.md](18-map-type.md) | `Map<K, V>` with insert/get/remove | 13-14, 21 (generics, Option for `get`) |
 
 > **17 and 18 can be done in parallel. Both use generic infrastructure from Phase 5. 17 also reuses index IR from 07.**
 
