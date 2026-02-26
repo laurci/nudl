@@ -1,14 +1,15 @@
 # Task 17: Dynamic Arrays (`T[]`)
 
 ## Goal
-Implement dynamically-sized arrays with runtime push/pop/index operations, heap-allocated and ARC-managed.
+Implement dynamically-sized arrays with runtime push/pop/index operations, heap-allocated and ARC-managed. With generics now available (Tasks 13-14), array methods are implemented as generic methods on the array type rather than compiler builtins.
 
 ## Requirements
 
 ### Type System
-- Add `TypeKind::Array(TypeId)` — dynamic array of element type T
+- Add `TypeKind::Array(TypeId)` — dynamic array of element type T (built-in generic type, not monomorphized from user code)
 - Arrays are **reference types** (heap-allocated, ARC'd)
 - Array type syntax: `T[]` or `[T]` (TBD — check spec preference)
+- The element type `T` is tracked via the existing generic infrastructure from Task 14
 
 ### Runtime Representation
 - Heap-allocated: `{ ref_count: i64, length: i64, capacity: i64, data: ptr }` (or similar)
@@ -23,11 +24,18 @@ Implement dynamically-sized arrays with runtime push/pop/index operations, heap-
 - `__nudl_array_get(arr: ptr, index: i64, element_size: i64) -> ptr` — get element by index (with bounds check)
 - `__nudl_array_set(arr: ptr, index: i64, element: ptr, element_size: i64)` — set element by index
 
+### Methods (via `impl` blocks using generics)
+- Methods are defined as `impl<T> T[] { ... }` (or equivalent compiler-registered generic impl)
+- `fn push(mut self, value: T)` — append element
+- `fn pop(mut self) -> T` — remove and return last (panics if empty)
+- `fn len(self) -> i64` — get length
+- Optionally implement `Index<i64, T>` interface (Task 16) for `a[i]` syntax on non-primitive element types
+
 ### Parsing
 - Array literal: `[1, 2, 3]` (same syntax as fixed array — disambiguate by context/type annotation)
 - Type annotation: `let a: i32[] = [1, 2, 3];`
 - Index: `a[i]` (shared with fixed arrays)
-- Method-like builtins: `a.push(x)`, `a.pop()`, `a.len()`
+- Method calls: `a.push(x)`, `a.pop()`, `a.len()`
 
 ### IR Instructions
 - `ArrayAlloc { dst, element_type }` — create empty array
@@ -55,9 +63,11 @@ Implement dynamically-sized arrays with runtime push/pop/index operations, heap-
 
 ## Technical Notes
 - The runtime functions handle memory management (realloc on growth)
-- Element size is needed at runtime for generic-over-size operations
+- Element size is needed at runtime for generic-over-size operations — monomorphization (Task 13) ensures each `T[]` instantiation knows the concrete element size at compile time
 - For reference-type elements, push should retain, pop should not release (caller takes ownership)
 - Bounds checking in `__nudl_array_get`/`__nudl_array_set` — abort on out of range
 - Disambiguation from fixed arrays: if no `;` in `[...]` and type context is `T[]`, it's dynamic
 - Alternative: always infer `[1,2,3]` as fixed array, require explicit `vec![1,2,3]` or similar for dynamic
-- The push/pop/len methods can be compiler builtins (special-cased in type checker) until general methods exist
+- Methods are registered as a compiler-provided generic impl block (`impl<T> T[] { ... }`), resolved through the standard method resolution from Task 15 — no special-casing in the type checker needed
+- With `Index<i64, T>` interface (Task 16), `a[i]` can desugar to `Index::index(a, i)` consistently
+- Depends on: Task 07 (IndexLoad/IndexStore IR), Task 13-14 (generics for element type tracking and method monomorphization)

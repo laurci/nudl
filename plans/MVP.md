@@ -59,10 +59,10 @@ Complete all of STATUS.md §1-5 plus supporting infrastructure (enums, pattern m
 ### Phase 6: Collections — [ ] Not started
 | Task | Status | File | Summary | Depends On |
 |------|--------|------|---------|------------|
-| 17 | [ ] | [17-dynamic-arrays.md](17-dynamic-arrays.md) | `T[]` with push/pop/index | 07 (IndexLoad/IndexStore IR) |
-| 18 | [ ] | [18-map-type.md](18-map-type.md) | `Map<K, V>` with insert/get/remove | — |
+| 17 | [ ] | [17-dynamic-arrays.md](17-dynamic-arrays.md) | `T[]` with push/pop/index | 07, 13-14 (generics for methods) |
+| 18 | [ ] | [18-map-type.md](18-map-type.md) | `Map<K, V>` with insert/get/remove | 13-14, 21 (generics, Option for `get`) |
 
-> **17 and 18 can be done in parallel (17 reuses index IR from 07).**
+> **17 and 18 can be done in parallel. Both use generic infrastructure from Phase 5. 17 also reuses index IR from 07.**
 
 ### Phase 7: Higher-Order Functions — [ ] Not started
 | Task | Status | File | Summary | Depends On |
@@ -115,7 +115,7 @@ Phase 2: [06] [07] → [08]                  (06∥07, then 08)
 Phase 3: [09] [10]                          (parallel)
 Phase 4: [11] → [12]                       (12 needs 06+11)
 Phase 5: [13] → [14] → [15] → [16]        (sequential chain, 14 needs 11)
-Phase 6: [17] [18]                          (parallel, 17 reuses 07)
+Phase 6: [17] [18]                          (parallel, both need generics; 17 also reuses 07; 18 needs 21 for Option)
 Phase 7: [19] → [20]
 Phase 8: [21]                               (needs 11+12+14 for generic Option/Result)
 Phase 9: [22]                               (independent, parallel with 4-8)
@@ -131,11 +131,11 @@ Phase 12: [27]                              (final sweep)
 | Wave | Tasks | Notes |
 |------|-------|-------|
 | Wave 1 | 01, 02, 03, 04, 05, 06, 07, 09, 10, 22 | All independent |
-| Wave 2 | 08, 11, 17, 18, 19, 25 | 08 needs 07; others independent |
+| Wave 2 | 08, 11, 19, 25 | 08 needs 07; others independent |
 | Wave 3 | 12, 13, 20, 23, 24 | 12 needs 06+11; 13 independent; 20 needs 19; 23 needs 11; 24 needs 06+12 |
 | Wave 4 | 14 | Needs 11+13 |
-| Wave 5 | 15, 16, 21 | 15 needs 13+14; 16 needs 11+15; 21 needs 11+12+14 |
-| Wave 6 | 26 | Needs 22+25 |
+| Wave 5 | 15, 17, 21 | 15 needs 13+14; 17 needs 07+13+14; 21 needs 11+12+14 |
+| Wave 6 | 16, 18, 26 | 16 needs 11+15; 18 needs 13+14+21; 26 needs 22+25 |
 | Wave 7 | 27 | Final VM sweep |
 
 ## Verification Plan
