@@ -303,6 +303,21 @@ fn fmt_ast_item(item: &Item, out: &mut String, level: usize) {
             ));
             fmt_ast_block(&body.node, out, level + 1);
         }
+        Item::StructDef {
+            name,
+            fields,
+            is_pub,
+        } => {
+            indent(out, level);
+            if *is_pub {
+                out.push_str("pub ");
+            }
+            out.push_str(&format!("StructDef \"{}\":\n", name));
+            for f in fields {
+                indent(out, level + 1);
+                out.push_str(&format!("{}: {}\n", f.name, fmt_type_expr(&f.ty.node)));
+            }
+        }
         Item::ExternBlock { library, items } => {
             indent(out, level);
             out.push_str("ExternBlock");
@@ -499,6 +514,21 @@ fn fmt_ast_expr(expr: &Expr, out: &mut String, level: usize) {
             fmt_ast_expr(&inner.node, out, level);
             out.push(')');
         }
+        Expr::StructLiteral { name, fields } => {
+            out.push_str(&format!("StructLiteral \"{}\" {{\n", name));
+            for (fname, fval) in fields {
+                indent(out, level + 1);
+                out.push_str(&format!("{}: ", fname));
+                fmt_ast_expr(&fval.node, out, level + 1);
+                out.push('\n');
+            }
+            indent(out, level);
+            out.push('}');
+        }
+        Expr::FieldAccess { object, field } => {
+            fmt_ast_expr(&object.node, out, level);
+            out.push_str(&format!(".{}", field));
+        }
     }
 }
 
@@ -675,6 +705,26 @@ fn fmt_instruction(
         // Logical
         Instruction::Not(dst, src) => {
             out.push_str(&format!("r{} = Not(r{})", dst.0, src.0));
+        }
+        // ARC / heap operations
+        Instruction::Alloc(dst, type_id) => {
+            out.push_str(&format!("r{} = Alloc(type_id={})", dst.0, type_id.0));
+        }
+        Instruction::Load(dst, ptr, offset) => {
+            out.push_str(&format!("r{} = Load(r{}, offset={})", dst.0, ptr.0, offset));
+        }
+        Instruction::Store(ptr, offset, src) => {
+            out.push_str(&format!("Store(r{}, offset={}, r{})", ptr.0, offset, src.0));
+        }
+        Instruction::Retain(reg) => {
+            out.push_str(&format!("Retain(r{})", reg.0));
+        }
+        Instruction::Release(reg, type_id) => {
+            if let Some(tid) = type_id {
+                out.push_str(&format!("Release(r{}, type_id={})", reg.0, tid.0));
+            } else {
+                out.push_str(&format!("Release(r{})", reg.0));
+            }
         }
     }
 }

@@ -60,6 +60,7 @@ pub enum TypeKind {
     String,
     RawPtr,
     Function { params: Vec<TypeId>, ret: TypeId },
+    Struct { name: String, fields: Vec<(String, TypeId)> },
     Error,
 }
 
@@ -155,6 +156,14 @@ impl TypeInterner {
     }
     pub fn error(&self) -> TypeId {
         TypeId(15)
+    }
+
+    pub fn is_struct(&self, id: TypeId) -> bool {
+        matches!(self.resolve(id), TypeKind::Struct { .. })
+    }
+
+    pub fn iter_types(&self) -> impl Iterator<Item = (TypeId, &TypeKind)> {
+        self.types.iter().enumerate().map(|(i, k)| (TypeId(i as u32), k))
     }
 }
 

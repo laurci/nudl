@@ -18,6 +18,7 @@
 - [x] String interning
 - [x] LSP server (diagnostics on document change)
 - [x] Debug symbols (DWARF) generation
+- [~] ARC runtime (`runtime/nudl_rt.c`) — compiled at build time, linked into output binaries; inline LLVM retain/release fast paths; compiler now emits Retain/Release for struct types
 
 ## 1. Core Types
 - [x] Integers — all types (i8, i16, i32, i64, u8, u16, u32, u64) in type checker; IR constants for i32, i64, u64; others coerce from unsuffixed literals (`tests/core-types/integers.nudl`)
@@ -79,7 +80,7 @@
 ## 6. User-Defined Types
 - [ ] Unit structs (`tests/user-defined-types/struct_unit.nudl`)
 - [ ] Tuple structs (`tests/user-defined-types/struct_tuple.nudl`)
-- [ ] Named structs (`tests/user-defined-types/struct_named.nudl`)
+- [~] Named structs — declaration, construction, field access, field assignment, ARC caller-retain/callee-release, scope-exit release (`tests/user-defined-types/struct_simple.nudl`); no generics, methods, destructuring, or spread yet
 - [ ] Struct spread (`tests/user-defined-types/struct_spread.nudl`)
 - [ ] Unit enum variants (`tests/user-defined-types/enum_unit.nudl`)
 - [ ] Struct enum variants (`tests/user-defined-types/enum_struct.nudl`)
@@ -124,6 +125,7 @@
 - [ ] ? operator (`tests/error-handling/question_mark.nudl`)
 
 ## 11. Memory Management
+- [~] ARC runtime — C runtime (alloc, release_slow, overflow_abort, weak ops) + inline LLVM retain/release; SSA instructions (Alloc, Load, Store, Retain, Release) in IR + backend + VM; compiler emits Retain/Release for struct types (caller-retain, callee-release, scope-exit release)
 - [ ] ARC sharing (`tests/memory-management/arc_sharing.nudl`)
 - [ ] ARC deallocation (`tests/memory-management/arc_deallocation.nudl`)
 - [ ] Value type copy (`tests/memory-management/value_type_copy.nudl`)

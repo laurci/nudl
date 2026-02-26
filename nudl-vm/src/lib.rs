@@ -4,6 +4,17 @@ use std::fmt;
 use nudl_bc::ir::*;
 use nudl_core::intern::Symbol;
 
+/// Simulated heap object for ARC in the VM.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+struct HeapObject {
+    /// Field values (each slot is 8 bytes / one Value)
+    fields: Vec<Value>,
+    strong_count: u32,
+    weak_count: u32,
+    type_tag: u32,
+}
+
 /// Runtime value in the VM.
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -18,6 +29,8 @@ pub enum Value {
     String(u32),
     /// Synthetic raw pointer (not dereferenceable, only for VM-internal tracking).
     RawPtr(u64),
+    /// ARC heap object reference (index into Vm::heap).
+    HeapRef(u64),
 }
 
 impl fmt::Display for Value {
@@ -32,6 +45,7 @@ impl fmt::Display for Value {
             Value::Char(v) => write!(f, "{}", v),
             Value::String(idx) => write!(f, "string[{}]", idx),
             Value::RawPtr(v) => write!(f, "ptr(0x{:x})", v),
+            Value::HeapRef(id) => write!(f, "heap({})", id),
         }
     }
 }
@@ -98,6 +112,9 @@ pub struct Vm {
     step_count: u64,
     step_limit: u64,
     call_depth: usize,
+    /// Simulated heap for ARC objects (comptime).
+    heap: HashMap<u64, HeapObject>,
+    next_heap_id: u64,
 }
 
 impl Vm {
@@ -106,6 +123,8 @@ impl Vm {
             step_count: 0,
             step_limit: DEFAULT_STEP_LIMIT,
             call_depth: 0,
+            heap: HashMap::new(),
+            next_heap_id: 1, // 0 reserved for "null"
         }
     }
 
@@ -114,6 +133,8 @@ impl Vm {
             step_count: 0,
             step_limit: limit,
             call_depth: 0,
+            heap: HashMap::new(),
+            next_heap_id: 1,
         }
     }
 
@@ -427,6 +448,75 @@ impl Vm {
                 };
                 registers[dst.0 as usize] = result;
             }
+
+            // ARC / heap operations
+            Instruction::Alloc(dst, type_id) => {
+                let id = self.next_heap_id;
+                self.next_heap_id += 1;
+                self.heap.insert(id, HeapObject {
+                    fields: Vec::new(),
+                    strong_count: 1,
+                    weak_count: 0,
+                    type_tag: type_id.0,
+                });
+                registers[dst.0 as usize] = Value::HeapRef(id);
+            }
+            Instruction::Load(dst, ptr_reg, offset) => {
+                let id = match &registers[ptr_reg.0 as usize] {
+                    Value::HeapRef(id) => *id,
+                    other => return Err(VmError::TypeError {
+                        message: format!("Load expected HeapRef, got {:?}", other),
+                    }),
+                };
+                let obj = self.heap.get(&id).ok_or_else(|| VmError::TypeError {
+                    message: format!("Load from freed heap object {}", id),
+                })?;
+                let val = obj.fields.get(*offset as usize).cloned().unwrap_or(Value::Unit);
+                registers[dst.0 as usize] = val;
+            }
+            Instruction::Store(ptr_reg, offset, src) => {
+                let id = match &registers[ptr_reg.0 as usize] {
+                    Value::HeapRef(id) => *id,
+                    other => return Err(VmError::TypeError {
+                        message: format!("Store expected HeapRef, got {:?}", other),
+                    }),
+                };
+                let val = registers[src.0 as usize].clone();
+                let obj = self.heap.get_mut(&id).ok_or_else(|| VmError::TypeError {
+                    message: format!("Store to freed heap object {}", id),
+                })?;
+                let idx = *offset as usize;
+                if idx >= obj.fields.len() {
+                    obj.fields.resize(idx + 1, Value::Unit);
+                }
+                obj.fields[idx] = val;
+            }
+            Instruction::Retain(reg) => {
+                let id = match &registers[reg.0 as usize] {
+                    Value::HeapRef(id) => *id,
+                    _ => return Ok(()), // null / non-ref: no-op
+                };
+                if let Some(obj) = self.heap.get_mut(&id) {
+                    obj.strong_count = obj.strong_count.checked_add(1).ok_or_else(|| {
+                        VmError::TypeError { message: "ARC strong count overflow".into() }
+                    })?;
+                }
+            }
+            Instruction::Release(reg, _type_id) => {
+                let id = match &registers[reg.0 as usize] {
+                    Value::HeapRef(id) => *id,
+                    _ => return Ok(()), // null / non-ref: no-op
+                };
+                let should_free = if let Some(obj) = self.heap.get_mut(&id) {
+                    obj.strong_count = obj.strong_count.saturating_sub(1);
+                    obj.strong_count == 0 && obj.weak_count == 0
+                } else {
+                    false
+                };
+                if should_free {
+                    self.heap.remove(&id);
+                }
+            }
         }
 
         Ok(())
@@ -482,6 +572,7 @@ fn is_truthy(val: &Value) -> bool {
         Value::Char(v) => *v != '\0',
         Value::String(_) => true,
         Value::RawPtr(v) => *v != 0,
+        Value::HeapRef(_) => true,
     }
 }
 
@@ -615,6 +706,7 @@ fn main() {
             entry_function: None,
             extern_libs: vec![],
             interner: nudl_core::intern::StringInterner::new(),
+            types: nudl_core::types::TypeInterner::new(),
             source_map: None,
         };
         let mut vm = Vm::new();

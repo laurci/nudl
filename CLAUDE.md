@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 nudl is a compiled programming language: "The power and syntax of Rust, with the memory management of Swift and the metaprogramming of Zig." Statically-typed, ARC-managed (no borrow checker, no GC), single-threaded in v1, with Zig-style comptime metaprogramming.
 
-**Status:** All crates are scaffolded (template code only). Comprehensive specs exist in `docs/`. Implementation has not started.
+**Status:** Core pipeline works end-to-end (lexer → parser → type checker → SSA IR → LLVM backend → native binary). See `STATUS.md` for detailed feature-level tracking.
 
 ## Build Commands
 
@@ -61,3 +61,7 @@ Documentation is organized into three directories under `docs/` (see `docs/READM
 - `docs/internals/` — Compiler architecture, SSA bytecode, VM, ARC, native codegen (5 files)
 
 Each directory has a `README.md` index linking to all files with descriptions. These are the source of truth for language semantics. All implementation should conform to these specs.
+
+## Implementation Tracking
+
+**Always update `STATUS.md` after implementing a feature or making significant progress.** Mark items as `[x]` (complete), `[~]` (partial), or add new entries as needed. Include a brief note describing what was done.

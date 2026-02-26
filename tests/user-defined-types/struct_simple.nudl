@@ -1,0 +1,81 @@
+// @run
+// @stdout created struct
+// @stdout inside use_point
+// @stdout back in main - p still alive
+// @stdout accessed field after call
+
+extern {
+    fn write(fd: i32, buf: RawPtr, count: u64) -> i64;
+}
+fn print(s: string) { write(1, __str_ptr(s), __str_len(s)); }
+fn println(s: string) { print(s); print("\n"); }
+
+struct Point { x: i32, y: i32 }
+
+fn create_point(x: i32, y: i32) -> Point {
+    Point { x: x, y: y }
+}
+
+fn use_point(p: Point) {
+    let val = p.x;
+    println("inside use_point");
+}
+
+fn print_digit(i: i32) {
+    if i == 0 {
+        print("0");
+    } else if i == 1 {
+        print("1");
+    } else if i == 2 {
+        print("2");
+    } else if i == 3 {
+        print("3");
+    } else if i == 4 {
+        print("4");
+    } else if i == 5 {
+        print("5");
+    } else if i == 6 {
+        print("6");
+    } else if i == 7 {
+        print("7");
+    } else if i == 8 {
+        print("8");
+    } else if i == 9 {
+        print("9");
+    }
+}
+
+ fn print_number(mut n: i32) {
+    if n == 0 {
+        print_digit(0);
+        print("\n");
+        return;
+    }
+    let mut div = 1;
+    while div * 10 <= n {
+        div = div * 10;
+    }
+    while div > 0 {
+        print_digit(n / div);
+        n = n % div;
+        div = div / 10;
+    }
+    print("\n");
+}
+
+fn main() {
+    let mut i = 5;
+    let mut p = create_point(42, 17);
+    println("created struct");
+    while i > 0 {
+        p = create_point(42, 17);
+        println("created struct in loop");
+        i = i - 1;
+    };
+    use_point(p);
+    println("back in main - p still alive");
+    let x = p.x;
+    println("accessed field after call");
+    print_number(x);
+    print_number(p.y);
+}

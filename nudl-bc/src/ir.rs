@@ -1,7 +1,7 @@
 use nudl_core::intern::{StringInterner, Symbol};
 use nudl_core::source::SourceMap;
 use nudl_core::span::Span;
-use nudl_core::types::TypeId;
+use nudl_core::types::{TypeId, TypeInterner};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Register(pub u32);
@@ -65,6 +65,13 @@ pub enum Instruction {
 
     // Logical
     Not(Register, Register), // dst = !src
+
+    // ARC / heap operations
+    Alloc(Register, TypeId),          // dst = heap-allocate object of given type
+    Load(Register, Register, u32),    // dst = ptr.field[offset] (load from heap object)
+    Store(Register, u32, Register),   // ptr.field[offset] = src (store into heap object)
+    Retain(Register),                 // ++strong_count (ARC retain)
+    Release(Register, Option<TypeId>), // --strong_count, free if zero (ARC release); type used for drop fn
 }
 
 #[derive(Debug, Clone)]
@@ -103,5 +110,6 @@ pub struct Program {
     pub entry_function: Option<FunctionId>,
     pub extern_libs: Vec<String>,
     pub interner: StringInterner,
+    pub types: TypeInterner,
     pub source_map: Option<SourceMap>,
 }

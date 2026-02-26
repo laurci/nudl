@@ -21,6 +21,9 @@ use nudl_bc::ir::*;
 use nudl_core::source::SourceMap;
 use nudl_core::types::{TypeInterner, TypeKind};
 
+/// Embedded pre-compiled runtime object file (built by build.rs).
+const RUNTIME_OBJ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/nudl_rt.o"));
+
 #[derive(Debug)]
 pub enum BackendError {
     LlvmError(String),
@@ -73,6 +76,11 @@ impl ParamLayout {
                     entries.push((llvm_param, 2)); // ptr, len
                     llvm_param += 2;
                 }
+                TypeKind::Struct { .. } => {
+                    // Structs are heap-allocated pointers — single i64
+                    entries.push((llvm_param, 1));
+                    llvm_param += 1;
+                }
                 _ => {
                     entries.push((llvm_param, 1));
                     llvm_param += 1;
@@ -111,6 +119,258 @@ unsafe fn extend_ptr_lifetime<'a>(v: PointerValue<'_>) -> PointerValue<'a> {
     unsafe { std::mem::transmute(v) }
 }
 
+/// LLVM function references for ARC runtime intrinsics.
+#[allow(dead_code)]
+struct ArcIntrinsics<'ctx> {
+    /// extern: __nudl_arc_alloc(u64, u32) -> ptr
+    arc_alloc: FunctionValue<'ctx>,
+    /// extern: __nudl_arc_release_slow(ptr, fn_ptr) -> void
+    arc_release_slow: FunctionValue<'ctx>,
+    /// extern: __nudl_arc_overflow_abort() -> void [noreturn]
+    arc_overflow_abort: FunctionValue<'ctx>,
+    /// inline: __nudl_arc_retain(ptr) -> void
+    arc_retain: FunctionValue<'ctx>,
+    /// inline: __nudl_arc_release(ptr, drop_fn) -> void
+    arc_release: FunctionValue<'ctx>,
+    /// inline: __nudl_drop_noop(ptr) -> void
+    drop_noop: FunctionValue<'ctx>,
+}
+
+/// Emit ARC intrinsic declarations and inline functions into the module.
+fn emit_arc_intrinsics<'ctx>(
+    context: &'ctx Context,
+    module: &Module<'ctx>,
+) -> Result<ArcIntrinsics<'ctx>, BackendError> {
+    let ptr_ty = context.ptr_type(AddressSpace::default());
+    let i32_ty = context.i32_type();
+    let i64_ty = context.i64_type();
+    let void_ty = context.void_type();
+
+    // ARC header struct type: { i32 strong, i32 weak, i32 type_tag, i32 padding }
+    let header_ty = context.struct_type(
+        &[i32_ty.into(), i32_ty.into(), i32_ty.into(), i32_ty.into()],
+        false,
+    );
+
+    // --- Declare external C runtime symbols ---
+
+    // __nudl_arc_alloc(u64 total_size, u32 type_tag) -> ptr
+    let alloc_ty = ptr_ty.fn_type(&[i64_ty.into(), i32_ty.into()], false);
+    let arc_alloc = module.add_function(
+        "__nudl_arc_alloc",
+        alloc_ty,
+        Some(inkwell::module::Linkage::External),
+    );
+
+    // __nudl_arc_release_slow(ptr, void(*drop_fn)(ptr)) -> void
+    let release_slow_ty = void_ty.fn_type(&[ptr_ty.into(), ptr_ty.into()], false);
+    let arc_release_slow = module.add_function(
+        "__nudl_arc_release_slow",
+        release_slow_ty,
+        Some(inkwell::module::Linkage::External),
+    );
+
+    // __nudl_arc_overflow_abort() -> void [noreturn]
+    let abort_ty = void_ty.fn_type(&[], false);
+    let arc_overflow_abort = module.add_function(
+        "__nudl_arc_overflow_abort",
+        abort_ty,
+        Some(inkwell::module::Linkage::External),
+    );
+    arc_overflow_abort.add_attribute(
+        inkwell::attributes::AttributeLoc::Function,
+        context.create_enum_attribute(
+            inkwell::attributes::Attribute::get_named_enum_kind_id("noreturn"),
+            0,
+        ),
+    );
+
+    // --- Emit __nudl_drop_noop(ptr) -> void ---
+    let noop_ty = void_ty.fn_type(&[ptr_ty.into()], false);
+    let drop_noop = module.add_function(
+        "__nudl_drop_noop",
+        noop_ty,
+        Some(inkwell::module::Linkage::Internal),
+    );
+    {
+        let bb = context.append_basic_block(drop_noop, "entry");
+        let b = context.create_builder();
+        b.position_at_end(bb);
+        b.build_return(None)
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+    }
+
+    // --- Emit __nudl_arc_retain(ptr) -> void  [alwaysinline] ---
+    //
+    // if ptr == null: return
+    // strong = load i32 from ptr+0
+    // if strong == UINT32_MAX: call overflow_abort
+    // strong++
+    // store strong to ptr+0
+    // return
+    let retain_ty = void_ty.fn_type(&[ptr_ty.into()], false);
+    let arc_retain = module.add_function(
+        "__nudl_arc_retain",
+        retain_ty,
+        Some(inkwell::module::Linkage::Internal),
+    );
+    arc_retain.add_attribute(
+        inkwell::attributes::AttributeLoc::Function,
+        context.create_enum_attribute(
+            inkwell::attributes::Attribute::get_named_enum_kind_id("alwaysinline"),
+            0,
+        ),
+    );
+    {
+        let b = context.create_builder();
+        let entry = context.append_basic_block(arc_retain, "entry");
+        let do_retain = context.append_basic_block(arc_retain, "do_retain");
+        let overflow = context.append_basic_block(arc_retain, "overflow");
+        let inc = context.append_basic_block(arc_retain, "inc");
+        let done = context.append_basic_block(arc_retain, "done");
+
+        // entry: null check
+        b.position_at_end(entry);
+        let obj_ptr = arc_retain.get_nth_param(0).unwrap().into_pointer_value();
+        let is_null = b
+            .build_is_null(obj_ptr, "is_null")
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        b.build_conditional_branch(is_null, done, do_retain)
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+        // do_retain: load strong_count
+        b.position_at_end(do_retain);
+        let strong_ptr = b
+            .build_struct_gep(header_ty, obj_ptr, 0, "strong_ptr")
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        let strong = b
+            .build_load(i32_ty, strong_ptr, "strong")
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            .into_int_value();
+        let max_val = i32_ty.const_int(u32::MAX as u64, false);
+        let is_max = b
+            .build_int_compare(inkwell::IntPredicate::EQ, strong, max_val, "is_max")
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        b.build_conditional_branch(is_max, overflow, inc)
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+        // overflow: abort
+        b.position_at_end(overflow);
+        b.build_direct_call(arc_overflow_abort, &[], "")
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        b.build_unreachable()
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+        // inc: increment and store
+        b.position_at_end(inc);
+        let one = i32_ty.const_int(1, false);
+        let new_strong = b
+            .build_int_add(strong, one, "new_strong")
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        b.build_store(strong_ptr, new_strong)
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        b.build_unconditional_branch(done)
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+        // done
+        b.position_at_end(done);
+        b.build_return(None)
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+    }
+
+    // --- Emit __nudl_arc_release(ptr, drop_fn) -> void  [alwaysinline] ---
+    //
+    // if ptr == null: return
+    // strong = load i32 from ptr+0
+    // strong--
+    // store strong to ptr+0
+    // if strong == 0: call __nudl_arc_release_slow(ptr, drop_fn)
+    // return
+    let release_ty = void_ty.fn_type(&[ptr_ty.into(), ptr_ty.into()], false);
+    let arc_release = module.add_function(
+        "__nudl_arc_release",
+        release_ty,
+        Some(inkwell::module::Linkage::Internal),
+    );
+    arc_release.add_attribute(
+        inkwell::attributes::AttributeLoc::Function,
+        context.create_enum_attribute(
+            inkwell::attributes::Attribute::get_named_enum_kind_id("alwaysinline"),
+            0,
+        ),
+    );
+    {
+        let b = context.create_builder();
+        let entry = context.append_basic_block(arc_release, "entry");
+        let do_release = context.append_basic_block(arc_release, "do_release");
+        let check_zero = context.append_basic_block(arc_release, "check_zero");
+        let call_slow = context.append_basic_block(arc_release, "call_slow");
+        let done = context.append_basic_block(arc_release, "done");
+
+        // entry: null check
+        b.position_at_end(entry);
+        let obj_ptr = arc_release.get_nth_param(0).unwrap().into_pointer_value();
+        let drop_fn_val = arc_release.get_nth_param(1).unwrap().into_pointer_value();
+        let is_null = b
+            .build_is_null(obj_ptr, "is_null")
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        b.build_conditional_branch(is_null, done, do_release)
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+        // do_release: decrement strong
+        b.position_at_end(do_release);
+        let strong_ptr = b
+            .build_struct_gep(header_ty, obj_ptr, 0, "strong_ptr")
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        let strong = b
+            .build_load(i32_ty, strong_ptr, "strong")
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            .into_int_value();
+        let one = i32_ty.const_int(1, false);
+        let new_strong = b
+            .build_int_sub(strong, one, "new_strong")
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        b.build_store(strong_ptr, new_strong)
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        b.build_unconditional_branch(check_zero)
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+        // check_zero: if new_strong == 0, call slow path
+        b.position_at_end(check_zero);
+        let zero = i32_ty.const_zero();
+        let is_zero = b
+            .build_int_compare(inkwell::IntPredicate::EQ, new_strong, zero, "is_zero")
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        b.build_conditional_branch(is_zero, call_slow, done)
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+        // call_slow: call __nudl_arc_release_slow(ptr, drop_fn)
+        b.position_at_end(call_slow);
+        b.build_direct_call(
+            arc_release_slow,
+            &[obj_ptr.into(), drop_fn_val.into()],
+            "",
+        )
+        .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        b.build_unconditional_branch(done)
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+        // done
+        b.position_at_end(done);
+        b.build_return(None)
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+    }
+
+    Ok(ArcIntrinsics {
+        arc_alloc,
+        arc_release_slow,
+        arc_overflow_abort,
+        arc_retain,
+        arc_release,
+        drop_noop,
+    })
+}
+
 // --- Public API ---
 
 /// Compile a program to an executable binary at the given output path.
@@ -134,7 +394,11 @@ pub fn compile_to_executable(
         .write_to_file(&module, FileType::Object, &obj_path)
         .map_err(|e| BackendError::LlvmError(e.to_string()))?;
 
-    link(&obj_path, output)?;
+    // Write embedded runtime .o to temp file for linking
+    let rt_obj_path = output.with_file_name("nudl_rt.o");
+    std::fs::write(&rt_obj_path, RUNTIME_OBJ)?;
+
+    link(&obj_path, &rt_obj_path, output)?;
 
     // Generate .dSYM bundle on macOS (must happen before .o is deleted)
     if cfg!(target_os = "macos") {
@@ -142,6 +406,7 @@ pub fn compile_to_executable(
     }
 
     let _ = std::fs::remove_file(&obj_path);
+    let _ = std::fs::remove_file(&rt_obj_path);
 
     Ok(())
 }
@@ -208,7 +473,7 @@ fn build_module<'ctx>(
     let module = context.create_module("nudl");
     let builder = context.create_builder();
 
-    let types = TypeInterner::new();
+    let types = &program.types;
     let mut function_map: HashMap<u32, FunctionValue<'ctx>> = HashMap::new();
     let mut string_constants: Vec<(GlobalValue<'ctx>, u64)> = Vec::new();
     let mut reg_string_info: HashMap<u32, RegStringInfo> = HashMap::new();
@@ -256,6 +521,9 @@ fn build_module<'ctx>(
         "",
     );
 
+    // Emit ARC intrinsics (inline retain/release + extern declarations)
+    let arc = emit_arc_intrinsics(context, &module)?;
+
     // Emit string constants as globals
     for (i, s) in program.string_constants.iter().enumerate() {
         let bytes = s.as_bytes();
@@ -277,7 +545,7 @@ fn build_module<'ctx>(
         let is_entry = program.entry_function == Some(func.id);
 
         if func.is_extern {
-            let param_types = build_llvm_param_types(func, &types, context);
+            let param_types = build_llvm_param_types(func, types, context);
             let fn_type = context.i64_type().fn_type(&param_types, false);
             let ext_name = func.extern_symbol.as_deref().unwrap_or("unknown_extern");
             let fn_val =
@@ -288,12 +556,71 @@ fn build_module<'ctx>(
             let fn_val = module.add_function("main", fn_type, None);
             function_map.insert(func.id.0, fn_val);
         } else {
-            let param_types = build_llvm_param_types(func, &types, context);
+            let param_types = build_llvm_param_types(func, types, context);
             let fn_type = context.i64_type().fn_type(&param_types, false);
             let func_name = program.interner.resolve(func.name);
             let fn_val =
                 module.add_function(&format!("__func_{}", func_name), fn_type, None);
             function_map.insert(func.id.0, fn_val);
+        }
+    }
+
+    // Generate per-struct drop functions that log "dropping <Name>\n"
+    let mut drop_fns: HashMap<nudl_core::types::TypeId, FunctionValue<'ctx>> = HashMap::new();
+    {
+        let ptr_ty = context.ptr_type(AddressSpace::default());
+        let void_ty = context.void_type();
+        let drop_fn_ty = void_ty.fn_type(&[ptr_ty.into()], false);
+
+        // Find the extern write function in the module
+        let write_fn = module.get_function("write");
+
+        for (type_id, kind) in types.iter_types() {
+            if let TypeKind::Struct { name, .. } = kind {
+                let msg = format!("dropping {}\n", name);
+                let msg_bytes = msg.as_bytes();
+
+                // Create a global string for the drop message
+                let global = context.const_string(msg_bytes, false);
+                let global_val = module.add_global(
+                    context.i8_type().array_type(msg_bytes.len() as u32),
+                    Some(AddressSpace::default()),
+                    &format!(".drop_msg.{}", name),
+                );
+                global_val.set_initializer(&global);
+                global_val.set_constant(true);
+                global_val.set_unnamed_addr(true);
+                global_val.set_linkage(inkwell::module::Linkage::Private);
+
+                let drop_fn = module.add_function(
+                    &format!("__nudl_drop_{}", name),
+                    drop_fn_ty,
+                    Some(inkwell::module::Linkage::Internal),
+                );
+                let bb = context.append_basic_block(drop_fn, "entry");
+                let b = context.create_builder();
+                b.position_at_end(bb);
+
+                // Call write(1, msg_ptr, msg_len) if write is available
+                // Note: extern write has LLVM signature (i64, i64, i64) -> i64
+                if let Some(write_fn) = write_fn {
+                    let i64_ty = context.i64_type();
+                    let fd = i64_ty.const_int(1, false);
+                    let msg_ptr_raw = b.build_ptr_to_int(
+                        global_val.as_pointer_value(),
+                        i64_ty,
+                        "msg_ptr_int",
+                    ).map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                    let msg_len = i64_ty.const_int(msg_bytes.len() as u64, false);
+                    b.build_direct_call(write_fn, &[fd.into(), msg_ptr_raw.into(), msg_len.into()], "")
+                        .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                }
+
+                b.build_return(None)
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+                drop_fns.insert(type_id, drop_fn);
+            }
         }
     }
 
@@ -311,7 +638,9 @@ fn build_module<'ctx>(
             &function_map,
             &string_constants,
             &mut reg_string_info,
-            &types,
+            types,
+            &arc,
+            &drop_fns,
             is_entry,
             optimized,
             &dibuilder,
@@ -341,6 +670,8 @@ fn emit_function<'ctx>(
     string_constants: &[(GlobalValue<'ctx>, u64)],
     reg_string_info: &mut HashMap<u32, RegStringInfo>,
     types: &TypeInterner,
+    arc: &ArcIntrinsics<'ctx>,
+    drop_fns: &HashMap<nudl_core::types::TypeId, FunctionValue<'ctx>>,
     is_entry: bool,
     optimized: bool,
     dibuilder: &DebugInfoBuilder<'ctx>,
@@ -497,6 +828,8 @@ fn emit_function<'ctx>(
                 string_constants,
                 function_map,
                 types,
+                arc,
+                drop_fns,
             )?;
         }
 
@@ -559,6 +892,8 @@ fn emit_instruction<'ctx>(
     string_constants: &[(GlobalValue<'ctx>, u64)],
     function_map: &HashMap<u32, FunctionValue<'ctx>>,
     types: &TypeInterner,
+    arc: &ArcIntrinsics<'ctx>,
+    drop_fns: &HashMap<nudl_core::types::TypeId, FunctionValue<'ctx>>,
 ) -> Result<(), BackendError> {
     match inst {
         Instruction::Const(reg, ConstValue::I32(val)) => {
@@ -764,6 +1099,90 @@ fn emit_instruction<'ctx>(
         }
 
         Instruction::Nop => {}
+
+        // ARC / heap operations
+        Instruction::Alloc(dst, type_id) => {
+            // Header (16 bytes) + fields (8 bytes each for struct types)
+            let header_size = 16u64;
+            let field_size = match types.resolve(*type_id) {
+                TypeKind::Struct { fields, .. } => fields.len() as u64 * 8,
+                _ => 0,
+            };
+            let total_size = context.i64_type().const_int(header_size + field_size, false);
+            let type_tag = context.i32_type().const_int(type_id.0 as u64, false);
+            let call_result = builder
+                .build_direct_call(arc.arc_alloc, &[total_size.into(), type_tag.into()], "alloc")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let ptr = call_result
+                .try_as_basic_value()
+                .basic()
+                .expect("arc_alloc should return a pointer")
+                .into_pointer_value();
+            // Store pointer as i64 in the register alloca
+            let ptr_as_i64 = builder
+                .build_ptr_to_int(ptr, context.i64_type(), "ptr_to_i64")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            store(builder, register_allocas, dst.0, ptr_as_i64)?;
+        }
+        Instruction::Load(dst, ptr_reg, offset) => {
+            let obj_ptr = load_ptr(context, builder, register_allocas, ptr_reg.0)?;
+            // Compute field address: ptr + 16 (header) + offset * 8
+            let byte_offset = 16u64 + (*offset as u64) * 8;
+            let field_ptr = unsafe {
+                builder
+                    .build_gep(
+                        context.i8_type(),
+                        obj_ptr,
+                        &[context.i64_type().const_int(byte_offset, false)],
+                        "field_ptr",
+                    )
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            };
+            let val = builder
+                .build_load(context.i64_type(), field_ptr, "field_val")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                .into_int_value();
+            store(builder, register_allocas, dst.0, val)?;
+        }
+        Instruction::Store(ptr_reg, offset, src) => {
+            let obj_ptr = load_ptr(context, builder, register_allocas, ptr_reg.0)?;
+            let byte_offset = 16u64 + (*offset as u64) * 8;
+            let field_ptr = unsafe {
+                builder
+                    .build_gep(
+                        context.i8_type(),
+                        obj_ptr,
+                        &[context.i64_type().const_int(byte_offset, false)],
+                        "field_ptr",
+                    )
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            };
+            let val = load_i64(context, builder, register_allocas, src.0)?;
+            builder
+                .build_store(field_ptr, val)
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        }
+        Instruction::Retain(reg) => {
+            let obj_ptr = load_ptr(context, builder, register_allocas, reg.0)?;
+            builder
+                .build_direct_call(arc.arc_retain, &[obj_ptr.into()], "")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        }
+        Instruction::Release(reg, type_id) => {
+            let obj_ptr = load_ptr(context, builder, register_allocas, reg.0)?;
+            let drop_fn_ptr = if let Some(tid) = type_id {
+                if let Some(dfn) = drop_fns.get(tid) {
+                    dfn.as_global_value().as_pointer_value()
+                } else {
+                    arc.drop_noop.as_global_value().as_pointer_value()
+                }
+            } else {
+                arc.drop_noop.as_global_value().as_pointer_value()
+            };
+            builder
+                .build_direct_call(arc.arc_release, &[obj_ptr.into(), drop_fn_ptr.into()], "")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        }
     }
     Ok(())
 }
@@ -973,6 +1392,24 @@ fn load_i64<'ctx>(
     Ok(val.into_int_value())
 }
 
+/// Load a register as a pointer (registers store pointers as i64, so we inttoptr).
+fn load_ptr<'ctx>(
+    context: &'ctx Context,
+    builder: &Builder<'ctx>,
+    register_allocas: &HashMap<u32, PointerValue<'ctx>>,
+    ssa_reg: u32,
+) -> Result<PointerValue<'ctx>, BackendError> {
+    let i64_val = load_i64(context, builder, register_allocas, ssa_reg)?;
+    let ptr = builder
+        .build_int_to_ptr(
+            i64_val,
+            context.ptr_type(AddressSpace::default()),
+            &format!("i64_to_ptr_r{}", ssa_reg),
+        )
+        .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+    Ok(ptr)
+}
+
 fn load_binop<'ctx>(
     context: &'ctx Context,
     builder: &Builder<'ctx>,
@@ -1031,14 +1468,21 @@ fn gep_string_ptr<'ctx>(
     Ok(ptr)
 }
 
-fn link(obj_path: &Path, output: &Path) -> Result<(), BackendError> {
-    let status = Command::new("cc")
-        .arg("-g")
+fn link(obj_path: &Path, rt_obj_path: &Path, output: &Path) -> Result<(), BackendError> {
+    let mut cmd = Command::new("cc");
+    cmd.arg("-g")
         .arg("-o")
         .arg(output)
         .arg(obj_path)
-        .arg("-lSystem")
-        .status()?;
+        .arg(rt_obj_path);
+
+    if cfg!(target_os = "macos") {
+        cmd.arg("-lSystem");
+    } else {
+        cmd.arg("-lc");
+    }
+
+    let status = cmd.status()?;
 
     if !status.success() {
         return Err(BackendError::LinkError(format!(

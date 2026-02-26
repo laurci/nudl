@@ -41,6 +41,11 @@ impl Parser {
         self.tokens[self.pos].kind
     }
 
+    fn peek_nth(&self, n: usize) -> &Token {
+        let idx = (self.pos + n).min(self.tokens.len() - 1);
+        &self.tokens[idx]
+    }
+
     fn at_eof(&self) -> bool {
         self.peek_kind() == TokenKind::Eof
     }
@@ -86,6 +91,7 @@ impl Parser {
 
         match self.peek_kind() {
             TokenKind::Fn => self.parse_fn_def(is_pub),
+            TokenKind::Struct => self.parse_struct_def(is_pub),
             TokenKind::Extern => self.parse_extern_block(),
             _ => {
                 if is_pub {
@@ -126,6 +132,40 @@ impl Parser {
                 params,
                 return_type,
                 body,
+                is_pub,
+            },
+            start.merge(end),
+        ))
+    }
+
+    fn parse_struct_def(&mut self, is_pub: bool) -> Option<SpannedItem> {
+        let start = self.expect(TokenKind::Struct)?.span;
+        let name_tok = self.expect(TokenKind::Ident)?;
+        let name = name_tok.text.clone();
+        self.expect(TokenKind::LBrace)?;
+
+        let mut fields = Vec::new();
+        while self.peek_kind() != TokenKind::RBrace && !self.at_eof() {
+            let field_name_tok = self.expect(TokenKind::Ident)?;
+            let field_start = field_name_tok.span;
+            self.expect(TokenKind::Colon)?;
+            let ty = self.parse_type()?;
+            let field_end = ty.span;
+            fields.push(StructField {
+                name: field_name_tok.text.clone(),
+                ty,
+                span: field_start.merge(field_end),
+            });
+            if !self.eat(TokenKind::Comma) {
+                break;
+            }
+        }
+
+        let end = self.expect(TokenKind::RBrace)?.span;
+        Some(Spanned::new(
+            Item::StructDef {
+                name,
+                fields,
                 is_pub,
             },
             start.merge(end),
@@ -250,7 +290,7 @@ impl Parser {
                         self.advance();
                     }
                 }
-                TokenKind::Fn | TokenKind::Pub | TokenKind::Extern => {
+                TokenKind::Fn | TokenKind::Struct | TokenKind::Pub | TokenKind::Extern => {
                     if let Some(item) = self.parse_item() {
                         let span = item.span;
                         stmts.push(Spanned::new(Stmt::Item(item), span));
@@ -344,6 +384,22 @@ impl Parser {
 
         loop {
             let kind = self.peek_kind();
+
+            // Postfix: field access (dot)
+            if kind == TokenKind::Dot {
+                let dot_tok = self.advance().clone();
+                let field_tok = self.expect(TokenKind::Ident)?;
+                let span = lhs.span.merge(field_tok.span);
+                lhs = Spanned::new(
+                    Expr::FieldAccess {
+                        object: Box::new(lhs),
+                        field: field_tok.text.clone(),
+                    },
+                    span,
+                );
+                let _ = dot_tok;
+                continue;
+            }
 
             // Postfix: call expressions
             if kind == TokenKind::LParen {
@@ -457,6 +513,14 @@ impl Parser {
                 Some(Spanned::new(Expr::Literal(Literal::Bool(false)), tok.span))
             }
             TokenKind::Ident => {
+                // Lookahead: if followed by `{` and `ident :` or `}`, parse as struct literal
+                if self.peek_nth(1).kind == TokenKind::LBrace
+                    && (self.peek_nth(2).kind == TokenKind::RBrace
+                        || (self.peek_nth(2).kind == TokenKind::Ident
+                            && self.peek_nth(3).kind == TokenKind::Colon))
+                {
+                    return self.parse_struct_literal();
+                }
                 let tok = self.advance().clone();
                 Some(Spanned::new(Expr::Ident(tok.text.clone()), tok.span))
             }
@@ -521,6 +585,30 @@ impl Parser {
                 None
             }
         }
+    }
+
+    fn parse_struct_literal(&mut self) -> Option<SpannedExpr> {
+        let name_tok = self.expect(TokenKind::Ident)?;
+        let start = name_tok.span;
+        let name = name_tok.text.clone();
+        self.expect(TokenKind::LBrace)?;
+
+        let mut fields = Vec::new();
+        while self.peek_kind() != TokenKind::RBrace && !self.at_eof() {
+            let field_name = self.expect(TokenKind::Ident)?.text.clone();
+            self.expect(TokenKind::Colon)?;
+            let value = self.parse_expr()?;
+            fields.push((field_name, value));
+            if !self.eat(TokenKind::Comma) {
+                break;
+            }
+        }
+
+        let end = self.expect(TokenKind::RBrace)?.span;
+        Some(Spanned::new(
+            Expr::StructLiteral { name, fields },
+            start.merge(end),
+        ))
     }
 
     fn parse_if_expr(&mut self) -> Option<SpannedExpr> {

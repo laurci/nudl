@@ -13,8 +13,9 @@ use crate::scoped_locals::ScopedLocals;
 /// Lowers AST to SSA bytecode. Consumes CheckedModule for function signatures.
 pub struct Lowerer {
     interner: StringInterner,
-    _types: TypeInterner,
+    types: TypeInterner,
     function_sigs: HashMap<String, FunctionSig>,
+    struct_defs: HashMap<String, nudl_core::types::TypeId>,
     functions: Vec<Function>,
     string_constants: Vec<String>,
     next_function_id: u32,
@@ -24,8 +25,9 @@ impl Lowerer {
     pub fn new(checked: CheckedModule) -> Self {
         Self {
             interner: StringInterner::new(),
-            _types: checked.types,
+            types: checked.types,
             function_sigs: checked.functions,
+            struct_defs: checked.structs,
             functions: Vec::new(),
             string_constants: Vec::new(),
             next_function_id: 0,
@@ -66,6 +68,7 @@ impl Lowerer {
             entry_function,
             extern_libs: vec!["System".into()],
             interner: self.interner,
+            types: self.types,
             source_map: None,
         }
     }
@@ -122,6 +125,12 @@ impl Lowerer {
             next_register += 1;
         }
 
+        // Track param types for callee-release
+        let mut local_types = ScopedLocals::<nudl_core::types::TypeId>::new();
+        for (pname, pty) in sig.params.iter() {
+            local_types.insert(pname.clone(), *pty);
+        }
+
         let mut ctx = FunctionLowerCtx {
             blocks: Vec::new(),
             current_block_id: BlockId(0),
@@ -131,14 +140,24 @@ impl Lowerer {
             next_block_id: 1,
             next_register,
             locals,
+            local_types,
             string_constants: &mut self.string_constants,
             interner: &mut self.interner,
             function_sigs: &self.function_sigs,
+            struct_defs: &self.struct_defs,
+            types: &self.types,
             loop_stack: Vec::new(),
         };
 
         // Lower body — returns the register holding the result
         let result_reg = ctx.lower_block_expr(&body.node);
+
+        // Callee-release: emit Release for struct-typed params at function exit
+        for (i, (_pname, pty)) in sig.params.iter().enumerate() {
+            if ctx.types.is_struct(*pty) {
+                ctx.push_inst(Instruction::Release(Register(i as u32), Some(*pty)));
+            }
+        }
 
         // Finish the last block with a return
         ctx.finish_block(Terminator::Return(result_reg));
@@ -202,9 +221,13 @@ struct FunctionLowerCtx<'a> {
     next_block_id: u32,
     next_register: u32,
     locals: ScopedLocals<Register>,
+    /// Track which locals are struct-typed (for Release at scope exit)
+    local_types: ScopedLocals<nudl_core::types::TypeId>,
     string_constants: &'a mut Vec<String>,
     interner: &'a mut StringInterner,
     function_sigs: &'a HashMap<String, FunctionSig>,
+    struct_defs: &'a HashMap<String, nudl_core::types::TypeId>,
+    types: &'a TypeInterner,
     loop_stack: Vec<LoopContext>,
 }
 
@@ -252,6 +275,7 @@ impl<'a> FunctionLowerCtx<'a> {
     /// Pushes a new scope so variables defined inside are not visible outside.
     fn lower_block_expr(&mut self, block: &Block) -> Register {
         self.locals.push_scope();
+        self.local_types.push_scope();
         for stmt in &block.stmts {
             self.lower_stmt(stmt);
         }
@@ -262,6 +286,18 @@ impl<'a> FunctionLowerCtx<'a> {
             self.push_inst(Instruction::ConstUnit(reg));
             reg
         };
+
+        // Scope release: emit Release for struct-typed locals defined in this scope
+        let scope_types = self.local_types.current_scope_entries();
+        for (name, type_id) in &scope_types {
+            if self.types.is_struct(*type_id) {
+                if let Some(&reg) = self.locals.get(name) {
+                    self.push_inst(Instruction::Release(reg, Some(*type_id)));
+                }
+            }
+        }
+
+        self.local_types.pop_scope();
         self.locals.pop_scope();
         result
     }
@@ -275,6 +311,13 @@ impl<'a> FunctionLowerCtx<'a> {
             Stmt::Let { name, value, .. } => {
                 let reg = self.lower_expr(value);
                 self.locals.insert(name.clone(), reg);
+
+                // Track struct-typed locals for scope-exit Release
+                if let Some(type_id) = self.infer_expr_type(value) {
+                    if self.types.is_struct(type_id) {
+                        self.local_types.insert(name.clone(), type_id);
+                    }
+                }
             }
             Stmt::Item(_) => {} // nested items not supported yet
         }
@@ -396,10 +439,54 @@ impl<'a> FunctionLowerCtx<'a> {
                 dst
             }
 
+            Expr::StructLiteral { name, fields } => {
+                let type_id = self.struct_defs.get(name.as_str()).copied().unwrap();
+                let dst = self.alloc_register();
+                self.push_inst(Instruction::Alloc(dst, type_id));
+
+                // Resolve field order from the type definition
+                let struct_fields = match self.types.resolve(type_id).clone() {
+                    nudl_core::types::TypeKind::Struct { fields: f, .. } => f,
+                    _ => vec![],
+                };
+
+                for (field_name, field_val) in fields {
+                    let val_reg = self.lower_expr(field_val);
+                    // Find field index in the struct definition
+                    let field_idx = struct_fields
+                        .iter()
+                        .position(|(n, _)| n == field_name)
+                        .unwrap() as u32;
+                    self.push_inst(Instruction::Store(dst, field_idx, val_reg));
+                }
+                dst
+            }
+
+            Expr::FieldAccess { object, field } => {
+                let obj_reg = self.lower_expr(object);
+                // Resolve object type to find field index
+                let field_idx = self.resolve_field_index(object, field);
+                let dst = self.alloc_register();
+                self.push_inst(Instruction::Load(dst, obj_reg, field_idx));
+                dst
+            }
+
             Expr::Assign { target, value } => {
                 let val_reg = self.lower_expr(value);
                 if let Expr::Ident(name) = &target.node {
+                    // Release old value if reassigning a struct-typed variable
+                    if let Some(&type_id) = self.local_types.get(name) {
+                        if self.types.is_struct(type_id) {
+                            if let Some(&old_reg) = self.locals.get(name) {
+                                self.push_inst(Instruction::Release(old_reg, Some(type_id)));
+                            }
+                        }
+                    }
                     self.locals.update(name, val_reg);
+                } else if let Expr::FieldAccess { object, field } = &target.node {
+                    let obj_reg = self.lower_expr(object);
+                    let field_idx = self.resolve_field_index(object, field);
+                    self.push_inst(Instruction::Store(obj_reg, field_idx, val_reg));
                 }
                 let unit_reg = self.alloc_register();
                 self.push_inst(Instruction::ConstUnit(unit_reg));
@@ -646,6 +733,58 @@ impl<'a> FunctionLowerCtx<'a> {
         result_reg
     }
 
+    /// Resolve the field index for a field access expression.
+    fn resolve_field_index(
+        &self,
+        object: &nudl_core::span::Spanned<Expr>,
+        field: &str,
+    ) -> u32 {
+        // Walk the object expression to find its type
+        let type_id = self.infer_expr_type(object);
+        if let Some(tid) = type_id {
+            if let nudl_core::types::TypeKind::Struct { fields, .. } = self.types.resolve(tid) {
+                if let Some(idx) = fields.iter().position(|(n, _)| n == field) {
+                    return idx as u32;
+                }
+            }
+        }
+        0 // fallback (should have been caught by checker)
+    }
+
+    /// Best-effort type inference for an expression (used in lowerer for field lookups).
+    fn infer_expr_type(
+        &self,
+        expr: &nudl_core::span::Spanned<Expr>,
+    ) -> Option<nudl_core::types::TypeId> {
+        match &expr.node {
+            Expr::Ident(name) => self.local_types.get(name).copied(),
+            Expr::StructLiteral { name, .. } => {
+                self.struct_defs.get(name.as_str()).copied()
+            }
+            Expr::FieldAccess { object, field } => {
+                let obj_type = self.infer_expr_type(object)?;
+                if let nudl_core::types::TypeKind::Struct { fields, .. } =
+                    self.types.resolve(obj_type)
+                {
+                    fields
+                        .iter()
+                        .find(|(n, _)| n == field)
+                        .map(|(_, ty)| *ty)
+                } else {
+                    None
+                }
+            }
+            Expr::Call { callee, .. } => {
+                if let Expr::Ident(name) = &callee.node {
+                    self.function_sigs.get(name).map(|sig| sig.return_type)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
     fn lower_builtin_call(&mut self, name: &str, args: &[CallArg]) -> Register {
         let call_span = self.current_span;
         match name {
@@ -676,6 +815,17 @@ impl<'a> FunctionLowerCtx<'a> {
         // Lower all arguments
         let arg_regs: Vec<Register> = args.iter().map(|arg| self.lower_expr(&arg.value)).collect();
         self.current_span = call_span;
+
+        // Caller-retain: for struct-typed args, emit Retain so callee's Release doesn't free them
+        if !is_extern {
+            if let Some(sig) = self.function_sigs.get(name).cloned() {
+                for (i, (_pname, pty)) in sig.params.iter().enumerate() {
+                    if self.types.is_struct(*pty) && i < arg_regs.len() {
+                        self.push_inst(Instruction::Retain(arg_regs[i]));
+                    }
+                }
+            }
+        }
 
         let sym = self.interner.intern(name);
 
@@ -950,6 +1100,95 @@ fn main() {
         assert!(
             program.functions.len() >= 5,
             "expected at least 5 functions (write, print, println, add, main)"
+        );
+    }
+
+    #[test]
+    fn lower_struct_alloc_store_load() {
+        let program = lower_source(
+            r#"
+struct Point { x: i32, y: i32 }
+fn main() {
+    let p = Point { x: 42, y: 17 };
+    let val = p.x;
+}
+"#,
+        );
+        let main_fn = program.functions.iter().find(|f| !f.is_extern).unwrap();
+        let all_insts: Vec<&Instruction> = main_fn
+            .blocks
+            .iter()
+            .flat_map(|b| b.instructions.iter())
+            .collect();
+
+        assert!(
+            all_insts.iter().any(|i| matches!(i, Instruction::Alloc(_, _))),
+            "expected Alloc instruction for struct literal"
+        );
+        assert!(
+            all_insts.iter().any(|i| matches!(i, Instruction::Store(_, _, _))),
+            "expected Store instruction for field init"
+        );
+        assert!(
+            all_insts.iter().any(|i| matches!(i, Instruction::Load(_, _, _))),
+            "expected Load instruction for field access"
+        );
+        assert!(
+            all_insts.iter().any(|i| matches!(i, Instruction::Release(_, _))),
+            "expected Release instruction for scope exit"
+        );
+    }
+
+    #[test]
+    fn lower_struct_caller_retain_callee_release() {
+        let program = lower_source(
+            r#"
+struct Point { x: i32, y: i32 }
+fn use_point(p: Point) {
+    let val = p.x;
+}
+fn main() {
+    let p = Point { x: 1, y: 2 };
+    use_point(p);
+}
+"#,
+        );
+        // Check main has Retain (caller-retain before calling use_point)
+        let main_fn = program
+            .functions
+            .iter()
+            .find(|f| {
+                let name = program.interner.resolve(f.name);
+                name == "main"
+            })
+            .unwrap();
+        let main_insts: Vec<&Instruction> = main_fn
+            .blocks
+            .iter()
+            .flat_map(|b| b.instructions.iter())
+            .collect();
+        assert!(
+            main_insts.iter().any(|i| matches!(i, Instruction::Retain(_))),
+            "expected Retain in main (caller-retain)"
+        );
+
+        // Check use_point has Release (callee-release of param)
+        let use_fn = program
+            .functions
+            .iter()
+            .find(|f| {
+                let name = program.interner.resolve(f.name);
+                name == "use_point"
+            })
+            .unwrap();
+        let use_insts: Vec<&Instruction> = use_fn
+            .blocks
+            .iter()
+            .flat_map(|b| b.instructions.iter())
+            .collect();
+        assert!(
+            use_insts.iter().any(|i| matches!(i, Instruction::Release(_, _))),
+            "expected Release in use_point (callee-release)"
         );
     }
 }

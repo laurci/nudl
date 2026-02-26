@@ -56,6 +56,14 @@ impl<V: Clone> ScopedLocals<V> {
         flat
     }
 
+    /// Return all entries in the current (innermost) scope.
+    pub fn current_scope_entries(&self) -> Vec<(String, V)> {
+        self.scopes
+            .last()
+            .map(|s| s.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+            .unwrap_or_default()
+    }
+
     /// Update an existing binding in the scope where it was originally defined.
     /// Returns `true` if the binding was found and updated, `false` otherwise.
     pub fn update(&mut self, name: &str, value: V) -> bool {

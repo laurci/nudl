@@ -18,10 +18,22 @@ pub enum Item {
         body: Spanned<Block>,
         is_pub: bool,
     },
+    StructDef {
+        name: String,
+        fields: Vec<StructField>,
+        is_pub: bool,
+    },
     ExternBlock {
         library: Option<String>,
         items: Vec<Spanned<ExternFnDecl>>,
     },
+}
+
+#[derive(Debug)]
+pub struct StructField {
+    pub name: String,
+    pub ty: Spanned<TypeExpr>,
+    pub span: Span,
 }
 
 #[derive(Debug)]
@@ -100,6 +112,14 @@ pub enum Expr {
     Break(Option<Box<SpannedExpr>>),
     Continue,
     Grouped(Box<SpannedExpr>),
+    StructLiteral {
+        name: String,
+        fields: Vec<(String, SpannedExpr)>,
+    },
+    FieldAccess {
+        object: Box<SpannedExpr>,
+        field: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

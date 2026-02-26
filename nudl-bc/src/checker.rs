@@ -25,6 +25,7 @@ pub enum FunctionKind {
 
 pub struct CheckedModule {
     pub functions: HashMap<String, FunctionSig>,
+    pub structs: HashMap<String, TypeId>,
     pub types: TypeInterner,
 }
 
@@ -38,6 +39,7 @@ pub struct Checker {
     diagnostics: DiagnosticBag,
     types: TypeInterner,
     functions: HashMap<String, FunctionSig>,
+    structs: HashMap<String, TypeId>,
     found_main: bool,
     /// Return type of the current function being checked
     current_return_type: Option<TypeId>,
@@ -49,6 +51,7 @@ impl Checker {
             diagnostics: DiagnosticBag::new(),
             types: TypeInterner::new(),
             functions: HashMap::new(),
+            structs: HashMap::new(),
             found_main: false,
             current_return_type: None,
         }
@@ -75,6 +78,7 @@ impl Checker {
 
         let checked = CheckedModule {
             functions: self.functions,
+            structs: self.structs,
             types: self.types,
         };
         (checked, self.diagnostics)
@@ -125,6 +129,9 @@ impl Checker {
                 "string" => self.types.string(),
                 "RawPtr" => self.types.raw_ptr(),
                 _ => {
+                    if let Some(&struct_ty) = self.structs.get(name.as_str()) {
+                        return struct_ty;
+                    }
                     self.diagnostics.add(&CheckerDiagnostic::UnknownType {
                         span: ty.span,
                         name: name.clone(),
@@ -144,6 +151,7 @@ impl Checker {
             TypeKind::String => "string".into(),
             TypeKind::RawPtr => "RawPtr".into(),
             TypeKind::Function { .. } => "fn(...)".into(),
+            TypeKind::Struct { name, .. } => name.clone(),
             TypeKind::Error => "<error>".into(),
         }
     }
@@ -220,6 +228,32 @@ impl Checker {
                     },
                 );
             }
+            Item::StructDef {
+                name,
+                fields,
+                ..
+            } => {
+                if self.structs.contains_key(name) {
+                    self.diagnostics
+                        .add(&CheckerDiagnostic::DuplicateStruct {
+                            span: item.span,
+                            name: name.clone(),
+                        });
+                    return;
+                }
+
+                let resolved_fields: Vec<(String, TypeId)> = fields
+                    .iter()
+                    .map(|f| (f.name.clone(), self.resolve_type(&f.ty)))
+                    .collect();
+
+                let type_id = self.types.intern(TypeKind::Struct {
+                    name: name.clone(),
+                    fields: resolved_fields,
+                });
+
+                self.structs.insert(name.clone(), type_id);
+            }
             Item::ExternBlock { items, .. } => {
                 for extern_fn in items {
                     let decl = &extern_fn.node;
@@ -261,6 +295,9 @@ impl Checker {
     // --- Pass 2: Check bodies ---
 
     fn check_item(&mut self, item: &SpannedItem) {
+        if matches!(&item.node, Item::StructDef { .. }) {
+            return; // Already handled in pass 1
+        }
         if let Item::FnDef {
             name,
             params,
@@ -598,6 +635,41 @@ impl Checker {
                             name: name.clone(),
                         });
                     }
+                } else if let Expr::FieldAccess { object, field } = &target.node {
+                    let obj_ty = self.check_expr(object, locals);
+                    if obj_ty != self.types.error() {
+                        match self.types.resolve(obj_ty).clone() {
+                            TypeKind::Struct { name, fields } => {
+                                if let Some((_, field_ty)) =
+                                    fields.iter().find(|(n, _)| n == field)
+                                {
+                                    if val_ty != *field_ty
+                                        && val_ty != self.types.error()
+                                        && *field_ty != self.types.error()
+                                    {
+                                        self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                                            span: value.span,
+                                            expected: self.type_name(*field_ty),
+                                            found: self.type_name(val_ty),
+                                        });
+                                    }
+                                } else {
+                                    self.diagnostics.add(&CheckerDiagnostic::UnknownField {
+                                        span: target.span,
+                                        name: name.clone(),
+                                        field: field.clone(),
+                                    });
+                                }
+                            }
+                            _ => {
+                                self.diagnostics
+                                    .add(&CheckerDiagnostic::FieldAccessOnNonStruct {
+                                        span: target.span,
+                                        ty: self.type_name(obj_ty),
+                                    });
+                            }
+                        }
+                    }
                 }
                 self.types.unit()
             }
@@ -706,6 +778,91 @@ impl Checker {
             Expr::Continue => self.types.unit(),
 
             Expr::Grouped(inner) => self.check_expr(inner, locals),
+
+            Expr::StructLiteral { name, fields } => {
+                let struct_ty = if let Some(&ty) = self.structs.get(name.as_str()) {
+                    ty
+                } else {
+                    self.diagnostics.add(&CheckerDiagnostic::UndefinedStruct {
+                        span: expr.span,
+                        name: name.clone(),
+                    });
+                    return self.types.error();
+                };
+
+                let expected_fields = match self.types.resolve(struct_ty).clone() {
+                    TypeKind::Struct { fields: f, .. } => f,
+                    _ => return self.types.error(),
+                };
+
+                // Check for unknown fields
+                for (field_name, field_val) in fields {
+                    let expected = expected_fields.iter().find(|(n, _)| n == field_name);
+                    if let Some((_, expected_ty)) = expected {
+                        let val_ty = self.check_expr(field_val, locals);
+                        if val_ty != *expected_ty
+                            && val_ty != self.types.error()
+                            && *expected_ty != self.types.error()
+                        {
+                            self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                                span: field_val.span,
+                                expected: self.type_name(*expected_ty),
+                                found: self.type_name(val_ty),
+                            });
+                        }
+                    } else {
+                        self.check_expr(field_val, locals);
+                        self.diagnostics.add(&CheckerDiagnostic::UnknownField {
+                            span: field_val.span,
+                            name: name.clone(),
+                            field: field_name.clone(),
+                        });
+                    }
+                }
+
+                // Check for missing fields
+                for (expected_name, _) in &expected_fields {
+                    if !fields.iter().any(|(n, _)| n == expected_name) {
+                        self.diagnostics.add(&CheckerDiagnostic::MissingField {
+                            span: expr.span,
+                            name: name.clone(),
+                            field: expected_name.clone(),
+                        });
+                    }
+                }
+
+                struct_ty
+            }
+
+            Expr::FieldAccess { object, field } => {
+                let obj_ty = self.check_expr(object, locals);
+                if obj_ty == self.types.error() {
+                    return self.types.error();
+                }
+
+                match self.types.resolve(obj_ty).clone() {
+                    TypeKind::Struct { name, fields } => {
+                        if let Some((_, field_ty)) = fields.iter().find(|(n, _)| n == field) {
+                            *field_ty
+                        } else {
+                            self.diagnostics.add(&CheckerDiagnostic::UnknownField {
+                                span: expr.span,
+                                name: name.clone(),
+                                field: field.clone(),
+                            });
+                            self.types.error()
+                        }
+                    }
+                    _ => {
+                        self.diagnostics
+                            .add(&CheckerDiagnostic::FieldAccessOnNonStruct {
+                                span: expr.span,
+                                ty: self.type_name(obj_ty),
+                            });
+                        self.types.error()
+                    }
+                }
+            }
         }
     }
 }

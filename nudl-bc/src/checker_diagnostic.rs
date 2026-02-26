@@ -63,4 +63,32 @@ pub enum CheckerDiagnostic {
         expected: String,
         found: String,
     },
+
+    #[message("undefined struct '{name}'")]
+    #[severity(Error)]
+    UndefinedStruct { span: Span, name: String },
+
+    #[message("missing field '{field}' in struct '{name}'")]
+    #[severity(Error)]
+    MissingField {
+        span: Span,
+        name: String,
+        field: String,
+    },
+
+    #[message("unknown field '{field}' on struct '{name}'")]
+    #[severity(Error)]
+    UnknownField {
+        span: Span,
+        name: String,
+        field: String,
+    },
+
+    #[message("duplicate struct '{name}'")]
+    #[severity(Error)]
+    DuplicateStruct { span: Span, name: String },
+
+    #[message("field access on non-struct type '{ty}'")]
+    #[severity(Error)]
+    FieldAccessOnNonStruct { span: Span, ty: String },
 }
