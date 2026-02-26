@@ -205,6 +205,37 @@ impl Checker {
         )
     }
 
+    /// Walk an lvalue expression (field access chain, index access) to find the
+    /// root variable name.  Returns `None` for non-trivial expressions.
+    fn root_variable_name<'e>(&self, expr: &'e Expr) -> Option<&'e str> {
+        match expr {
+            Expr::Ident(name) => Some(name.as_str()),
+            Expr::FieldAccess { object, .. } => self.root_variable_name(&object.node),
+            Expr::IndexAccess { object, .. } => self.root_variable_name(&object.node),
+            _ => None,
+        }
+    }
+
+    /// Check that the root variable of an lvalue is mutable.  Emits an
+    /// `ImmutableAssignment` diagnostic if it isn't.
+    fn check_lvalue_mutability(
+        &mut self,
+        target: &Spanned<Expr>,
+        locals: &ScopedLocals<LocalInfo>,
+    ) {
+        if let Some(root) = self.root_variable_name(&target.node) {
+            if let Some(info) = locals.get(root) {
+                if !info.is_mut {
+                    self.diagnostics
+                        .add(&CheckerDiagnostic::ImmutableAssignment {
+                            span: target.span,
+                            name: root.to_string(),
+                        });
+                }
+            }
+        }
+    }
+
     // --- Pass 1: Collect declarations ---
 
     fn collect_item(&mut self, item: &SpannedItem) {
@@ -717,6 +748,7 @@ impl Checker {
                         });
                     }
                 } else if let Expr::FieldAccess { object, field } = &target.node {
+                    self.check_lvalue_mutability(target, locals);
                     let obj_ty = self.check_expr(object, locals);
                     if obj_ty != self.types.error() {
                         match self.types.resolve(obj_ty).clone() {
@@ -752,6 +784,7 @@ impl Checker {
                         }
                     }
                 } else if let Expr::IndexAccess { object, index } = &target.node {
+                    self.check_lvalue_mutability(target, locals);
                     let obj_ty = self.check_expr(object, locals);
                     let idx_ty = self.check_expr(index, locals);
                     if obj_ty != self.types.error() && idx_ty != self.types.error() {
@@ -1626,5 +1659,109 @@ fn main() {
 "#,
         );
         assert!(diags.has_errors(), "inner should be undefined outside the while block");
+    }
+
+    #[test]
+    fn immutable_struct_field_assign_error() {
+        let (_, diags) = check_source(
+            r#"
+struct Point { x: i32, y: i32 }
+fn main() {
+    let p = Point { x: 1, y: 2 };
+    p.x = 10;
+}
+"#,
+        );
+        assert!(diags.has_errors(), "field assignment on immutable struct should be rejected");
+        assert!(
+            diags.reports().iter().any(|r| r.message.contains("immutable")),
+            "expected immutable error, got: {:?}",
+            diags.reports()
+        );
+    }
+
+    #[test]
+    fn mutable_struct_field_assign_ok() {
+        let (_, diags) = check_source(
+            r#"
+struct Point { x: i32, y: i32 }
+fn main() {
+    let mut p = Point { x: 1, y: 2 };
+    p.x = 10;
+}
+"#,
+        );
+        assert!(
+            !diags.has_errors(),
+            "field assignment on mutable struct should be allowed: {:?}",
+            diags.reports()
+        );
+    }
+
+    #[test]
+    fn immutable_array_index_assign_error() {
+        let (_, diags) = check_source(
+            r#"
+fn main() {
+    let arr: [i32; 3] = [1, 2, 3];
+    arr[0] = 99;
+}
+"#,
+        );
+        assert!(diags.has_errors(), "index assignment on immutable array should be rejected");
+        assert!(
+            diags.reports().iter().any(|r| r.message.contains("immutable")),
+            "expected immutable error, got: {:?}",
+            diags.reports()
+        );
+    }
+
+    #[test]
+    fn mutable_array_index_assign_ok() {
+        let (_, diags) = check_source(
+            r#"
+fn main() {
+    let mut arr: [i32; 3] = [1, 2, 3];
+    arr[0] = 99;
+}
+"#,
+        );
+        assert!(
+            !diags.has_errors(),
+            "index assignment on mutable array should be allowed: {:?}",
+            diags.reports()
+        );
+    }
+
+    #[test]
+    fn immutable_param_field_assign_error() {
+        let (_, diags) = check_source(
+            r#"
+struct Point { x: i32, y: i32 }
+fn try_mutate(p: Point) {
+    p.x = 99;
+}
+fn main() {}
+"#,
+        );
+        assert!(diags.has_errors(), "field assignment on immutable param should be rejected");
+    }
+
+    #[test]
+    fn mutable_param_field_assign_ok() {
+        let (_, diags) = check_source(
+            r#"
+struct Point { x: i32, y: i32 }
+fn mutate(mut p: Point) {
+    p.x = 99;
+}
+fn main() {}
+"#,
+        );
+        assert!(
+            !diags.has_errors(),
+            "field assignment on mutable param should be allowed: {:?}",
+            diags.reports()
+        );
     }
 }
