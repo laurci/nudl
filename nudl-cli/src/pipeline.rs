@@ -286,7 +286,13 @@ fn fmt_ast_item(item: &Item, out: &mut String, level: usize) {
                 if i > 0 {
                     out.push_str(", ");
                 }
-                out.push_str(&format!("{}: {}", p.name, fmt_type_expr(&p.ty.node)));
+                let mutstr = if p.is_mut { "mut " } else { "" };
+                out.push_str(&format!(
+                    "{}{}: {}",
+                    mutstr,
+                    p.name,
+                    fmt_type_expr(&p.ty.node)
+                ));
             }
             out.push_str(&format!(
                 ") -> {}:\n",

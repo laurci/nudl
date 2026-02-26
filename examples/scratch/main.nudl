@@ -3,7 +3,7 @@ extern {
 }
 
 fn print(s: string) {
-    write(1, __str_ptr(s), __str_len(s));
+    let output = write(1, __str_ptr(s), __str_len(s));
 }
 
 fn print_digit(i: i32) {
@@ -30,14 +30,12 @@ fn print_digit(i: i32) {
     }
 }
 
-fn print_number(i: i32) {
-    let mut i = i;
+fn print_number(mut i: i32) {
     while i > 0 {
         print_digit(i % 10);
         i = i / 10;
     }
 }
-
 
 fn main() {
     print("hello world!\n");

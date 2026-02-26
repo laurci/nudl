@@ -261,18 +261,25 @@ impl Checker {
     // --- Pass 2: Check bodies ---
 
     fn check_item(&mut self, item: &SpannedItem) {
-        if let Item::FnDef { name, body, .. } = &item.node {
+        if let Item::FnDef {
+            name,
+            params,
+            body,
+            ..
+        } = &item.node
+        {
             let mut locals = ScopedLocals::<LocalInfo>::new();
 
-            // Register params as locals (immutable by default)
+            // Register params as locals
             let sig = self.functions.get(name).cloned();
             let ret_ty = if let Some(ref sig) = sig {
-                for (pname, pty) in &sig.params {
+                for (i, (pname, pty)) in sig.params.iter().enumerate() {
+                    let is_mut = params.get(i).map_or(false, |p| p.is_mut);
                     locals.insert(
                         pname.clone(),
                         LocalInfo {
                             ty: *pty,
-                            is_mut: false,
+                            is_mut,
                         },
                     );
                 }

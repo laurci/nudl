@@ -203,6 +203,7 @@ impl Parser {
     }
 
     fn parse_param(&mut self) -> Option<Param> {
+        let is_mut = self.eat(TokenKind::Mut);
         let name_tok = self.expect(TokenKind::Ident)?;
         let start = name_tok.span;
         self.expect(TokenKind::Colon)?;
@@ -211,6 +212,7 @@ impl Parser {
         Some(Param {
             name: name_tok.text.clone(),
             ty,
+            is_mut,
             span: start.merge(end),
         })
     }

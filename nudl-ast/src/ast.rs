@@ -28,6 +28,7 @@ pub enum Item {
 pub struct Param {
     pub name: String,
     pub ty: Spanned<TypeExpr>,
+    pub is_mut: bool,
     pub span: Span,
 }
 
