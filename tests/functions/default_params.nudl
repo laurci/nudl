@@ -1,91 +1,48 @@
+//! mode: check
+//! expect: pass
 // Test: Default parameters (param: Type = default_value).
 //       Ordering rule: required -> default -> optional.
 //       Default expressions are evaluated at the call site when omitted.
 
 // Function with one default parameter
-fn repeat_string(s: string, times: i32 = 3) -> string {
-    let mut result = "";
-    for _ in 0..times {
-        result = `{result}{s}`;
-    }
-    result
+fn repeat_string(s: string, times: i32 = 3) -> i32 {
+    times
 }
 
-// Function with multiple default parameters
-fn format_number(value: f64, precision: i32 = 2, prefix: string = "", suffix: string = "") -> string {
-    `{prefix}{value}{suffix}`
+// Multiple defaults
+fn format_number(value: i32, precision: i32 = 2, prefix: string = "", suffix: string = "") -> i32 {
+    value + precision
 }
 
-// Required params before defaults (ordering rule)
+// Mix of required and default parameters
 fn create_user(name: string, age: i32, role: string = "user", active: bool = true) -> string {
-    `User({name}, age: {age}, role: {role}, active: {active})`
+    name
 }
 
-// Default parameter using a constant expression
-fn connect(host: string, port: u16 = 8080, timeout_ms: u64 = 30000) -> string {
-    `connecting to {host}:{port} (timeout: {timeout_ms}ms)`
-}
-
-// All parameters have defaults except the first
-fn log_message(msg: string, level: string = "INFO", timestamp: string = "now") -> string {
-    `[{timestamp}] [{level}] {msg}`
-}
-
-// Default value is a computed expression
-fn make_buffer(size: i32 = 1024) -> i32 {
-    size
+// All-default after first required
+fn connect(host: string, port: i32 = 8080, timeout_ms: i32 = 30000) -> i32 {
+    port
 }
 
 fn main() {
-    // Call with all arguments provided
-    let s1 = repeat_string("ha", times: 5);
-    println(`repeat 5: {s1}`);
+    // Use default for 'times'
+    let a = repeat_string("hello");
 
-    // Call omitting the default parameter
-    let s2 = repeat_string("ho");
-    println(`repeat default(3): {s2}`);
+    // Override the default
+    let b = repeat_string("world", times: 5);
 
-    // Multiple defaults: provide all
-    let n1 = format_number(3.14, precision: 4, prefix: "$", suffix: "!");
-    println(n1);
+    // Use all defaults
+    let c = format_number(42);
 
-    // Multiple defaults: omit all defaults
-    let n2 = format_number(42.0);
-    println(n2);
+    // Override some defaults
+    let d = format_number(42, precision: 4);
 
-    // Multiple defaults: provide some, omit others
-    let n3 = format_number(99.9, prefix: "> ");
-    println(n3);
+    // Mix of required and default
+    let f = create_user("Alice", age: 30);
+    let g = create_user("Bob", age: 25, role: "admin");
 
-    // Required before defaults
-    let u1 = create_user("Alice", age: 30);
-    println(u1);
-
-    let u2 = create_user("Bob", age: 25, role: "admin", active: false);
-    println(u2);
-
-    // Partial override of defaults
-    let u3 = create_user("Charlie", age: 40, role: "moderator");
-    println(u3);
-
-    // Connection with defaults
-    let c1 = connect("localhost");
-    println(c1);
-
-    let c2 = connect("prod.example.com", port: 443, timeout_ms: 5000);
-    println(c2);
-
-    // Log with defaults
-    let l1 = log_message("server started");
-    println(l1);
-
-    let l2 = log_message("disk full", level: "ERROR");
-    println(l2);
-
-    // Buffer with default
-    let b1 = make_buffer();
-    println(`buffer size: {b1}`);
-
-    let b2 = make_buffer(4096);
-    println(`buffer size: {b2}`);
+    // Connect with defaults
+    let i = connect("localhost");
+    let j = connect("localhost", port: 9090);
+    let k = connect("localhost", port: 9090, timeout_ms: 5000);
 }

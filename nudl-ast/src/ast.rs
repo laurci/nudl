@@ -4,12 +4,12 @@ pub type SpannedItem = Spanned<Item>;
 pub type SpannedExpr = Spanned<Expr>;
 pub type SpannedStmt = Spanned<Stmt>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Module {
     pub items: Vec<SpannedItem>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Item {
     FnDef {
         name: String,
@@ -23,41 +23,47 @@ pub enum Item {
         fields: Vec<StructField>,
         is_pub: bool,
     },
+    ImplBlock {
+        type_name: String,
+        methods: Vec<SpannedItem>,
+    },
     ExternBlock {
         library: Option<String>,
         items: Vec<Spanned<ExternFnDecl>>,
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StructField {
     pub name: String,
     pub ty: Spanned<TypeExpr>,
     pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Param {
     pub name: String,
     pub ty: Spanned<TypeExpr>,
     pub is_mut: bool,
+    pub is_self: bool,
+    pub default_value: Option<Box<SpannedExpr>>,
     pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExternFnDecl {
     pub name: String,
     pub params: Vec<Param>,
     pub return_type: Option<Spanned<TypeExpr>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Block {
     pub stmts: Vec<SpannedStmt>,
     pub tail_expr: Option<Box<SpannedExpr>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Stmt {
     Expr(SpannedExpr),
     Let {
@@ -74,7 +80,7 @@ pub enum Stmt {
     Item(SpannedItem),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expr {
     Literal(Literal),
     Ident(String),
@@ -135,6 +141,16 @@ pub enum Expr {
     FieldAccess {
         object: Box<SpannedExpr>,
         field: String,
+    },
+    MethodCall {
+        object: Box<SpannedExpr>,
+        method: String,
+        args: Vec<CallArg>,
+    },
+    StaticCall {
+        type_name: String,
+        method: String,
+        args: Vec<CallArg>,
     },
     TupleLiteral(Vec<SpannedExpr>),
     ArrayLiteral(Vec<SpannedExpr>),
@@ -199,7 +215,7 @@ pub enum IntSuffix {
     U64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Literal {
     String(String),
     /// Template string: alternating text parts and expression parts.
@@ -215,13 +231,13 @@ pub enum Literal {
     Char(char),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CallArg {
     pub name: Option<String>,
     pub value: SpannedExpr,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TypeExpr {
     Named(String),
     Unit,

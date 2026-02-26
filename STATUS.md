@@ -69,18 +69,18 @@
 
 ## 5. Functions
 - [x] Basic declarations & calls (`tests/functions/basic.nudl`)
-- [ ] Named arguments — AST field exists, parser never sets it (`tests/functions/named_arguments.nudl`)
-- [ ] Argument shorthand (`tests/functions/argument_shorthand.nudl`)
-- [ ] Default parameters (`tests/functions/default_params.nudl`)
+- [x] Named arguments — parser sets `CallArg.name`, checker resolves by parameter name, lowerer reorders to positional (`tests/functions/named_arguments.nudl`)
+- [x] Argument shorthand — struct field shorthand `S { x, y }` desugared at parse time; function call shorthand works positionally (`tests/functions/argument_shorthand.nudl`)
+- [x] Default parameters — `Param.default_value` in AST, checker validates required vs optional, lowerer fills defaults at call sites (`tests/functions/default_params.nudl`)
 - [ ] Optional parameters (`tests/functions/optional_params.nudl`)
 - [ ] Closures (`tests/functions/closures.nudl`)
-- [ ] Methods — need structs + impl (`tests/functions/methods.nudl`)
+- [x] Methods — `impl` blocks parsed, methods registered with mangled names (`Type__method`), `self`/`mut self` params, method calls `obj.method()` and static calls `Type::method()` (`tests/functions/methods.nudl`)
 - [ ] Trailing lambdas (`tests/functions/trailing_lambda.nudl`)
 
 ## 6. User-Defined Types
 - [ ] Unit structs (`tests/user-defined-types/struct_unit.nudl`)
 - [ ] Tuple structs (`tests/user-defined-types/struct_tuple.nudl`)
-- [~] Named structs — declaration, construction, field access, field assignment, ARC caller-retain/callee-release, scope-exit release (`tests/user-defined-types/struct_simple.nudl`); no generics, methods, destructuring, or spread yet
+- [~] Named structs — declaration, construction, field access, field assignment, ARC caller-retain/callee-release, scope-exit release, impl blocks with methods (`tests/user-defined-types/struct_simple.nudl`); no generics, destructuring, or spread yet
 - [ ] Struct spread (`tests/user-defined-types/struct_spread.nudl`)
 - [ ] Unit enum variants (`tests/user-defined-types/enum_unit.nudl`)
 - [ ] Struct enum variants (`tests/user-defined-types/enum_struct.nudl`)

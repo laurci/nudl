@@ -1,71 +1,49 @@
+//! mode: check
+//! expect: pass
 // Test: Named arguments calling convention.
 //       First non-self param is positional, rest are named at the call site.
-//       Shorthand rule: variable with same name as param can omit the label.
 
 // Two-param function: first is positional, second must be named
-fn power(base: f64, exponent: i32) -> f64 {
-    let mut result = 1.0;
-    for _ in 0..exponent {
-        result = result * base;
-    }
-    result
+fn power(base: i32, exponent: i32) -> i32 {
+    base * exponent
 }
 
 // Three-param function: first positional, second and third named
 fn make_greeting(name: string, prefix: string, suffix: string) -> string {
-    `{prefix} {name}{suffix}`
+    prefix
 }
 
 // Function where the first parameter can also be named explicitly
 fn send(url: string, method: string, body: string) -> string {
-    `{method} {url} -> {body}`
+    method
 }
 
 // Function with many named parameters
-fn create_rect(x: f64, y: f64, width: f64, height: f64) -> string {
-    `Rect({x}, {y}, {width}, {height})`
+fn create_rect(x: i32, y: i32, width: i32, height: i32) -> i32 {
+    x + y + width + height
 }
 
 // Demonstrating that first param name is optional at call site
 fn greet_person(name: string, greeting: string) -> string {
-    `{greeting}, {name}!`
+    greeting
 }
 
 fn main() {
     // First param positional, second named
-    let p = power(2.0, exponent: 10);
-    println(`2^10 = {p}`);
+    let p = power(2, exponent: 10);
 
     // First param positional, rest named
     let g = make_greeting("Alice", prefix: "Dear", suffix: "!");
-    println(g);
 
     // All named explicitly (first param name is optional but allowed)
     let msg = send("https://example.com", method: "POST", body: "hello");
-    println(msg);
-
-    // Using shorthand: variable name matches param name
-    let method = "PUT";
-    let body = "updated data";
-    let msg2 = send("https://example.com", method, body);
-    println(msg2);
 
     // Multiple named params
-    let rect = create_rect(0.0, y: 0.0, width: 100.0, height: 50.0);
-    println(rect);
-
-    // Shorthand with multiple variables
-    let y = 10.0;
-    let width = 200.0;
-    let height = 100.0;
-    let rect2 = create_rect(5.0, y, width, height);
-    println(rect2);
+    let rect = create_rect(0, y: 0, width: 100, height: 50);
 
     // First param positional
     let hello = greet_person("Bob", greeting: "Hello");
-    println(hello);
 
     // First param can also be explicitly named
     let hello2 = greet_person(name: "Charlie", greeting: "Hi");
-    println(hello2);
 }

@@ -19,6 +19,9 @@ pub struct Lowerer {
     functions: Vec<Function>,
     string_constants: Vec<String>,
     next_function_id: u32,
+    /// Default parameter expressions indexed by function name.
+    /// Populated before lowering so call sites can fill in missing args.
+    param_defaults: HashMap<String, Vec<Option<SpannedExpr>>>,
 }
 
 impl Lowerer {
@@ -31,11 +34,46 @@ impl Lowerer {
             functions: Vec::new(),
             string_constants: Vec::new(),
             next_function_id: 0,
+            param_defaults: HashMap::new(),
         }
+    }
+
+    /// Collect default parameter expressions from all functions in the module.
+    fn collect_defaults(module: &Module) -> HashMap<String, Vec<Option<SpannedExpr>>> {
+        fn collect_fn_defaults(name: &str, params: &[Param], defaults: &mut HashMap<String, Vec<Option<SpannedExpr>>>) {
+            let has_any_default = params.iter().any(|p| p.default_value.is_some());
+            if has_any_default {
+                let param_defaults: Vec<Option<SpannedExpr>> = params
+                    .iter()
+                    .map(|p| p.default_value.as_ref().map(|d| (**d).clone()))
+                    .collect();
+                defaults.insert(name.to_string(), param_defaults);
+            }
+        }
+
+        let mut defaults = HashMap::new();
+        for item in &module.items {
+            match &item.node {
+                Item::FnDef { name, params, .. } => {
+                    collect_fn_defaults(name, params, &mut defaults);
+                }
+                Item::ImplBlock { type_name, methods, .. } => {
+                    for method_item in methods {
+                        if let Item::FnDef { name: method_name, params, .. } = &method_item.node {
+                            let mangled_name = format!("{}__{}", type_name, method_name);
+                            collect_fn_defaults(&mangled_name, params, &mut defaults);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        defaults
     }
 
     pub fn lower(mut self, module: &Module) -> Program {
         let mut entry_function = None;
+        self.param_defaults = Self::collect_defaults(module);
 
         // Pass 1: Register extern functions
         for item in &module.items {
@@ -48,17 +86,36 @@ impl Lowerer {
             }
         }
 
-        // Pass 2: Lower user-defined functions
+        // Pass 2: Lower user-defined functions (including methods from impl blocks)
         for item in &module.items {
-            if let Item::FnDef {
-                name, params, body, ..
-            } = &item.node
-            {
-                let func = self.lower_function(name, params, body);
-                if name == "main" {
-                    entry_function = Some(func.id);
+            match &item.node {
+                Item::FnDef {
+                    name, params, body, ..
+                } => {
+                    let func = self.lower_function(name, params, body);
+                    if name == "main" {
+                        entry_function = Some(func.id);
+                    }
+                    self.functions.push(func);
                 }
-                self.functions.push(func);
+                Item::ImplBlock {
+                    type_name, methods, ..
+                } => {
+                    for method_item in methods {
+                        if let Item::FnDef {
+                            name: method_name,
+                            params,
+                            body,
+                            ..
+                        } = &method_item.node
+                        {
+                            let mangled_name = format!("{}__{}", type_name, method_name);
+                            let func = self.lower_function(&mangled_name, params, body);
+                            self.functions.push(func);
+                        }
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -147,6 +204,7 @@ impl Lowerer {
             struct_defs: &self.struct_defs,
             types: &mut self.types,
             loop_stack: Vec::new(),
+            param_defaults: &self.param_defaults,
         };
 
         // Lower body — returns the register holding the result
@@ -244,6 +302,8 @@ struct FunctionLowerCtx<'a> {
     struct_defs: &'a HashMap<String, nudl_core::types::TypeId>,
     types: &'a mut TypeInterner,
     loop_stack: Vec<LoopContext>,
+    /// Default parameter expressions for all functions (for filling in defaults at call sites)
+    param_defaults: &'a HashMap<String, Vec<Option<SpannedExpr>>>,
 }
 
 impl<'a> FunctionLowerCtx<'a> {
@@ -362,12 +422,43 @@ impl<'a> FunctionLowerCtx<'a> {
                     if let Some(sig) = self.function_sigs.get(name).cloned() {
                         return match sig.kind {
                             FunctionKind::Builtin => self.lower_builtin_call(name, args),
-                            FunctionKind::Extern => self.lower_generic_call(name, args, true),
-                            FunctionKind::UserDefined => self.lower_generic_call(name, args, false),
+                            FunctionKind::Extern => self.lower_resolved_call(name, &sig, args, true, 0),
+                            FunctionKind::UserDefined => self.lower_resolved_call(name, &sig, args, false, 0),
                         };
                     }
                 }
                 // Fallback: emit unit
+                let unit_reg = self.alloc_register();
+                self.push_inst(Instruction::ConstUnit(unit_reg));
+                unit_reg
+            }
+
+            Expr::MethodCall { object, method, args } => {
+                // First, infer receiver type name for mangled lookup
+                let type_name = self.infer_receiver_type_name(object);
+                if let Some(type_name) = type_name {
+                    let mangled_name = format!("{}__{}", type_name, method);
+                    if let Some(sig) = self.function_sigs.get(&mangled_name).cloned() {
+                        // Lower the object (self argument)
+                        let self_reg = self.lower_expr(object);
+                        return self.lower_method_call(&mangled_name, &sig, self_reg, args);
+                    }
+                }
+                // Fallback
+                self.lower_expr(object);
+                for arg in args { self.lower_expr(&arg.value); }
+                let unit_reg = self.alloc_register();
+                self.push_inst(Instruction::ConstUnit(unit_reg));
+                unit_reg
+            }
+
+            Expr::StaticCall { type_name, method, args } => {
+                let mangled_name = format!("{}__{}", type_name, method);
+                if let Some(sig) = self.function_sigs.get(&mangled_name).cloned() {
+                    return self.lower_resolved_call(&mangled_name, &sig, args, false, 0);
+                }
+                // Fallback
+                for arg in args { self.lower_expr(&arg.value); }
                 let unit_reg = self.alloc_register();
                 self.push_inst(Instruction::ConstUnit(unit_reg));
                 unit_reg
@@ -982,6 +1073,15 @@ impl<'a> FunctionLowerCtx<'a> {
                     None
                 }
             }
+            Expr::MethodCall { object, method, .. } => {
+                let type_name = self.infer_receiver_type_name(object)?;
+                let mangled = format!("{}__{}", type_name, method);
+                self.function_sigs.get(&mangled).map(|sig| sig.return_type)
+            }
+            Expr::StaticCall { type_name, method, .. } => {
+                let mangled = format!("{}__{}", type_name, method);
+                self.function_sigs.get(&mangled).map(|sig| sig.return_type)
+            }
             Expr::TupleLiteral(elements) => {
                 let elem_types: Vec<nudl_core::types::TypeId> = elements
                     .iter()
@@ -1278,6 +1378,209 @@ impl<'a> FunctionLowerCtx<'a> {
         let dst = self.alloc_register();
         self.push_inst(Instruction::Call(dst, func_ref, arg_regs));
         dst
+    }
+
+    /// Resolve call arguments to positional registers, handling named args and defaults.
+    /// `skip_params` is the number of leading params to skip for argument matching (e.g., self).
+    /// `fn_key` is the key used to look up default values in `param_defaults`.
+    fn resolve_call_args(
+        &mut self,
+        fn_key: &str,
+        sig: &FunctionSig,
+        call_args: &[CallArg],
+        skip_params: usize,
+    ) -> Vec<Register> {
+        let call_span = self.current_span;
+        let callable_params = &sig.params[skip_params..];
+        let callable_defaults = &sig.has_default[skip_params..];
+
+        // Build array of resolved registers, one per callable param
+        let mut resolved: Vec<Option<Register>> = vec![None; callable_params.len()];
+
+        // Process positional args first
+        let mut positional_idx = 0;
+        for arg in call_args {
+            if arg.name.is_some() {
+                break;
+            }
+            if positional_idx < callable_params.len() {
+                let reg = self.lower_expr(&arg.value);
+                resolved[positional_idx] = Some(reg);
+                positional_idx += 1;
+            }
+        }
+
+        // Process named args
+        for arg in call_args.iter().skip(positional_idx) {
+            if let Some(arg_name) = &arg.name {
+                if let Some(pos) = callable_params.iter().position(|(n, _)| n == arg_name) {
+                    let reg = self.lower_expr(&arg.value);
+                    resolved[pos] = Some(reg);
+                }
+            } else {
+                // Positional arg that came after named
+                if positional_idx < callable_params.len() {
+                    let reg = self.lower_expr(&arg.value);
+                    resolved[positional_idx] = Some(reg);
+                    positional_idx += 1;
+                }
+            }
+        }
+
+        self.current_span = call_span;
+
+        // Fill in defaults for missing args
+        let defaults = self.param_defaults.get(fn_key).cloned();
+
+        for (i, resolved_reg) in resolved.iter_mut().enumerate() {
+            if resolved_reg.is_none() && callable_defaults[i] {
+                // Try to lower the default expression from the AST
+                let param_idx = i + skip_params;
+                let did_lower = if let Some(ref defaults_vec) = defaults {
+                    if let Some(Some(default_expr)) = defaults_vec.get(param_idx) {
+                        let reg = self.lower_expr(default_expr);
+                        *resolved_reg = Some(reg);
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+                if !did_lower {
+                    let reg = self.alloc_register();
+                    self.push_inst(Instruction::ConstUnit(reg));
+                    *resolved_reg = Some(reg);
+                }
+            }
+        }
+
+        resolved.into_iter().map(|r| r.unwrap_or_else(|| {
+            let reg = self.alloc_register();
+            self.push_inst(Instruction::ConstUnit(reg));
+            reg
+        })).collect()
+    }
+
+    /// Lower a function call with named arg resolution and default filling.
+    fn lower_resolved_call(
+        &mut self,
+        name: &str,
+        sig: &FunctionSig,
+        args: &[CallArg],
+        is_extern: bool,
+        skip_params: usize,
+    ) -> Register {
+        // For extern or simple calls without named args and with all args provided, fast path
+        let has_named = args.iter().any(|a| a.name.is_some());
+        let all_provided = args.len() + skip_params == sig.params.len();
+
+        if !has_named && all_provided {
+            return self.lower_generic_call(name, args, is_extern);
+        }
+
+        let call_span = self.current_span;
+        let arg_regs = self.resolve_call_args(name, sig, args, skip_params);
+        self.current_span = call_span;
+
+        // Caller-retain for struct-typed args
+        if !is_extern {
+            for (i, (_pname, pty)) in sig.params[skip_params..].iter().enumerate() {
+                if self.types.is_struct(*pty) && i < arg_regs.len() {
+                    self.push_inst(Instruction::Retain(arg_regs[i]));
+                }
+            }
+        }
+
+        let sym = self.interner.intern(name);
+        let func_ref = if is_extern {
+            FunctionRef::Extern(sym)
+        } else {
+            FunctionRef::Named(sym)
+        };
+
+        let dst = self.alloc_register();
+        self.push_inst(Instruction::Call(dst, func_ref, arg_regs));
+        dst
+    }
+
+    /// Lower a method call: self is already lowered, pass it as first arg
+    fn lower_method_call(
+        &mut self,
+        mangled_name: &str,
+        sig: &FunctionSig,
+        self_reg: Register,
+        args: &[CallArg],
+    ) -> Register {
+        let call_span = self.current_span;
+
+        // Resolve the rest of the args (skip self)
+        let mut arg_regs = vec![self_reg];
+        let rest = self.resolve_call_args(mangled_name, sig, args, 1);
+        arg_regs.extend(rest);
+
+        self.current_span = call_span;
+
+        // Caller-retain for struct-typed args
+        for (i, (_pname, pty)) in sig.params.iter().enumerate() {
+            if self.types.is_struct(*pty) && i < arg_regs.len() {
+                self.push_inst(Instruction::Retain(arg_regs[i]));
+            }
+        }
+
+        let sym = self.interner.intern(mangled_name);
+        let func_ref = FunctionRef::Named(sym);
+
+        let dst = self.alloc_register();
+        self.push_inst(Instruction::Call(dst, func_ref, arg_regs));
+        dst
+    }
+
+    /// Infer the type name of the receiver expression for method resolution.
+    fn infer_receiver_type_name(&self, expr: &nudl_core::span::Spanned<Expr>) -> Option<String> {
+        match &expr.node {
+            Expr::Ident(name) => {
+                if let Some(ty_id) = self.local_types.get(name) {
+                    if let TypeKind::Struct { name, .. } = self.types.resolve(*ty_id) {
+                        return Some(name.clone());
+                    }
+                }
+                None
+            }
+            Expr::StructLiteral { name, .. } => Some(name.clone()),
+            Expr::StaticCall { type_name, method, .. } => {
+                let mangled = format!("{}__{}", type_name, method);
+                if let Some(sig) = self.function_sigs.get(&mangled) {
+                    if let TypeKind::Struct { name, .. } = self.types.resolve(sig.return_type) {
+                        return Some(name.clone());
+                    }
+                }
+                None
+            }
+            Expr::Call { callee, .. } => {
+                if let Expr::Ident(fn_name) = &callee.node {
+                    if let Some(sig) = self.function_sigs.get(fn_name.as_str()) {
+                        if let TypeKind::Struct { name, .. } = self.types.resolve(sig.return_type) {
+                            return Some(name.clone());
+                        }
+                    }
+                }
+                None
+            }
+            Expr::MethodCall { object, method, .. } => {
+                // Recurse: infer receiver type, then look up method return type
+                if let Some(type_name) = self.infer_receiver_type_name(object) {
+                    let mangled = format!("{}__{}", type_name, method);
+                    if let Some(sig) = self.function_sigs.get(&mangled) {
+                        if let TypeKind::Struct { name, .. } = self.types.resolve(sig.return_type) {
+                            return Some(name.clone());
+                        }
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
     }
 }
 
@@ -1630,5 +1933,165 @@ fn main() {
             use_insts.iter().any(|i| matches!(i, Instruction::Release(_, _))),
             "expected Release in use_point (callee-release)"
         );
+    }
+
+    // --- Phase 3: Named arguments ---
+
+    #[test]
+    fn named_arguments_basic() {
+        let program = lower_source(
+            r#"
+fn power(base: i32, exponent: i32) -> i32 {
+    base * exponent
+}
+
+fn main() {
+    let r = power(2, exponent: 3);
+}
+"#,
+        );
+        assert!(program.entry_function.is_some());
+    }
+
+    #[test]
+    fn named_arguments_all_named() {
+        let program = lower_source(
+            r#"
+fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+fn main() {
+    let r = add(a: 1, b: 2);
+}
+"#,
+        );
+        assert!(program.entry_function.is_some());
+    }
+
+    // --- Phase 3: Default parameters ---
+
+    #[test]
+    fn default_params_basic() {
+        let program = lower_source(
+            r#"
+fn repeat_string(s: string, times: i32 = 3) -> i32 {
+    times
+}
+
+fn main() {
+    let a = repeat_string("hello");
+    let b = repeat_string("world", times: 5);
+}
+"#,
+        );
+        assert!(program.entry_function.is_some());
+    }
+
+    #[test]
+    fn default_params_multiple() {
+        let program = lower_source(
+            r#"
+fn connect(host: string, port: i32 = 8080, timeout_ms: i32 = 30000) -> i32 {
+    port
+}
+
+fn main() {
+    let a = connect("localhost");
+    let b = connect("localhost", port: 9090);
+    let c = connect("localhost", port: 9090, timeout_ms: 5000);
+}
+"#,
+        );
+        assert!(program.entry_function.is_some());
+    }
+
+    // --- Phase 3: Impl blocks and methods ---
+
+    #[test]
+    fn impl_block_static_method() {
+        let program = lower_source(
+            r#"
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+impl Point {
+    fn new(x: i32, y: i32) -> Point {
+        Point { x: x, y: y }
+    }
+}
+
+fn main() {
+    let p = Point::new(3, y: 4);
+}
+"#,
+        );
+        // Should have a function named Point__new
+        let has_point_new = program.functions.iter().any(|f| {
+            program.interner.resolve(f.name) == "Point__new"
+        });
+        assert!(has_point_new, "expected Point__new function");
+    }
+
+    #[test]
+    fn impl_block_instance_method() {
+        let program = lower_source(
+            r#"
+struct Counter {
+    value: i32,
+}
+
+impl Counter {
+    fn new(start: i32) -> Counter {
+        Counter { value: start }
+    }
+
+    fn get(self) -> i32 {
+        self.value
+    }
+
+    fn increment(mut self) {
+        self.value = self.value + 1;
+    }
+}
+
+fn main() {
+    let mut c = Counter::new(0);
+    c.increment();
+    let v = c.get();
+}
+"#,
+        );
+        let has_counter_get = program.functions.iter().any(|f| {
+            program.interner.resolve(f.name) == "Counter__get"
+        });
+        let has_counter_increment = program.functions.iter().any(|f| {
+            program.interner.resolve(f.name) == "Counter__increment"
+        });
+        assert!(has_counter_get, "expected Counter__get function");
+        assert!(has_counter_increment, "expected Counter__increment function");
+    }
+
+    // --- Phase 3: Struct field shorthand ---
+
+    #[test]
+    fn struct_field_shorthand() {
+        let program = lower_source(
+            r#"
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn main() {
+    let x = 3;
+    let y = 4;
+    let p = Point { x, y };
+}
+"#,
+        );
+        assert!(program.entry_function.is_some());
     }
 }
