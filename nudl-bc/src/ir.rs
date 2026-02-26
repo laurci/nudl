@@ -19,6 +19,7 @@ pub enum ConstValue {
     I64(i64),
     U64(u64),
     Bool(bool),
+    F32(f32),
     F64(f64),
     Char(char),
     StringLiteral(u32), // index into Program::string_constants
@@ -53,7 +54,11 @@ pub enum Instruction {
     Mod(Register, Register, Register),
     Shl(Register, Register, Register), // dst = lhs << rhs
     Shr(Register, Register, Register), // dst = lhs >> rhs
+    BitAnd(Register, Register, Register), // dst = lhs & rhs
+    BitOr(Register, Register, Register),  // dst = lhs | rhs
+    BitXor(Register, Register, Register), // dst = lhs ^ rhs
     Neg(Register, Register), // dst = -src
+    BitNot(Register, Register), // dst = ~src
 
     // Comparison
     Eq(Register, Register, Register), // dst = lhs == rhs (bool)
@@ -65,6 +70,9 @@ pub enum Instruction {
 
     // Logical
     Not(Register, Register), // dst = !src
+
+    // Cast
+    Cast(Register, Register, TypeId), // dst = src as target_type
 
     // ARC / heap operations
     Alloc(Register, TypeId),          // dst = heap-allocate object of given type

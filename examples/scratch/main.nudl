@@ -30,11 +30,15 @@ fn print_digit(i: i32) {
     }
 }
 
-fn print_number(mut i: i32) {
-    while i > 0 {
-        print_digit(i % 10);
-        i = i / 10;
+fn print_number(i: i32) {
+    if i > 9 {
+        print_number(i / 10);
     }
+    print_digit(i % 10);
+}
+
+fn multiply_number(i: i32, factor: i32) -> i32 {
+    i * factor  
 }
 
 fn main() {
@@ -45,7 +49,7 @@ fn main() {
         let z = x + y;
         z * 2
     };
-    print("n = ");
-    print_number(n);
+    print("n * 3 = ");
+    n |> multiply_number(3) |> print_number;
     print("\n");
 }

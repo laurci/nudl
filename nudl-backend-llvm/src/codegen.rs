@@ -914,6 +914,11 @@ fn emit_instruction<'ctx>(
                 .const_int(if *val { 1 } else { 0 }, false);
             store(builder, register_allocas, reg.0, v)?;
         }
+        Instruction::Const(reg, ConstValue::F32(_)) => {
+            // F32 codegen not yet fully supported; store zero as i64
+            let v = context.i64_type().const_int(0, false);
+            store(builder, register_allocas, reg.0, v)?;
+        }
         Instruction::Const(reg, ConstValue::F64(_)) => {
             // F64 codegen not yet fully supported; store zero as i64
             let v = context.i64_type().const_int(0, false);
@@ -1033,11 +1038,39 @@ fn emit_instruction<'ctx>(
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?;
             store(builder, register_allocas, dst.0, r)?;
         }
+        Instruction::BitAnd(dst, lhs, rhs) => {
+            let (lv, rv) = load_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
+            let r = builder
+                .build_and(lv, rv, "and")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            store(builder, register_allocas, dst.0, r)?;
+        }
+        Instruction::BitOr(dst, lhs, rhs) => {
+            let (lv, rv) = load_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
+            let r = builder
+                .build_or(lv, rv, "or")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            store(builder, register_allocas, dst.0, r)?;
+        }
+        Instruction::BitXor(dst, lhs, rhs) => {
+            let (lv, rv) = load_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
+            let r = builder
+                .build_xor(lv, rv, "xor")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            store(builder, register_allocas, dst.0, r)?;
+        }
         Instruction::Neg(dst, src) => {
             let sv = load_i64(context, builder, register_allocas, src.0)?;
             let zero = context.i64_type().const_zero();
             let r = builder
                 .build_int_sub(zero, sv, "neg")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            store(builder, register_allocas, dst.0, r)?;
+        }
+        Instruction::BitNot(dst, src) => {
+            let sv = load_i64(context, builder, register_allocas, src.0)?;
+            let r = builder
+                .build_not(sv, "bitnot")
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?;
             store(builder, register_allocas, dst.0, r)?;
         }
@@ -1060,6 +1093,12 @@ fn emit_instruction<'ctx>(
         }
         Instruction::Ge(dst, lhs, rhs) => {
             emit_icmp(context, builder, register_allocas, dst.0, lhs.0, rhs.0, inkwell::IntPredicate::SGE)?;
+        }
+
+        // Cast (currently a no-op since all registers are i64)
+        Instruction::Cast(dst, src, _target_type) => {
+            let sv = load_i64(context, builder, register_allocas, src.0)?;
+            store(builder, register_allocas, dst.0, sv)?;
         }
 
         // Logical NOT

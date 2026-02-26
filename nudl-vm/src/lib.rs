@@ -271,6 +271,7 @@ impl Vm {
                     ConstValue::I64(v) => Value::I64(*v),
                     ConstValue::U64(v) => Value::U64(*v),
                     ConstValue::Bool(v) => Value::Bool(*v),
+                    ConstValue::F32(v) => Value::F64(*v as f64),
                     ConstValue::F64(v) => Value::F64(*v),
                     ConstValue::Char(v) => Value::Char(*v),
                     ConstValue::StringLiteral(idx) => Value::String(*idx),
@@ -404,12 +405,33 @@ impl Vm {
                 let result = vm_binop_arith(&registers[lhs.0 as usize], &registers[rhs.0 as usize], |a, b| a >> (b & 0x3F), |_a, _b| 0.0)?;
                 registers[dst.0 as usize] = result;
             }
+            Instruction::BitAnd(dst, lhs, rhs) => {
+                let result = vm_binop_arith(&registers[lhs.0 as usize], &registers[rhs.0 as usize], |a, b| a & b, |_a, _b| 0.0)?;
+                registers[dst.0 as usize] = result;
+            }
+            Instruction::BitOr(dst, lhs, rhs) => {
+                let result = vm_binop_arith(&registers[lhs.0 as usize], &registers[rhs.0 as usize], |a, b| a | b, |_a, _b| 0.0)?;
+                registers[dst.0 as usize] = result;
+            }
+            Instruction::BitXor(dst, lhs, rhs) => {
+                let result = vm_binop_arith(&registers[lhs.0 as usize], &registers[rhs.0 as usize], |a, b| a ^ b, |_a, _b| 0.0)?;
+                registers[dst.0 as usize] = result;
+            }
             Instruction::Neg(dst, src) => {
                 let result = match &registers[src.0 as usize] {
                     Value::I32(v) => Value::I32(-*v),
                     Value::I64(v) => Value::I64(-*v),
                     Value::F64(v) => Value::F64(-*v),
                     other => return Err(VmError::TypeError { message: format!("cannot negate {:?}", other) }),
+                };
+                registers[dst.0 as usize] = result;
+            }
+            Instruction::BitNot(dst, src) => {
+                let result = match &registers[src.0 as usize] {
+                    Value::I32(v) => Value::I32(!*v),
+                    Value::I64(v) => Value::I64(!*v),
+                    Value::U64(v) => Value::U64(!*v),
+                    other => return Err(VmError::TypeError { message: format!("cannot bitwise-not {:?}", other) }),
                 };
                 registers[dst.0 as usize] = result;
             }
@@ -438,6 +460,11 @@ impl Vm {
             Instruction::Ge(dst, lhs, rhs) => {
                 let result = vm_binop_cmp(&registers[lhs.0 as usize], &registers[rhs.0 as usize], |a, b| a >= b, |a, b| a >= b)?;
                 registers[dst.0 as usize] = Value::Bool(result);
+            }
+
+            // Cast (no-op in VM for now - all values carry their types)
+            Instruction::Cast(dst, src, _target_type) => {
+                registers[dst.0 as usize] = registers[src.0 as usize].clone();
             }
 
             // Logical

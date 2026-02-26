@@ -128,6 +128,8 @@ impl Checker {
                 "char" => self.types.char_type(),
                 "string" => self.types.string(),
                 "RawPtr" => self.types.raw_ptr(),
+                "MutRawPtr" => self.types.mut_raw_ptr(),
+                "CStr" => self.types.cstr(),
                 _ => {
                     if let Some(&struct_ty) = self.structs.get(name.as_str()) {
                         return struct_ty;
@@ -150,6 +152,9 @@ impl Checker {
             },
             TypeKind::String => "string".into(),
             TypeKind::RawPtr => "RawPtr".into(),
+            TypeKind::MutRawPtr => "MutRawPtr".into(),
+            TypeKind::CStr => "CStr".into(),
+            TypeKind::Never => "!".into(),
             TypeKind::Function { .. } => "fn(...)".into(),
             TypeKind::Struct { name, .. } => name.clone(),
             TypeKind::Error => "<error>".into(),
@@ -409,6 +414,40 @@ impl Checker {
                     );
                 }
             }
+            Stmt::Const { name, ty, value } => {
+                let val_ty = self.check_expr(value, locals);
+                if let Some(type_expr) = ty {
+                    let declared_ty = self.resolve_type(type_expr);
+                    let is_coercible = self.is_unsuffixed_int_literal(&value.node)
+                        && self.is_integer_type(declared_ty);
+                    if val_ty != declared_ty
+                        && val_ty != self.types.error()
+                        && declared_ty != self.types.error()
+                        && !is_coercible
+                    {
+                        self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                            span: value.span,
+                            expected: self.type_name(declared_ty),
+                            found: self.type_name(val_ty),
+                        });
+                    }
+                    locals.insert(
+                        name.clone(),
+                        LocalInfo {
+                            ty: declared_ty,
+                            is_mut: false,
+                        },
+                    );
+                } else {
+                    locals.insert(
+                        name.clone(),
+                        LocalInfo {
+                            ty: val_ty,
+                            is_mut: false,
+                        },
+                    );
+                }
+            }
             Stmt::Item(item) => self.collect_item(item),
         }
     }
@@ -555,6 +594,18 @@ impl Checker {
                         }
                         left_ty
                     }
+                    BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor => {
+                        if !self.is_integer_type(left_ty) {
+                            self.diagnostics
+                                .add(&CheckerDiagnostic::InvalidOperatorType {
+                                    span: expr.span,
+                                    op: format!("{:?}", op).to_lowercase(),
+                                    ty: self.type_name(left_ty),
+                                });
+                            return self.types.error();
+                        }
+                        left_ty
+                    }
                     BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
                         self.types.bool()
                     }
@@ -603,6 +654,18 @@ impl Checker {
                             return self.types.error();
                         }
                         self.types.bool()
+                    }
+                    UnaryOp::BitNot => {
+                        if !self.is_integer_type(operand_ty) {
+                            self.diagnostics
+                                .add(&CheckerDiagnostic::InvalidOperatorType {
+                                    span: expr.span,
+                                    op: "~".into(),
+                                    ty: self.type_name(operand_ty),
+                                });
+                            return self.types.error();
+                        }
+                        operand_ty
                     }
                 }
             }
@@ -686,7 +749,13 @@ impl Checker {
                                 });
                         }
                         let target_ty = info.ty;
-                        if !self.is_numeric(target_ty) && target_ty != self.types.error() {
+                        let is_valid = match op {
+                            BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor => {
+                                self.is_integer_type(target_ty)
+                            }
+                            _ => self.is_numeric(target_ty),
+                        };
+                        if !is_valid && target_ty != self.types.error() {
                             self.diagnostics
                                 .add(&CheckerDiagnostic::InvalidOperatorType {
                                     span: expr.span,
@@ -750,7 +819,33 @@ impl Checker {
                 }
             }
 
-            Expr::While { condition, body } => {
+            Expr::Cast { expr, target_type } => {
+                let src_ty = self.check_expr(expr, locals);
+                let dst_ty = self.resolve_type(target_type);
+                if src_ty == self.types.error() || dst_ty == self.types.error() {
+                    return self.types.error();
+                }
+                // Allow casts between numeric types, bool→int, char↔u32
+                let is_valid = (self.is_numeric(src_ty) && self.is_numeric(dst_ty))
+                    || (src_ty == self.types.bool() && self.is_integer_type(dst_ty))
+                    || (src_ty == self.types.char_type() && dst_ty == self.types.u32())
+                    || (src_ty == self.types.u32() && dst_ty == self.types.char_type())
+                    || (src_ty == self.types.raw_ptr() && dst_ty == self.types.mut_raw_ptr())
+                    || (src_ty == self.types.mut_raw_ptr() && dst_ty == self.types.raw_ptr())
+                    || (src_ty == self.types.raw_ptr() && dst_ty == self.types.cstr())
+                    || (src_ty == self.types.cstr() && dst_ty == self.types.raw_ptr());
+                if !is_valid {
+                    self.diagnostics.add(&CheckerDiagnostic::InvalidOperatorType {
+                        span: expr.span,
+                        op: "as".into(),
+                        ty: format!("{} as {}", self.type_name(src_ty), self.type_name(dst_ty)),
+                    });
+                    return self.types.error();
+                }
+                dst_ty
+            }
+
+            Expr::While { condition, body, .. } => {
                 let cond_ty = self.check_expr(condition, locals);
                 if cond_ty != self.types.bool()
                     && cond_ty != self.types.error()
@@ -765,17 +860,19 @@ impl Checker {
                 self.types.unit()
             }
 
-            Expr::Loop { body } => {
+            Expr::Loop { body, .. } => {
                 self.check_block(&body.node, locals);
                 self.types.unit()
             }
 
-            Expr::Break(_value) => {
-                // break-with-value not fully supported yet
+            Expr::Break { value, .. } => {
+                if let Some(val) = value {
+                    self.check_expr(val, locals);
+                }
                 self.types.unit()
             }
 
-            Expr::Continue => self.types.unit(),
+            Expr::Continue { .. } => self.types.unit(),
 
             Expr::Grouped(inner) => self.check_expr(inner, locals),
 

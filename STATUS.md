@@ -22,7 +22,7 @@
 
 ## 1. Core Types
 - [x] Integers — all types (i8, i16, i32, i64, u8, u16, u32, u64) in type checker; IR constants for i32, i64, u64; others coerce from unsuffixed literals (`tests/core-types/integers.nudl`)
-- [~] Floats — f64 in type checker + IR; f32 in type checker only (`tests/core-types/floats.nudl`)
+- [x] Floats — f64 in type checker + IR; f32 in type checker + IR + codegen (`tests/core-types/floats.nudl`)
 - [x] Booleans (`tests/core-types/bool.nudl`)
 - [x] Characters (`tests/core-types/char.nudl`)
 - [x] Strings — reference type with (ptr, len) pair expansion (`tests/core-types/strings.nudl`)
@@ -33,15 +33,15 @@
 - [ ] Fixed-size arrays [T; N] (`tests/core-types/fixed_arrays.nudl`)
 - [ ] Maps (`tests/core-types/maps.nudl`)
 - [ ] Function types as values — TypeKind::Function exists but not usable as first-class values (`tests/core-types/function_types.nudl`)
-- [ ] Never type (!)
+- [x] Never type (!) — TypeKind::Never, pre-interned, recognized in type checker
 - [ ] Range types
-- [~] FFI types — RawPtr ✓ in type checker + codegen; MutRawPtr, CStr not yet
+- [x] FFI types — RawPtr, MutRawPtr, CStr all in type checker + codegen; cast support between pointer types
 
 ## 2. Variables & Bindings
 - [x] Let bindings — immutable and mutable, with mutability enforcement in type checker (`tests/variables/let_bindings.nudl`)
 - [ ] Destructuring (`tests/variables/destructuring.nudl`)
 - [x] Type annotations — primitive types and string; complex types not yet (`tests/variables/type_annotations.nudl`)
-- [ ] Constants (`tests/variables/constants.nudl`)
+- [x] Constants — `const` declarations (parsed, type-checked, lowered as immutable let) (`tests/variables/constants.nudl`)
 - [ ] Comptime constants (`tests/variables/const_comptime.nudl`)
 - [ ] Weak references (`tests/variables/weak_references.nudl`)
 
@@ -49,11 +49,11 @@
 - [x] Arithmetic (+, -, *, /, %, unary -) (`tests/operators/arithmetic.nudl`)
 - [x] Comparison (==, !=, <, >, <=, >=) (`tests/operators/comparison.nudl`)
 - [x] Logical (&&, ||, !) — with short-circuit evaluation (`tests/operators/logical.nudl`)
-- [~] Bitwise — <<, >> implemented; &, |, ^, ~ not yet parsed (`tests/operators/bitwise.nudl`)
-- [x] Assignment (=, +=, -=, *=, /=, %=, <<=, >>=) — &=, |=, ^= tokens exist but bitwise ops not lowered (`tests/operators/assignment.nudl`)
+- [x] Bitwise — all ops (&, |, ^, ~, <<, >>) parsed, type-checked, lowered, codegen'd (`tests/operators/bitwise.nudl`)
+- [x] Assignment (=, +=, -=, *=, /=, %=, <<=, >>=, &=, |=, ^=) — all compound assignments including bitwise (`tests/operators/assignment.nudl`)
 - [~] Range (.., ..=) — parsed, not lowered to IR (`tests/operators/range.nudl`)
-- [ ] Pipe (|>) — token exists, not parsed (`tests/operators/pipe.nudl`)
-- [ ] Type cast (as) — token exists, not parsed in expressions (`tests/operators/type_cast.nudl`)
+- [x] Pipe (|>) — parsed and desugared to function calls at parse time (`tests/operators/pipe.nudl`)
+- [x] Type cast (as) — postfix `as Type` with numeric↔numeric, bool→int, char↔u32, ptr casts (`tests/operators/type_cast.nudl`)
 - [ ] Error propagation (?) — token exists, not parsed (`tests/operators/error_propagation.nudl`)
 - [x] Precedence — Pratt climbing with correct binding power levels (`tests/operators/precedence.nudl`)
 
@@ -65,7 +65,7 @@
 - [x] While loops (`tests/control-flow/while_loops.nudl`)
 - [x] Infinite loop (`tests/control-flow/loop_infinite.nudl`)
 - [x] Break/continue (`tests/control-flow/break_continue.nudl`)
-- [ ] Labeled loops (`tests/control-flow/labeled_loops.nudl`)
+- [x] Labeled loops — `'label: while/loop`, `break 'label`, `continue 'label` (`tests/control-flow/labeled_loops.nudl`)
 
 ## 5. Functions
 - [x] Basic declarations & calls (`tests/functions/basic.nudl`)

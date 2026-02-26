@@ -290,6 +290,13 @@ impl Parser {
                         self.advance();
                     }
                 }
+                TokenKind::Const => {
+                    if let Some(stmt) = self.parse_const_stmt() {
+                        stmts.push(stmt);
+                    } else {
+                        self.advance();
+                    }
+                }
                 TokenKind::Fn | TokenKind::Struct | TokenKind::Pub | TokenKind::Extern => {
                     if let Some(item) = self.parse_item() {
                         let span = item.span;
@@ -367,6 +374,7 @@ impl Parser {
             let op = match op_tok.kind {
                 TokenKind::Minus => UnaryOp::Neg,
                 TokenKind::Bang => UnaryOp::Not,
+                TokenKind::Tilde => UnaryOp::BitNot,
                 _ => unreachable!(),
             };
             let operand = self.parse_expr_bp(right_bp)?;
@@ -417,6 +425,26 @@ impl Parser {
                 continue;
             }
 
+            // Postfix: `as` type cast
+            if kind == TokenKind::As {
+                // `as` has very high precedence (between infix and unary)
+                let as_bp: u8 = 23;
+                if as_bp < min_bp {
+                    break;
+                }
+                self.advance(); // consume `as`
+                let target_type = self.parse_type()?;
+                let span = lhs.span.merge(target_type.span);
+                lhs = Spanned::new(
+                    Expr::Cast {
+                        expr: Box::new(lhs),
+                        target_type,
+                    },
+                    span,
+                );
+                continue;
+            }
+
             // Assignment operators (right-associative)
             if let Some(assign_bp) = assign_binding_power(kind) {
                 if assign_bp < min_bp {
@@ -454,6 +482,31 @@ impl Parser {
                     break;
                 }
                 let op_tok = self.advance().clone();
+
+                // Pipe operator desugaring: `x |> f` → `f(x)`, `x |> f(y)` → `f(x, y)`
+                if op_tok.kind == TokenKind::PipeGt {
+                    let rhs = self.parse_expr_bp(r_bp)?;
+                    let span = lhs.span.merge(rhs.span);
+                    lhs = match rhs.node {
+                        // `x |> f(y, z)` → `f(x, y, z)` — prepend lhs as first arg
+                        Expr::Call { callee, mut args } => {
+                            args.insert(0, CallArg { name: None, value: lhs });
+                            Spanned::new(Expr::Call { callee, args }, span)
+                        }
+                        // `x |> f` → `f(x)` — wrap in call
+                        _ => {
+                            Spanned::new(
+                                Expr::Call {
+                                    callee: Box::new(rhs),
+                                    args: vec![CallArg { name: None, value: lhs }],
+                                },
+                                span,
+                            )
+                        }
+                    };
+                    continue;
+                }
+
                 let op = token_to_binop(op_tok.kind);
                 let rhs = self.parse_expr_bp(r_bp)?;
                 let span = lhs.span.merge(rhs.span);
@@ -538,10 +591,35 @@ impl Parser {
                 Some(Spanned::new(Expr::Return(value), tok.span.merge(end)))
             }
             TokenKind::If => self.parse_if_expr(),
-            TokenKind::While => self.parse_while_expr(),
-            TokenKind::Loop => self.parse_loop_expr(),
+            TokenKind::While => self.parse_while_expr(None),
+            TokenKind::Loop => self.parse_loop_expr(None),
+            TokenKind::Label => {
+                // Labeled loop: 'label: loop { ... } or 'label: while ... { ... }
+                let label_tok = self.advance().clone();
+                let label = label_tok.text.clone();
+                self.expect(TokenKind::Colon)?;
+                match self.peek_kind() {
+                    TokenKind::Loop => self.parse_loop_expr(Some(label)),
+                    TokenKind::While => self.parse_while_expr(Some(label)),
+                    _ => {
+                        self.diagnostics.add(&ParserDiagnostic::UnexpectedToken {
+                            span: self.peek().span,
+                            expected: "'loop' or 'while' after label".into(),
+                            found: self.peek().text.clone(),
+                        });
+                        None
+                    }
+                }
+            }
             TokenKind::Break => {
                 let tok = self.advance().clone();
+                // Optional label: break 'label
+                let label = if self.peek_kind() == TokenKind::Label {
+                    let label_tok = self.advance().clone();
+                    Some(label_tok.text.clone())
+                } else {
+                    None
+                };
                 let value = if self.peek_kind() != TokenKind::Semi
                     && self.peek_kind() != TokenKind::RBrace
                     && !self.at_eof()
@@ -551,11 +629,19 @@ impl Parser {
                     None
                 };
                 let end = value.as_ref().map(|v| v.span).unwrap_or(tok.span);
-                Some(Spanned::new(Expr::Break(value), tok.span.merge(end)))
+                Some(Spanned::new(Expr::Break { label, value }, tok.span.merge(end)))
             }
             TokenKind::Continue => {
                 let tok = self.advance().clone();
-                Some(Spanned::new(Expr::Continue, tok.span))
+                // Optional label: continue 'label
+                let label = if self.peek_kind() == TokenKind::Label {
+                    let label_tok = self.advance().clone();
+                    Some(label_tok.text.clone())
+                } else {
+                    None
+                };
+                let end = tok.span;
+                Some(Spanned::new(Expr::Continue { label }, tok.span.merge(end)))
             }
             TokenKind::LParen => {
                 let start = self.advance().clone();
@@ -649,7 +735,7 @@ impl Parser {
         ))
     }
 
-    fn parse_while_expr(&mut self) -> Option<SpannedExpr> {
+    fn parse_while_expr(&mut self, label: Option<String>) -> Option<SpannedExpr> {
         let start = self.expect(TokenKind::While)?.span;
         let condition = self.parse_expr()?;
         let body = self.parse_block()?;
@@ -657,6 +743,7 @@ impl Parser {
 
         Some(Spanned::new(
             Expr::While {
+                label,
                 condition: Box::new(condition),
                 body: Box::new(body),
             },
@@ -664,15 +751,37 @@ impl Parser {
         ))
     }
 
-    fn parse_loop_expr(&mut self) -> Option<SpannedExpr> {
+    fn parse_loop_expr(&mut self, label: Option<String>) -> Option<SpannedExpr> {
         let start = self.expect(TokenKind::Loop)?.span;
         let body = self.parse_block()?;
         let end = body.span;
 
         Some(Spanned::new(
             Expr::Loop {
+                label,
                 body: Box::new(body),
             },
+            start.merge(end),
+        ))
+    }
+
+    fn parse_const_stmt(&mut self) -> Option<SpannedStmt> {
+        let start = self.expect(TokenKind::Const)?.span;
+        let name = self.expect(TokenKind::Ident)?.text.clone();
+
+        let ty = if self.eat(TokenKind::Colon) {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+
+        self.expect(TokenKind::Eq)?;
+        let value = self.parse_expr()?;
+        let end = value.span;
+        self.eat(TokenKind::Semi);
+
+        Some(Spanned::new(
+            Stmt::Const { name, ty, value },
             start.merge(end),
         ))
     }
@@ -737,19 +846,27 @@ impl Parser {
 /// Returns (left_bp, right_bp) for infix operators.
 fn infix_binding_power(kind: TokenKind) -> Option<(u8, u8)> {
     match kind {
+        // Pipe: left-associative (lowest infix precedence)
+        TokenKind::PipeGt => Some((3, 4)),
         // Logical or: left-associative
         TokenKind::PipePipe => Some((5, 6)),
         // Logical and: left-associative
         TokenKind::AmpAmp => Some((7, 8)),
-        // Shift: left-associative
-        TokenKind::LtLt | TokenKind::GtGt => Some((9, 10)),
-        // Comparison: non-associative (use same bp on both sides)
+        // Bitwise or: left-associative
+        TokenKind::Pipe => Some((9, 10)),
+        // Bitwise xor: left-associative
+        TokenKind::Caret => Some((11, 12)),
+        // Bitwise and: left-associative
+        TokenKind::Amp => Some((13, 14)),
+        // Comparison: non-associative
         TokenKind::EqEq | TokenKind::BangEq | TokenKind::Lt | TokenKind::Gt
-        | TokenKind::LtEq | TokenKind::GtEq => Some((11, 12)),
+        | TokenKind::LtEq | TokenKind::GtEq => Some((15, 16)),
+        // Shift: left-associative
+        TokenKind::LtLt | TokenKind::GtGt => Some((17, 18)),
         // Addition/subtraction: left-associative
-        TokenKind::Plus | TokenKind::Minus => Some((13, 14)),
+        TokenKind::Plus | TokenKind::Minus => Some((19, 20)),
         // Multiplication/division/modulo: left-associative
-        TokenKind::Star | TokenKind::Slash | TokenKind::Percent => Some((15, 16)),
+        TokenKind::Star | TokenKind::Slash | TokenKind::Percent => Some((21, 22)),
         _ => None,
     }
 }
@@ -757,7 +874,7 @@ fn infix_binding_power(kind: TokenKind) -> Option<(u8, u8)> {
 /// Returns the right_bp for prefix operators.
 fn prefix_binding_power(kind: TokenKind) -> Option<u8> {
     match kind {
-        TokenKind::Minus | TokenKind::Bang => Some(17),
+        TokenKind::Minus | TokenKind::Bang | TokenKind::Tilde => Some(25),
         _ => None,
     }
 }
@@ -767,7 +884,8 @@ fn assign_binding_power(kind: TokenKind) -> Option<u8> {
     match kind {
         TokenKind::Eq | TokenKind::PlusEq | TokenKind::MinusEq | TokenKind::StarEq
         | TokenKind::SlashEq | TokenKind::PercentEq | TokenKind::LtLtEq
-        | TokenKind::GtGtEq => Some(1),
+        | TokenKind::GtGtEq | TokenKind::AmpEq | TokenKind::PipeEq
+        | TokenKind::CaretEq => Some(1),
         _ => None,
     }
 }
@@ -781,6 +899,9 @@ fn token_to_binop(kind: TokenKind) -> BinOp {
         TokenKind::Percent => BinOp::Mod,
         TokenKind::LtLt => BinOp::Shl,
         TokenKind::GtGt => BinOp::Shr,
+        TokenKind::Amp => BinOp::BitAnd,
+        TokenKind::Pipe => BinOp::BitOr,
+        TokenKind::Caret => BinOp::BitXor,
         TokenKind::EqEq => BinOp::Eq,
         TokenKind::BangEq => BinOp::Ne,
         TokenKind::Lt => BinOp::Lt,
@@ -825,6 +946,9 @@ fn compound_assign_op(kind: TokenKind) -> BinOp {
         TokenKind::PercentEq => BinOp::Mod,
         TokenKind::LtLtEq => BinOp::Shl,
         TokenKind::GtGtEq => BinOp::Shr,
+        TokenKind::AmpEq => BinOp::BitAnd,
+        TokenKind::PipeEq => BinOp::BitOr,
+        TokenKind::CaretEq => BinOp::BitXor,
         _ => unreachable!("not a compound assign token: {:?}", kind),
     }
 }

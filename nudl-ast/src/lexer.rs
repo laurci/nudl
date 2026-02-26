@@ -162,8 +162,28 @@ impl<'a> Lexer<'a> {
             return self.lex_string(start);
         }
 
-        // Char literal
+        // Char literal or label ('ident)
         if ch == '\'' {
+            // Distinguish labels from char literals:
+            // - 'a' (char followed by closing quote) → char literal
+            // - '\n' (escape sequence) → char literal
+            // - 'abc (identifier, no closing quote after first char) → label
+            if let Some(next) = self.peek_at(1) {
+                if next.is_ascii_alphabetic() || next == '_' {
+                    // Check if it's 'x' (char literal) or 'ident (label)
+                    let after_next = self.peek_at(1 + next.len_utf8());
+                    if after_next != Some('\'') {
+                        // It's a label: consume ' and then the identifier
+                        self.advance(); // skip '
+                        let label_start = self.pos;
+                        while self.peek().is_some_and(|c| c.is_ascii_alphanumeric() || c == '_') {
+                            self.advance();
+                        }
+                        let text = &self.source[label_start..self.pos];
+                        return Token::new(TokenKind::Label, self.span(start, self.pos), text);
+                    }
+                }
+            }
             return self.lex_char(start);
         }
 
@@ -665,6 +685,10 @@ impl<'a> Lexer<'a> {
             ('|', Some('=')) => {
                 self.advance();
                 (TokenKind::PipeEq, "|=")
+            }
+            ('|', Some('>')) => {
+                self.advance();
+                (TokenKind::PipeGt, "|>")
             }
             ('^', Some('=')) => {
                 self.advance();

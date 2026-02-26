@@ -388,6 +388,17 @@ fn fmt_ast_stmt(stmt: &Stmt, out: &mut String, level: usize) {
             fmt_ast_expr(&value.node, out, level);
             out.push('\n');
         }
+        Stmt::Const { name, ty, value } => {
+            indent(out, level);
+            out.push_str("Const ");
+            out.push_str(name);
+            if let Some(t) = ty {
+                out.push_str(&format!(": {}", fmt_type_expr(&t.node)));
+            }
+            out.push_str(" = ");
+            fmt_ast_expr(&value.node, out, level);
+            out.push('\n');
+        }
         Stmt::Item(item) => {
             fmt_ast_item(&item.node, out, level);
         }
@@ -489,25 +500,41 @@ fn fmt_ast_expr(expr: &Expr, out: &mut String, level: usize) {
                 out.push('\n');
             }
         }
-        Expr::While { condition, body } => {
+        Expr::Cast { expr, target_type } => {
+            fmt_ast_expr(&expr.node, out, level);
+            out.push_str(&format!(" as {}", fmt_type_expr(&target_type.node)));
+        }
+        Expr::While { condition, body, label } => {
+            if let Some(l) = label {
+                out.push_str(&format!("'{}: ", l));
+            }
             out.push_str("While ");
             fmt_ast_expr(&condition.node, out, level);
             out.push('\n');
             fmt_ast_block(&body.node, out, level + 1);
         }
-        Expr::Loop { body } => {
+        Expr::Loop { body, label } => {
+            if let Some(l) = label {
+                out.push_str(&format!("'{}: ", l));
+            }
             out.push_str("Loop\n");
             fmt_ast_block(&body.node, out, level + 1);
         }
-        Expr::Break(val) => {
+        Expr::Break { label, value } => {
             out.push_str("Break");
-            if let Some(v) = val {
+            if let Some(l) = label {
+                out.push_str(&format!(" '{}", l));
+            }
+            if let Some(v) = value {
                 out.push(' ');
                 fmt_ast_expr(&v.node, out, level);
             }
         }
-        Expr::Continue => {
+        Expr::Continue { label } => {
             out.push_str("Continue");
+            if let Some(l) = label {
+                out.push_str(&format!(" '{}", l));
+            }
         }
         Expr::Grouped(inner) => {
             out.push_str("Grouped(");
@@ -609,6 +636,7 @@ fn fmt_instruction(
                 ConstValue::I64(v) => out.push_str(&format!("I64({})", v)),
                 ConstValue::U64(v) => out.push_str(&format!("U64({})", v)),
                 ConstValue::Bool(v) => out.push_str(&format!("Bool({})", v)),
+                ConstValue::F32(v) => out.push_str(&format!("F32({})", v)),
                 ConstValue::F64(v) => out.push_str(&format!("F64({})", v)),
                 ConstValue::Char(v) => out.push_str(&format!("Char({:?})", v)),
                 ConstValue::StringLiteral(idx) => out.push_str(&format!("StringLiteral({})", idx)),
@@ -682,6 +710,22 @@ fn fmt_instruction(
         }
         Instruction::Neg(dst, src) => {
             out.push_str(&format!("r{} = Neg(r{})", dst.0, src.0));
+        }
+        // Bitwise
+        Instruction::BitAnd(dst, lhs, rhs) => {
+            out.push_str(&format!("r{} = BitAnd(r{}, r{})", dst.0, lhs.0, rhs.0));
+        }
+        Instruction::BitOr(dst, lhs, rhs) => {
+            out.push_str(&format!("r{} = BitOr(r{}, r{})", dst.0, lhs.0, rhs.0));
+        }
+        Instruction::BitXor(dst, lhs, rhs) => {
+            out.push_str(&format!("r{} = BitXor(r{}, r{})", dst.0, lhs.0, rhs.0));
+        }
+        Instruction::BitNot(dst, src) => {
+            out.push_str(&format!("r{} = BitNot(r{})", dst.0, src.0));
+        }
+        Instruction::Cast(dst, src, type_id) => {
+            out.push_str(&format!("r{} = Cast(r{}, type_id={})", dst.0, src.0, type_id.0));
         }
         // Comparison
         Instruction::Eq(dst, lhs, rhs) => {

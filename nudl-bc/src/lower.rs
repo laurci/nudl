@@ -208,6 +208,7 @@ fn parse_int_const(s: &str, suffix: Option<IntSuffix>) -> ConstValue {
 }
 
 struct LoopContext {
+    label: Option<String>,
     continue_block: BlockId,
     break_block: BlockId,
 }
@@ -308,7 +309,7 @@ impl<'a> FunctionLowerCtx<'a> {
             Stmt::Expr(expr) => {
                 self.lower_expr(expr);
             }
-            Stmt::Let { name, value, .. } => {
+            Stmt::Let { name, value, .. } | Stmt::Const { name, value, .. } => {
                 let reg = self.lower_expr(value);
                 self.locals.insert(name.clone(), reg);
 
@@ -416,6 +417,9 @@ impl<'a> FunctionLowerCtx<'a> {
                     BinOp::Mod => Instruction::Mod(dst, lhs, rhs),
                     BinOp::Shl => Instruction::Shl(dst, lhs, rhs),
                     BinOp::Shr => Instruction::Shr(dst, lhs, rhs),
+                    BinOp::BitAnd => Instruction::BitAnd(dst, lhs, rhs),
+                    BinOp::BitOr => Instruction::BitOr(dst, lhs, rhs),
+                    BinOp::BitXor => Instruction::BitXor(dst, lhs, rhs),
                     BinOp::Eq => Instruction::Eq(dst, lhs, rhs),
                     BinOp::Ne => Instruction::Ne(dst, lhs, rhs),
                     BinOp::Lt => Instruction::Lt(dst, lhs, rhs),
@@ -434,6 +438,7 @@ impl<'a> FunctionLowerCtx<'a> {
                 let inst = match op {
                     UnaryOp::Neg => Instruction::Neg(dst, src),
                     UnaryOp::Not => Instruction::Not(dst, src),
+                    UnaryOp::BitNot => Instruction::BitNot(dst, src),
                 };
                 self.push_inst(inst);
                 dst
@@ -506,6 +511,9 @@ impl<'a> FunctionLowerCtx<'a> {
                     BinOp::Mod => Instruction::Mod(result_reg, target_reg, val_reg),
                     BinOp::Shl => Instruction::Shl(result_reg, target_reg, val_reg),
                     BinOp::Shr => Instruction::Shr(result_reg, target_reg, val_reg),
+                    BinOp::BitAnd => Instruction::BitAnd(result_reg, target_reg, val_reg),
+                    BinOp::BitOr => Instruction::BitOr(result_reg, target_reg, val_reg),
+                    BinOp::BitXor => Instruction::BitXor(result_reg, target_reg, val_reg),
                     _ => unreachable!(),
                 };
                 self.push_inst(inst);
@@ -555,7 +563,14 @@ impl<'a> FunctionLowerCtx<'a> {
                 result_reg
             }
 
-            Expr::While { condition, body } => {
+            Expr::Cast { expr, target_type: _ } => {
+                // For now, casts are no-ops at the IR level since all values are i64
+                // TODO: emit proper Cast instruction when type-aware registers are added
+                let src = self.lower_expr(expr);
+                src
+            }
+
+            Expr::While { condition, body, label } => {
                 let cond_block = self.new_block_id();
                 let body_block = self.new_block_id();
                 let exit_block = self.new_block_id();
@@ -572,6 +587,7 @@ impl<'a> FunctionLowerCtx<'a> {
                 // Body block
                 self.start_block(body_block);
                 self.loop_stack.push(LoopContext {
+                    label: label.clone(),
                     continue_block: cond_block,
                     break_block: exit_block,
                 });
@@ -591,7 +607,7 @@ impl<'a> FunctionLowerCtx<'a> {
                 unit_reg
             }
 
-            Expr::Loop { body } => {
+            Expr::Loop { body, label } => {
                 let body_block = self.new_block_id();
                 let exit_block = self.new_block_id();
 
@@ -602,6 +618,7 @@ impl<'a> FunctionLowerCtx<'a> {
                 self.start_block(body_block);
                 let pre_loop_locals = self.locals.clone();
                 self.loop_stack.push(LoopContext {
+                    label: label.clone(),
                     continue_block: body_block,
                     break_block: exit_block,
                 });
@@ -620,13 +637,15 @@ impl<'a> FunctionLowerCtx<'a> {
                 unit_reg
             }
 
-            Expr::Break(_value) => {
-                if let Some(lc) = self.loop_stack.last() {
-                    let break_block = lc.break_block;
-                    // Copy-back for any locals that changed before breaking
-                    // (the break target may need the updated values)
+            Expr::Break { label, .. } => {
+                let target = if let Some(label) = label {
+                    self.loop_stack.iter().rev().find(|lc| lc.label.as_deref() == Some(label))
+                        .map(|lc| lc.break_block)
+                } else {
+                    self.loop_stack.last().map(|lc| lc.break_block)
+                };
+                if let Some(break_block) = target {
                     self.finish_block(Terminator::Jump(break_block));
-                    // Start a dead block for any code after break
                     let dead = self.new_block_id();
                     self.start_block(dead);
                 }
@@ -635,9 +654,14 @@ impl<'a> FunctionLowerCtx<'a> {
                 reg
             }
 
-            Expr::Continue => {
-                if let Some(lc) = self.loop_stack.last() {
-                    let continue_block = lc.continue_block;
+            Expr::Continue { label } => {
+                let target = if let Some(label) = label {
+                    self.loop_stack.iter().rev().find(|lc| lc.label.as_deref() == Some(label))
+                        .map(|lc| lc.continue_block)
+                } else {
+                    self.loop_stack.last().map(|lc| lc.continue_block)
+                };
+                if let Some(continue_block) = target {
                     self.finish_block(Terminator::Jump(continue_block));
                     let dead = self.new_block_id();
                     self.start_block(dead);

@@ -66,6 +66,11 @@ pub enum Stmt {
         value: SpannedExpr,
         is_mut: bool,
     },
+    Const {
+        name: String,
+        ty: Option<Spanned<TypeExpr>>,
+        value: SpannedExpr,
+    },
     Item(SpannedItem),
 }
 
@@ -102,15 +107,26 @@ pub enum Expr {
         then_branch: Box<Spanned<Block>>,
         else_branch: Option<Box<SpannedExpr>>,
     },
+    Cast {
+        expr: Box<SpannedExpr>,
+        target_type: Spanned<TypeExpr>,
+    },
     While {
+        label: Option<String>,
         condition: Box<SpannedExpr>,
         body: Box<Spanned<Block>>,
     },
     Loop {
+        label: Option<String>,
         body: Box<Spanned<Block>>,
     },
-    Break(Option<Box<SpannedExpr>>),
-    Continue,
+    Break {
+        label: Option<String>,
+        value: Option<Box<SpannedExpr>>,
+    },
+    Continue {
+        label: Option<String>,
+    },
     Grouped(Box<SpannedExpr>),
     StructLiteral {
         name: String,
@@ -131,6 +147,9 @@ pub enum BinOp {
     Mod,
     Shl,
     Shr,
+    BitAnd,
+    BitOr,
+    BitXor,
     Eq,
     Ne,
     Lt,
@@ -145,6 +164,7 @@ pub enum BinOp {
 pub enum UnaryOp {
     Neg,
     Not,
+    BitNot,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
