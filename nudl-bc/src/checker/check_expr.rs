@@ -1,0 +1,776 @@
+use super::*;
+
+impl Checker {
+    pub(super) fn check_expr(
+        &mut self,
+        expr: &SpannedExpr,
+        locals: &mut ScopedLocals<LocalInfo>,
+    ) -> TypeId {
+        match &expr.node {
+            Expr::Literal(Literal::String(_)) => self.types.string(),
+            Expr::Literal(Literal::TemplateString { exprs, .. }) => {
+                for e in exprs {
+                    self.check_expr(e, locals);
+                }
+                self.types.string()
+            }
+            Expr::Literal(Literal::Int(_, Some(suffix))) => match suffix {
+                IntSuffix::I8 => self.types.i8(),
+                IntSuffix::I16 => self.types.i16(),
+                IntSuffix::I32 => self.types.i32(),
+                IntSuffix::I64 => self.types.i64(),
+                IntSuffix::U8 => self.types.u8(),
+                IntSuffix::U16 => self.types.u16(),
+                IntSuffix::U32 => self.types.u32(),
+                IntSuffix::U64 => self.types.u64(),
+            },
+            Expr::Literal(Literal::Int(_, None)) => self.types.i32(),
+            Expr::Literal(Literal::Float(_)) => self.types.f64(),
+            Expr::Literal(Literal::Bool(_)) => self.types.bool(),
+            Expr::Literal(Literal::Char(_)) => self.types.char_type(),
+
+            Expr::Ident(name) => {
+                if let Some(info) = locals.get(name) {
+                    info.ty
+                } else {
+                    self.diagnostics.add(&CheckerDiagnostic::UndefinedVariable {
+                        span: expr.span,
+                        name: name.clone(),
+                    });
+                    self.types.error()
+                }
+            }
+
+            Expr::Call { callee, args } => {
+                if let Expr::Ident(name) = &callee.node {
+                    let sig = self.functions.get(name).cloned();
+                    if let Some(sig) = sig {
+                        self.check_call_args(expr.span, &sig, args, locals, 0)
+                    } else {
+                        self.diagnostics.add(&CheckerDiagnostic::UndefinedFunction {
+                            span: callee.span,
+                            name: name.clone(),
+                        });
+                        for arg in args {
+                            self.check_expr(&arg.value, locals);
+                        }
+                        self.types.error()
+                    }
+                } else {
+                    self.check_expr(callee, locals);
+                    for arg in args {
+                        self.check_expr(&arg.value, locals);
+                    }
+                    self.types.error()
+                }
+            }
+
+            Expr::MethodCall {
+                object,
+                method,
+                args,
+            } => {
+                let obj_ty = self.check_expr(object, locals);
+                if obj_ty == self.types.error() {
+                    for arg in args {
+                        self.check_expr(&arg.value, locals);
+                    }
+                    return self.types.error();
+                }
+
+                let type_name = self.type_name(obj_ty);
+                let mangled_name = format!("{}__{}", type_name, method);
+                let sig = self.functions.get(&mangled_name).cloned();
+
+                if let Some(sig) = sig {
+                    // Check mutability for `mut self` methods
+                    if sig.is_mut_method {
+                        // Check if the object is a mutable binding
+                        if let Expr::Ident(var_name) = &object.node {
+                            if let Some(info) = locals.get(var_name) {
+                                if !info.is_mut {
+                                    self.diagnostics.add(
+                                        &CheckerDiagnostic::MutatingMethodOnImmutable {
+                                            span: expr.span,
+                                            method: method.clone(),
+                                        },
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    // skip_params=1 to skip the self parameter
+                    self.check_call_args(expr.span, &sig, args, locals, 1)
+                } else {
+                    self.diagnostics.add(&CheckerDiagnostic::UndefinedMethod {
+                        span: expr.span,
+                        ty: type_name,
+                        method: method.clone(),
+                    });
+                    for arg in args {
+                        self.check_expr(&arg.value, locals);
+                    }
+                    self.types.error()
+                }
+            }
+
+            Expr::StaticCall {
+                type_name,
+                method,
+                args,
+            } => {
+                let mangled_name = format!("{}__{}", type_name, method);
+                let sig = self.functions.get(&mangled_name).cloned();
+
+                if let Some(sig) = sig {
+                    self.check_call_args(expr.span, &sig, args, locals, 0)
+                } else {
+                    self.diagnostics.add(&CheckerDiagnostic::UndefinedFunction {
+                        span: expr.span,
+                        name: mangled_name,
+                    });
+                    for arg in args {
+                        self.check_expr(&arg.value, locals);
+                    }
+                    self.types.error()
+                }
+            }
+
+            Expr::Block(block) => self.check_block(block, locals),
+
+            Expr::Return(Some(inner)) => {
+                let val_ty = self.check_expr(inner, locals);
+                if let Some(ret_ty) = self.current_return_type {
+                    if val_ty != ret_ty
+                        && val_ty != self.types.error()
+                        && ret_ty != self.types.error()
+                    {
+                        self.diagnostics
+                            .add(&CheckerDiagnostic::ReturnTypeMismatch {
+                                span: inner.span,
+                                expected: self.type_name(ret_ty),
+                                found: self.type_name(val_ty),
+                            });
+                    }
+                }
+                self.types.unit()
+            }
+            Expr::Return(None) => self.types.unit(),
+
+            Expr::Binary { op, left, right } => {
+                let left_ty = self.check_expr(left, locals);
+                let right_ty = self.check_expr(right, locals);
+
+                if left_ty == self.types.error() || right_ty == self.types.error() {
+                    return self.types.error();
+                }
+
+                // Both sides must be same type
+                if left_ty != right_ty {
+                    self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                        span: right.span,
+                        expected: self.type_name(left_ty),
+                        found: self.type_name(right_ty),
+                    });
+                    return self.types.error();
+                }
+
+                match op {
+                    BinOp::Add
+                    | BinOp::Sub
+                    | BinOp::Mul
+                    | BinOp::Div
+                    | BinOp::Mod
+                    | BinOp::Shl
+                    | BinOp::Shr => {
+                        if !self.is_numeric(left_ty) {
+                            self.diagnostics
+                                .add(&CheckerDiagnostic::InvalidOperatorType {
+                                    span: expr.span,
+                                    op: format!("{:?}", op).to_lowercase(),
+                                    ty: self.type_name(left_ty),
+                                });
+                            return self.types.error();
+                        }
+                        left_ty
+                    }
+                    BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor => {
+                        if !self.is_integer_type(left_ty) {
+                            self.diagnostics
+                                .add(&CheckerDiagnostic::InvalidOperatorType {
+                                    span: expr.span,
+                                    op: format!("{:?}", op).to_lowercase(),
+                                    ty: self.type_name(left_ty),
+                                });
+                            return self.types.error();
+                        }
+                        left_ty
+                    }
+                    BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
+                        self.types.bool()
+                    }
+                    BinOp::And | BinOp::Or => {
+                        if left_ty != self.types.bool() {
+                            self.diagnostics
+                                .add(&CheckerDiagnostic::InvalidOperatorType {
+                                    span: expr.span,
+                                    op: format!("{:?}", op).to_lowercase(),
+                                    ty: self.type_name(left_ty),
+                                });
+                            return self.types.error();
+                        }
+                        self.types.bool()
+                    }
+                }
+            }
+
+            Expr::Unary { op, operand } => {
+                let operand_ty = self.check_expr(operand, locals);
+                if operand_ty == self.types.error() {
+                    return self.types.error();
+                }
+
+                match op {
+                    UnaryOp::Neg => {
+                        if !self.is_signed_or_float(operand_ty) {
+                            self.diagnostics
+                                .add(&CheckerDiagnostic::InvalidOperatorType {
+                                    span: expr.span,
+                                    op: "-".into(),
+                                    ty: self.type_name(operand_ty),
+                                });
+                            return self.types.error();
+                        }
+                        operand_ty
+                    }
+                    UnaryOp::Not => {
+                        if operand_ty != self.types.bool() {
+                            self.diagnostics
+                                .add(&CheckerDiagnostic::InvalidOperatorType {
+                                    span: expr.span,
+                                    op: "!".into(),
+                                    ty: self.type_name(operand_ty),
+                                });
+                            return self.types.error();
+                        }
+                        self.types.bool()
+                    }
+                    UnaryOp::BitNot => {
+                        if !self.is_integer_type(operand_ty) {
+                            self.diagnostics
+                                .add(&CheckerDiagnostic::InvalidOperatorType {
+                                    span: expr.span,
+                                    op: "~".into(),
+                                    ty: self.type_name(operand_ty),
+                                });
+                            return self.types.error();
+                        }
+                        operand_ty
+                    }
+                }
+            }
+
+            Expr::Assign { target, value } => {
+                let val_ty = self.check_expr(value, locals);
+                if let Expr::Ident(name) = &target.node {
+                    if let Some(info) = locals.get(name) {
+                        if !info.is_mut {
+                            self.diagnostics
+                                .add(&CheckerDiagnostic::ImmutableAssignment {
+                                    span: target.span,
+                                    name: name.clone(),
+                                });
+                        }
+                        let target_ty = info.ty;
+                        if val_ty != target_ty
+                            && val_ty != self.types.error()
+                            && target_ty != self.types.error()
+                        {
+                            self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                                span: value.span,
+                                expected: self.type_name(target_ty),
+                                found: self.type_name(val_ty),
+                            });
+                        }
+                    } else {
+                        self.diagnostics.add(&CheckerDiagnostic::UndefinedVariable {
+                            span: target.span,
+                            name: name.clone(),
+                        });
+                    }
+                } else if let Expr::FieldAccess { object, field } = &target.node {
+                    let obj_ty = self.check_expr(object, locals);
+                    if obj_ty != self.types.error() {
+                        match self.types.resolve(obj_ty).clone() {
+                            TypeKind::Struct { name, fields } => {
+                                if let Some((_, field_ty)) = fields.iter().find(|(n, _)| n == field)
+                                {
+                                    if val_ty != *field_ty
+                                        && val_ty != self.types.error()
+                                        && *field_ty != self.types.error()
+                                    {
+                                        self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                                            span: value.span,
+                                            expected: self.type_name(*field_ty),
+                                            found: self.type_name(val_ty),
+                                        });
+                                    }
+                                } else {
+                                    self.diagnostics.add(&CheckerDiagnostic::UnknownField {
+                                        span: target.span,
+                                        name: name.clone(),
+                                        field: field.clone(),
+                                    });
+                                }
+                            }
+                            _ => {
+                                self.diagnostics
+                                    .add(&CheckerDiagnostic::FieldAccessOnNonStruct {
+                                        span: target.span,
+                                        ty: self.type_name(obj_ty),
+                                    });
+                            }
+                        }
+                    }
+                } else if let Expr::IndexAccess { object, index } = &target.node {
+                    let obj_ty = self.check_expr(object, locals);
+                    let idx_ty = self.check_expr(index, locals);
+                    if obj_ty != self.types.error() && idx_ty != self.types.error() {
+                        if !self.is_integer_type(idx_ty) {
+                            self.diagnostics
+                                .add(&CheckerDiagnostic::InvalidOperatorType {
+                                    span: index.span,
+                                    op: "index".into(),
+                                    ty: self.type_name(idx_ty),
+                                });
+                        }
+                        match self.types.resolve(obj_ty).clone() {
+                            TypeKind::FixedArray { element, .. } => {
+                                if val_ty != element
+                                    && val_ty != self.types.error()
+                                    && element != self.types.error()
+                                {
+                                    self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                                        span: value.span,
+                                        expected: self.type_name(element),
+                                        found: self.type_name(val_ty),
+                                    });
+                                }
+                            }
+                            _ => {
+                                self.diagnostics
+                                    .add(&CheckerDiagnostic::InvalidOperatorType {
+                                        span: target.span,
+                                        op: "index".into(),
+                                        ty: self.type_name(obj_ty),
+                                    });
+                            }
+                        }
+                    }
+                }
+                self.types.unit()
+            }
+
+            Expr::CompoundAssign { op, target, value } => {
+                let val_ty = self.check_expr(value, locals);
+                if let Expr::Ident(name) = &target.node {
+                    if let Some(info) = locals.get(name) {
+                        if !info.is_mut {
+                            self.diagnostics
+                                .add(&CheckerDiagnostic::ImmutableAssignment {
+                                    span: target.span,
+                                    name: name.clone(),
+                                });
+                        }
+                        let target_ty = info.ty;
+                        let is_valid = match op {
+                            BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor => {
+                                self.is_integer_type(target_ty)
+                            }
+                            _ => self.is_numeric(target_ty),
+                        };
+                        if !is_valid && target_ty != self.types.error() {
+                            self.diagnostics
+                                .add(&CheckerDiagnostic::InvalidOperatorType {
+                                    span: expr.span,
+                                    op: format!("{:?}", op).to_lowercase(),
+                                    ty: self.type_name(target_ty),
+                                });
+                        }
+                        if val_ty != target_ty
+                            && val_ty != self.types.error()
+                            && target_ty != self.types.error()
+                        {
+                            self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                                span: value.span,
+                                expected: self.type_name(target_ty),
+                                found: self.type_name(val_ty),
+                            });
+                        }
+                    } else {
+                        self.diagnostics.add(&CheckerDiagnostic::UndefinedVariable {
+                            span: target.span,
+                            name: name.clone(),
+                        });
+                    }
+                }
+                self.types.unit()
+            }
+
+            Expr::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                let cond_ty = self.check_expr(condition, locals);
+                if cond_ty != self.types.bool() && cond_ty != self.types.error() {
+                    self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                        span: condition.span,
+                        expected: "bool".into(),
+                        found: self.type_name(cond_ty),
+                    });
+                }
+
+                let then_ty = self.check_block(&then_branch.node, locals);
+
+                if let Some(else_expr) = else_branch {
+                    let else_ty = self.check_expr(else_expr, locals);
+                    if then_ty != else_ty
+                        && then_ty != self.types.error()
+                        && else_ty != self.types.error()
+                    {
+                        self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                            span: else_expr.span,
+                            expected: self.type_name(then_ty),
+                            found: self.type_name(else_ty),
+                        });
+                    }
+                    then_ty
+                } else {
+                    self.types.unit()
+                }
+            }
+
+            Expr::Cast { expr, target_type } => {
+                let src_ty = self.check_expr(expr, locals);
+                let dst_ty = self.resolve_type(target_type);
+                if src_ty == self.types.error() || dst_ty == self.types.error() {
+                    return self.types.error();
+                }
+                // Allow casts between numeric types, bool→int, char↔u32
+                let is_valid = (self.is_numeric(src_ty) && self.is_numeric(dst_ty))
+                    || (src_ty == self.types.bool() && self.is_integer_type(dst_ty))
+                    || (src_ty == self.types.char_type() && dst_ty == self.types.u32())
+                    || (src_ty == self.types.u32() && dst_ty == self.types.char_type())
+                    || (src_ty == self.types.raw_ptr() && dst_ty == self.types.mut_raw_ptr())
+                    || (src_ty == self.types.mut_raw_ptr() && dst_ty == self.types.raw_ptr())
+                    || (src_ty == self.types.raw_ptr() && dst_ty == self.types.cstr())
+                    || (src_ty == self.types.cstr() && dst_ty == self.types.raw_ptr());
+                if !is_valid {
+                    self.diagnostics
+                        .add(&CheckerDiagnostic::InvalidOperatorType {
+                            span: expr.span,
+                            op: "as".into(),
+                            ty: format!("{} as {}", self.type_name(src_ty), self.type_name(dst_ty)),
+                        });
+                    return self.types.error();
+                }
+                dst_ty
+            }
+
+            Expr::While {
+                condition, body, ..
+            } => {
+                let cond_ty = self.check_expr(condition, locals);
+                if cond_ty != self.types.bool() && cond_ty != self.types.error() {
+                    self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                        span: condition.span,
+                        expected: "bool".into(),
+                        found: self.type_name(cond_ty),
+                    });
+                }
+                self.check_block(&body.node, locals);
+                self.types.unit()
+            }
+
+            Expr::Loop { body, .. } => {
+                self.check_block(&body.node, locals);
+                self.types.unit()
+            }
+
+            Expr::Break { value, .. } => {
+                if let Some(val) = value {
+                    self.check_expr(val, locals);
+                }
+                self.types.unit()
+            }
+
+            Expr::Continue { .. } => self.types.unit(),
+
+            Expr::Grouped(inner) => self.check_expr(inner, locals),
+
+            Expr::StructLiteral { name, fields } => {
+                let struct_ty = if let Some(&ty) = self.structs.get(name.as_str()) {
+                    ty
+                } else {
+                    self.diagnostics.add(&CheckerDiagnostic::UndefinedStruct {
+                        span: expr.span,
+                        name: name.clone(),
+                    });
+                    return self.types.error();
+                };
+
+                let expected_fields = match self.types.resolve(struct_ty).clone() {
+                    TypeKind::Struct { fields: f, .. } => f,
+                    _ => return self.types.error(),
+                };
+
+                // Check for unknown fields
+                for (field_name, field_val) in fields {
+                    let expected = expected_fields.iter().find(|(n, _)| n == field_name);
+                    if let Some((_, expected_ty)) = expected {
+                        let val_ty = self.check_expr(field_val, locals);
+                        if val_ty != *expected_ty
+                            && val_ty != self.types.error()
+                            && *expected_ty != self.types.error()
+                        {
+                            self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                                span: field_val.span,
+                                expected: self.type_name(*expected_ty),
+                                found: self.type_name(val_ty),
+                            });
+                        }
+                    } else {
+                        self.check_expr(field_val, locals);
+                        self.diagnostics.add(&CheckerDiagnostic::UnknownField {
+                            span: field_val.span,
+                            name: name.clone(),
+                            field: field_name.clone(),
+                        });
+                    }
+                }
+
+                // Check for missing fields
+                for (expected_name, _) in &expected_fields {
+                    if !fields.iter().any(|(n, _)| n == expected_name) {
+                        self.diagnostics.add(&CheckerDiagnostic::MissingField {
+                            span: expr.span,
+                            name: name.clone(),
+                            field: expected_name.clone(),
+                        });
+                    }
+                }
+
+                struct_ty
+            }
+
+            Expr::FieldAccess { object, field } => {
+                let obj_ty = self.check_expr(object, locals);
+                if obj_ty == self.types.error() {
+                    return self.types.error();
+                }
+
+                match self.types.resolve(obj_ty).clone() {
+                    TypeKind::Struct { name, fields } => {
+                        if let Some((_, field_ty)) = fields.iter().find(|(n, _)| n == field) {
+                            *field_ty
+                        } else {
+                            self.diagnostics.add(&CheckerDiagnostic::UnknownField {
+                                span: expr.span,
+                                name: name.clone(),
+                                field: field.clone(),
+                            });
+                            self.types.error()
+                        }
+                    }
+                    TypeKind::Tuple(elements) => {
+                        // Numeric field access on tuples: .0, .1, etc.
+                        if let Ok(idx) = field.parse::<usize>() {
+                            if idx < elements.len() {
+                                elements[idx]
+                            } else {
+                                self.diagnostics
+                                    .add(&CheckerDiagnostic::InvalidOperatorType {
+                                        span: expr.span,
+                                        op: "tuple index".into(),
+                                        ty: format!(
+                                            "index {} out of bounds for {}-element tuple",
+                                            idx,
+                                            elements.len()
+                                        ),
+                                    });
+                                self.types.error()
+                            }
+                        } else {
+                            self.diagnostics
+                                .add(&CheckerDiagnostic::FieldAccessOnNonStruct {
+                                    span: expr.span,
+                                    ty: self.type_name(obj_ty),
+                                });
+                            self.types.error()
+                        }
+                    }
+                    _ => {
+                        self.diagnostics
+                            .add(&CheckerDiagnostic::FieldAccessOnNonStruct {
+                                span: expr.span,
+                                ty: self.type_name(obj_ty),
+                            });
+                        self.types.error()
+                    }
+                }
+            }
+
+            Expr::TupleLiteral(elements) => {
+                let element_types: Vec<TypeId> = elements
+                    .iter()
+                    .map(|e| self.check_expr(e, locals))
+                    .collect();
+                self.types.intern(TypeKind::Tuple(element_types))
+            }
+
+            Expr::ArrayLiteral(elements) => {
+                if elements.is_empty() {
+                    // Empty array — can't infer type without annotation
+                    // For now return error; type annotation needed
+                    self.types.error()
+                } else {
+                    let first_ty = self.check_expr(&elements[0], locals);
+                    for elem in &elements[1..] {
+                        let elem_ty = self.check_expr(elem, locals);
+                        if elem_ty != first_ty
+                            && elem_ty != self.types.error()
+                            && first_ty != self.types.error()
+                        {
+                            self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                                span: elem.span,
+                                expected: self.type_name(first_ty),
+                                found: self.type_name(elem_ty),
+                            });
+                        }
+                    }
+                    self.types.intern(TypeKind::FixedArray {
+                        element: first_ty,
+                        length: elements.len(),
+                    })
+                }
+            }
+
+            Expr::ArrayRepeat { value, count } => {
+                let elem_ty = self.check_expr(value, locals);
+                self.types.intern(TypeKind::FixedArray {
+                    element: elem_ty,
+                    length: *count,
+                })
+            }
+
+            Expr::IndexAccess { object, index } => {
+                let obj_ty = self.check_expr(object, locals);
+                let idx_ty = self.check_expr(index, locals);
+
+                if obj_ty == self.types.error() || idx_ty == self.types.error() {
+                    return self.types.error();
+                }
+
+                if !self.is_integer_type(idx_ty) {
+                    self.diagnostics
+                        .add(&CheckerDiagnostic::InvalidOperatorType {
+                            span: index.span,
+                            op: "index".into(),
+                            ty: self.type_name(idx_ty),
+                        });
+                    return self.types.error();
+                }
+
+                match self.types.resolve(obj_ty).clone() {
+                    TypeKind::FixedArray { element, .. } => element,
+                    _ => {
+                        self.diagnostics
+                            .add(&CheckerDiagnostic::InvalidOperatorType {
+                                span: expr.span,
+                                op: "index".into(),
+                                ty: self.type_name(obj_ty),
+                            });
+                        self.types.error()
+                    }
+                }
+            }
+
+            Expr::Range { start, end, .. } => {
+                let start_ty = self.check_expr(start, locals);
+                let end_ty = self.check_expr(end, locals);
+
+                if start_ty == self.types.error() || end_ty == self.types.error() {
+                    return self.types.error();
+                }
+
+                if start_ty != end_ty {
+                    self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                        span: end.span,
+                        expected: self.type_name(start_ty),
+                        found: self.type_name(end_ty),
+                    });
+                }
+
+                if !self.is_integer_type(start_ty) {
+                    self.diagnostics
+                        .add(&CheckerDiagnostic::InvalidOperatorType {
+                            span: expr.span,
+                            op: "range".into(),
+                            ty: self.type_name(start_ty),
+                        });
+                }
+
+                // Range type is unit for now — ranges are only used in for-loops
+                self.types.unit()
+            }
+
+            Expr::For {
+                binding,
+                iter,
+                body,
+            } => {
+                let iter_ty = self.check_expr(iter, locals);
+
+                // Determine the element type based on the iterator
+                let elem_ty = match &iter.node {
+                    Expr::Range { start, .. } => {
+                        // For ranges, element type is the range's integer type
+                        self.check_expr(start, locals)
+                    }
+                    _ => {
+                        // For arrays, element type is the array's element type
+                        if iter_ty != self.types.error() {
+                            match self.types.resolve(iter_ty).clone() {
+                                TypeKind::FixedArray { element, .. } => element,
+                                _ => {
+                                    self.diagnostics
+                                        .add(&CheckerDiagnostic::InvalidOperatorType {
+                                            span: iter.span,
+                                            op: "for-in".into(),
+                                            ty: self.type_name(iter_ty),
+                                        });
+                                    self.types.error()
+                                }
+                            }
+                        } else {
+                            self.types.error()
+                        }
+                    }
+                };
+
+                locals.push_scope();
+                locals.insert(
+                    binding.clone(),
+                    LocalInfo {
+                        ty: elem_ty,
+                        is_mut: false,
+                    },
+                );
+                self.check_block(&body.node, locals);
+                locals.pop_scope();
+                self.types.unit()
+            }
+        }
+    }
+}

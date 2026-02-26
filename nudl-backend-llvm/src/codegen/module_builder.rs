@@ -1,0 +1,211 @@
+use super::*;
+
+pub(super) fn build_module<'ctx>(
+    context: &'ctx Context,
+    program: &Program,
+    optimized: bool,
+) -> Result<Module<'ctx>, BackendError> {
+    let module = context.create_module("nudl");
+    let builder = context.create_builder();
+
+    let types = &program.types;
+    let mut function_map: HashMap<u32, FunctionValue<'ctx>> = HashMap::new();
+    let mut string_constants: Vec<(GlobalValue<'ctx>, u64)> = Vec::new();
+    let mut reg_string_info: HashMap<u32, RegStringInfo> = HashMap::new();
+
+    // Set up debug info
+    let source_map = program.source_map.as_ref();
+    let (src_filename, src_directory) = if let Some(sm) = source_map {
+        let file = sm.get_file(nudl_core::span::FileId(0));
+        let path = &file.path;
+        let filename = path
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "unknown.nudl".to_string());
+        let directory = path
+            .parent()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|| ".".to_string());
+        (filename, directory)
+    } else {
+        ("unknown.nudl".to_string(), ".".to_string())
+    };
+
+    let debug_metadata_version = context.i32_type().const_int(3, false);
+    module.add_basic_value_flag(
+        "Debug Info Version",
+        inkwell::module::FlagBehavior::Warning,
+        debug_metadata_version,
+    );
+
+    let (dibuilder, compile_unit) = module.create_debug_info_builder(
+        true,
+        DWARFSourceLanguage::C,
+        &src_filename,
+        &src_directory,
+        "nudl",
+        optimized,
+        "",
+        0,
+        "",
+        DWARFEmissionKind::Full,
+        0,
+        false,
+        false,
+        "",
+        "",
+    );
+
+    // Emit ARC intrinsics (inline retain/release + extern declarations)
+    let arc = emit_arc_intrinsics(context, &module)?;
+
+    // Emit string constants as globals
+    for (i, s) in program.string_constants.iter().enumerate() {
+        let bytes = s.as_bytes();
+        let global = context.const_string(bytes, false);
+        let global_val = module.add_global(
+            context.i8_type().array_type(bytes.len() as u32),
+            Some(AddressSpace::default()),
+            &format!(".str.{}", i),
+        );
+        global_val.set_initializer(&global);
+        global_val.set_constant(true);
+        global_val.set_unnamed_addr(true);
+        global_val.set_linkage(inkwell::module::Linkage::Private);
+        string_constants.push((global_val, bytes.len() as u64));
+    }
+
+    // Declare all functions
+    for func in &program.functions {
+        let is_entry = program.entry_function == Some(func.id);
+
+        let ret_is_float = matches!(
+            types.resolve(func.return_type),
+            TypeKind::Primitive(p) if p.is_float()
+        );
+
+        if func.is_extern {
+            let param_types = build_llvm_param_types(func, types, context);
+            let fn_type = if ret_is_float {
+                context.f64_type().fn_type(&param_types, false)
+            } else {
+                context.i64_type().fn_type(&param_types, false)
+            };
+            let ext_name = func.extern_symbol.as_deref().unwrap_or("unknown_extern");
+            let fn_val =
+                module.add_function(ext_name, fn_type, Some(inkwell::module::Linkage::External));
+            function_map.insert(func.id.0, fn_val);
+        } else if is_entry {
+            let fn_type = context.i32_type().fn_type(&[], false);
+            let fn_val = module.add_function("main", fn_type, None);
+            function_map.insert(func.id.0, fn_val);
+        } else {
+            let param_types = build_llvm_param_types(func, types, context);
+            let fn_type = if ret_is_float {
+                context.f64_type().fn_type(&param_types, false)
+            } else {
+                context.i64_type().fn_type(&param_types, false)
+            };
+            let func_name = program.interner.resolve(func.name);
+            let fn_val = module.add_function(&format!("__func_{}", func_name), fn_type, None);
+            function_map.insert(func.id.0, fn_val);
+        }
+    }
+
+    // Generate per-struct drop functions that log "dropping <Name>\n"
+    let mut drop_fns: HashMap<nudl_core::types::TypeId, FunctionValue<'ctx>> = HashMap::new();
+    {
+        let ptr_ty = context.ptr_type(AddressSpace::default());
+        let void_ty = context.void_type();
+        let drop_fn_ty = void_ty.fn_type(&[ptr_ty.into()], false);
+
+        // Find the extern write function in the module
+        let write_fn = module.get_function("write");
+
+        for (type_id, kind) in types.iter_types() {
+            if let TypeKind::Struct { name, .. } = kind {
+                let msg = format!("dropping {}\n", name);
+                let msg_bytes = msg.as_bytes();
+
+                // Create a global string for the drop message
+                let global = context.const_string(msg_bytes, false);
+                let global_val = module.add_global(
+                    context.i8_type().array_type(msg_bytes.len() as u32),
+                    Some(AddressSpace::default()),
+                    &format!(".drop_msg.{}", name),
+                );
+                global_val.set_initializer(&global);
+                global_val.set_constant(true);
+                global_val.set_unnamed_addr(true);
+                global_val.set_linkage(inkwell::module::Linkage::Private);
+
+                let drop_fn = module.add_function(
+                    &format!("__nudl_drop_{}", name),
+                    drop_fn_ty,
+                    Some(inkwell::module::Linkage::Internal),
+                );
+                let bb = context.append_basic_block(drop_fn, "entry");
+                let b = context.create_builder();
+                b.position_at_end(bb);
+
+                // Call write(1, msg_ptr, msg_len) if write is available
+                // Note: extern write has LLVM signature (i64, i64, i64) -> i64
+                if let Some(write_fn) = write_fn {
+                    let i64_ty = context.i64_type();
+                    let fd = i64_ty.const_int(1, false);
+                    let msg_ptr_raw = b
+                        .build_ptr_to_int(global_val.as_pointer_value(), i64_ty, "msg_ptr_int")
+                        .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                    let msg_len = i64_ty.const_int(msg_bytes.len() as u64, false);
+                    b.build_direct_call(
+                        write_fn,
+                        &[fd.into(), msg_ptr_raw.into(), msg_len.into()],
+                        "",
+                    )
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                }
+
+                b.build_return(None)
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+                drop_fns.insert(type_id, drop_fn);
+            }
+        }
+    }
+
+    // Emit function bodies
+    for func in &program.functions {
+        if func.is_extern {
+            continue;
+        }
+        let is_entry = program.entry_function == Some(func.id);
+        emit_function(
+            context,
+            &builder,
+            program,
+            func,
+            &function_map,
+            &string_constants,
+            &mut reg_string_info,
+            types,
+            &arc,
+            &drop_fns,
+            is_entry,
+            optimized,
+            &dibuilder,
+            &compile_unit,
+            source_map,
+        )?;
+    }
+
+    dibuilder.finalize();
+
+    if let Err(msg) = module.verify() {
+        return Err(BackendError::LlvmError(format!(
+            "Module verification failed: {}",
+            msg.to_string()
+        )));
+    }
+
+    Ok(module)
+}

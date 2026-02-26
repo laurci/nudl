@@ -62,10 +62,19 @@ pub enum TypeKind {
     MutRawPtr,
     CStr,
     Never,
-    Function { params: Vec<TypeId>, ret: TypeId },
-    Struct { name: String, fields: Vec<(String, TypeId)> },
+    Function {
+        params: Vec<TypeId>,
+        ret: TypeId,
+    },
+    Struct {
+        name: String,
+        fields: Vec<(String, TypeId)>,
+    },
     Tuple(Vec<TypeId>),
-    FixedArray { element: TypeId, length: usize },
+    FixedArray {
+        element: TypeId,
+        length: usize,
+    },
     Error,
 }
 
@@ -193,7 +202,10 @@ impl TypeInterner {
     }
 
     pub fn iter_types(&self) -> impl Iterator<Item = (TypeId, &TypeKind)> {
-        self.types.iter().enumerate().map(|(i, k)| (TypeId(i as u32), k))
+        self.types
+            .iter()
+            .enumerate()
+            .map(|(i, k)| (TypeId(i as u32), k))
     }
 }
 
@@ -233,18 +245,12 @@ mod tests {
     #[test]
     fn all_pre_interned_types() {
         let ti = TypeInterner::new();
-        assert_eq!(
-            *ti.resolve(ti.i8()),
-            TypeKind::Primitive(PrimitiveType::I8)
-        );
+        assert_eq!(*ti.resolve(ti.i8()), TypeKind::Primitive(PrimitiveType::I8));
         assert_eq!(
             *ti.resolve(ti.i16()),
             TypeKind::Primitive(PrimitiveType::I16)
         );
-        assert_eq!(
-            *ti.resolve(ti.u8()),
-            TypeKind::Primitive(PrimitiveType::U8)
-        );
+        assert_eq!(*ti.resolve(ti.u8()), TypeKind::Primitive(PrimitiveType::U8));
         assert_eq!(
             *ti.resolve(ti.u16()),
             TypeKind::Primitive(PrimitiveType::U16)

@@ -50,11 +50,7 @@ pub enum CheckerDiagnostic {
 
     #[message("operator '{op}' cannot be applied to type '{ty}'")]
     #[severity(Error)]
-    InvalidOperatorType {
-        span: Span,
-        op: String,
-        ty: String,
-    },
+    InvalidOperatorType { span: Span, op: String, ty: String },
 
     #[message("expected return type '{expected}', found '{found}'")]
     #[severity(Error)]
@@ -110,8 +106,5 @@ pub enum CheckerDiagnostic {
 
     #[message("cannot call mutating method '{method}' on immutable binding")]
     #[severity(Error)]
-    MutatingMethodOnImmutable {
-        span: Span,
-        method: String,
-    },
+    MutatingMethodOnImmutable { span: Span, method: String },
 }
