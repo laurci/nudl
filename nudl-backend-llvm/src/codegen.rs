@@ -128,12 +128,12 @@ struct ArcIntrinsics<'ctx> {
     arc_release_slow: FunctionValue<'ctx>,
     /// extern: __nudl_arc_overflow_abort() -> void [noreturn]
     arc_overflow_abort: FunctionValue<'ctx>,
+    /// extern: __nudl_arc_drop(ptr) -> void
+    arc_drop: FunctionValue<'ctx>,
     /// inline: __nudl_arc_retain(ptr) -> void
     arc_retain: FunctionValue<'ctx>,
     /// inline: __nudl_arc_release(ptr, drop_fn) -> void
     arc_release: FunctionValue<'ctx>,
-    /// inline: __nudl_drop_noop(ptr) -> void
-    drop_noop: FunctionValue<'ctx>,
 }
 
 /// Emit ARC intrinsic declarations and inline functions into the module.
@@ -185,20 +185,13 @@ fn emit_arc_intrinsics<'ctx>(
         ),
     );
 
-    // --- Emit __nudl_drop_noop(ptr) -> void ---
-    let noop_ty = void_ty.fn_type(&[ptr_ty.into()], false);
-    let drop_noop = module.add_function(
-        "__nudl_drop_noop",
-        noop_ty,
-        Some(inkwell::module::Linkage::Internal),
+    // --- Declare extern __nudl_arc_drop(ptr) -> void ---
+    let drop_ty = void_ty.fn_type(&[ptr_ty.into()], false);
+    let arc_drop = module.add_function(
+        "__nudl_arc_drop",
+        drop_ty,
+        Some(inkwell::module::Linkage::External),
     );
-    {
-        let bb = context.append_basic_block(drop_noop, "entry");
-        let b = context.create_builder();
-        b.position_at_end(bb);
-        b.build_return(None)
-            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-    }
 
     // --- Emit __nudl_arc_retain(ptr) -> void  [alwaysinline] ---
     //
@@ -365,9 +358,9 @@ fn emit_arc_intrinsics<'ctx>(
         arc_alloc,
         arc_release_slow,
         arc_overflow_abort,
+        arc_drop,
         arc_retain,
         arc_release,
-        drop_noop,
     })
 }
 
@@ -565,63 +558,197 @@ fn build_module<'ctx>(
         }
     }
 
-    // Generate per-struct drop functions that log "dropping <Name>\n"
-    let mut drop_fns: HashMap<nudl_core::types::TypeId, FunctionValue<'ctx>> = HashMap::new();
+    // Generate type descriptor table for runtime-driven ARC drop
     {
         let ptr_ty = context.ptr_type(AddressSpace::default());
-        let void_ty = context.void_type();
-        let drop_fn_ty = void_ty.fn_type(&[ptr_ty.into()], false);
+        let i8_ty = context.i8_type();
+        let i16_ty = context.i16_type();
+        let i32_ty = context.i32_type();
 
-        // Find the extern write function in the module
-        let write_fn = module.get_function("write");
+        // Collect all types and build descriptors
+        let all_types: Vec<_> = types.iter_types().collect();
+        let table_len = if all_types.is_empty() {
+            0u32
+        } else {
+            all_types.iter().map(|(tid, _)| tid.0).max().unwrap() + 1
+        };
 
-        for (type_id, kind) in types.iter_types() {
-            if let TypeKind::Struct { name, .. } = kind {
-                let msg = format!("dropping {}\n", name);
-                let msg_bytes = msg.as_bytes();
+        let mut desc_globals: HashMap<u32, GlobalValue<'ctx>> = HashMap::new();
 
-                // Create a global string for the drop message
-                let global = context.const_string(msg_bytes, false);
-                let global_val = module.add_global(
-                    context.i8_type().array_type(msg_bytes.len() as u32),
-                    Some(AddressSpace::default()),
-                    &format!(".drop_msg.{}", name),
-                );
-                global_val.set_initializer(&global);
-                global_val.set_constant(true);
-                global_val.set_unnamed_addr(true);
-                global_val.set_linkage(inkwell::module::Linkage::Private);
+        for (type_id, kind) in &all_types {
+            match kind {
+                TypeKind::Struct { name, fields } => {
+                    // Collect byte offsets of reference-typed fields
+                    let ref_offsets: Vec<u16> = fields
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, (_, ftype))| types.is_reference_type(*ftype))
+                        .map(|(i, _)| (16 + i * 8) as u16) // header(16) + field_index * 8
+                        .collect();
 
-                let drop_fn = module.add_function(
-                    &format!("__nudl_drop_{}", name),
-                    drop_fn_ty,
-                    Some(inkwell::module::Linkage::Internal),
-                );
-                let bb = context.append_basic_block(drop_fn, "entry");
-                let b = context.create_builder();
-                b.position_at_end(bb);
+                    // Build type_name global string
+                    let name_bytes = name.as_bytes();
+                    let name_global_val = context.const_string(name_bytes, true); // null-terminated
+                    let name_global = module.add_global(
+                        i8_ty.array_type(name_bytes.len() as u32 + 1),
+                        Some(AddressSpace::default()),
+                        &format!(".type_name.{}", name),
+                    );
+                    name_global.set_initializer(&name_global_val);
+                    name_global.set_constant(true);
+                    name_global.set_unnamed_addr(true);
+                    name_global.set_linkage(inkwell::module::Linkage::Private);
 
-                // Call write(1, msg_ptr, msg_len) if write is available
-                // Note: extern write has LLVM signature (i64, i64, i64) -> i64
-                if let Some(write_fn) = write_fn {
-                    let i64_ty = context.i64_type();
-                    let fd = i64_ty.const_int(1, false);
-                    let msg_ptr_raw = b.build_ptr_to_int(
-                        global_val.as_pointer_value(),
-                        i64_ty,
-                        "msg_ptr_int",
-                    ).map_err(|e| BackendError::LlvmError(e.to_string()))?;
-                    let msg_len = i64_ty.const_int(msg_bytes.len() as u64, false);
-                    b.build_direct_call(write_fn, &[fd.into(), msg_ptr_raw.into(), msg_len.into()], "")
-                        .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                    // Build NudlTypeDesc struct:
+                    // { ptr type_name, i8 kind, i16 child_count, [N x i16] offsets }
+                    let child_count = ref_offsets.len();
+                    let offset_array_ty = i16_ty.array_type(child_count.max(1) as u32);
+                    let desc_struct_ty = context.struct_type(
+                        &[ptr_ty.into(), i8_ty.into(), i16_ty.into(), offset_array_ty.into()],
+                        false,
+                    );
+
+                    let offset_values: Vec<_> = if child_count == 0 {
+                        vec![i16_ty.const_zero()]
+                    } else {
+                        ref_offsets.iter().map(|&off| i16_ty.const_int(off as u64, false)).collect()
+                    };
+                    let offsets_array = i16_ty.const_array(&offset_values);
+
+                    let desc_value = desc_struct_ty.const_named_struct(&[
+                        name_global.as_pointer_value().into(),
+                        i8_ty.const_int(0, false).into(),  // kind = 0 (struct)
+                        i16_ty.const_int(child_count as u64, false).into(),
+                        offsets_array.into(),
+                    ]);
+
+                    let desc_global = module.add_global(
+                        desc_struct_ty,
+                        Some(AddressSpace::default()),
+                        &format!("__nudl_type_desc.{}", name),
+                    );
+                    desc_global.set_initializer(&desc_value);
+                    desc_global.set_constant(true);
+                    desc_global.set_linkage(inkwell::module::Linkage::Private);
+
+                    desc_globals.insert(type_id.0, desc_global);
                 }
+                TypeKind::FixedArray { element, length } => {
+                    if types.is_reference_type(*element) {
+                        // kind=1 stride-based: start=16, stride=8
+                        let desc_struct_ty = context.struct_type(
+                            &[ptr_ty.into(), i8_ty.into(), i16_ty.into(), i16_ty.into(), i16_ty.into()],
+                            false,
+                        );
 
-                b.build_return(None)
-                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                        let desc_value = desc_struct_ty.const_named_struct(&[
+                            ptr_ty.const_null().into(),  // no name
+                            i8_ty.const_int(1, false).into(),  // kind = 1 (array)
+                            i16_ty.const_int(*length as u64, false).into(),  // child_count = length
+                            i16_ty.const_int(16, false).into(),  // start = 16
+                            i16_ty.const_int(8, false).into(),   // stride = 8
+                        ]);
 
-                drop_fns.insert(type_id, drop_fn);
+                        let desc_global = module.add_global(
+                            desc_struct_ty,
+                            Some(AddressSpace::default()),
+                            &format!("__nudl_type_desc.array.{}", type_id.0),
+                        );
+                        desc_global.set_initializer(&desc_value);
+                        desc_global.set_constant(true);
+                        desc_global.set_linkage(inkwell::module::Linkage::Private);
+
+                        desc_globals.insert(type_id.0, desc_global);
+                    }
+                }
+                TypeKind::Tuple(elements) => {
+                    let has_ref = elements.iter().any(|ety| types.is_reference_type(*ety));
+                    if has_ref {
+                        let ref_offsets: Vec<u16> = elements
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, ety)| types.is_reference_type(**ety))
+                            .map(|(i, _)| (16 + i * 8) as u16)
+                            .collect();
+
+                        let child_count = ref_offsets.len();
+                        let offset_array_ty = i16_ty.array_type(child_count.max(1) as u32);
+                        let desc_struct_ty = context.struct_type(
+                            &[ptr_ty.into(), i8_ty.into(), i16_ty.into(), offset_array_ty.into()],
+                            false,
+                        );
+
+                        let offset_values: Vec<_> = ref_offsets
+                            .iter()
+                            .map(|&off| i16_ty.const_int(off as u64, false))
+                            .collect();
+                        let offsets_array = i16_ty.const_array(&offset_values);
+
+                        let desc_value = desc_struct_ty.const_named_struct(&[
+                            ptr_ty.const_null().into(),  // no name for tuples
+                            i8_ty.const_int(0, false).into(),  // kind = 0
+                            i16_ty.const_int(child_count as u64, false).into(),
+                            offsets_array.into(),
+                        ]);
+
+                        let desc_global = module.add_global(
+                            desc_struct_ty,
+                            Some(AddressSpace::default()),
+                            &format!("__nudl_type_desc.tuple.{}", type_id.0),
+                        );
+                        desc_global.set_initializer(&desc_value);
+                        desc_global.set_constant(true);
+                        desc_global.set_linkage(inkwell::module::Linkage::Private);
+
+                        desc_globals.insert(type_id.0, desc_global);
+                    }
+                }
+                _ => {}
             }
         }
+
+        // Build __nudl_type_table: array of const NudlTypeDesc*, indexed by type_tag
+        let table_entries: Vec<_> = (0..table_len)
+            .map(|i| {
+                if let Some(g) = desc_globals.get(&i) {
+                    g.as_pointer_value()
+                } else {
+                    ptr_ty.const_null()
+                }
+            })
+            .collect();
+
+        // Handle empty table case
+        if table_len > 0 {
+            let table_array = ptr_ty.const_array(&table_entries);
+            let table_global = module.add_global(
+                ptr_ty.array_type(table_len),
+                Some(AddressSpace::default()),
+                "__nudl_type_table",
+            );
+            table_global.set_initializer(&table_array);
+            table_global.set_constant(true);
+            table_global.set_linkage(inkwell::module::Linkage::External);
+        } else {
+            let table_global = module.add_global(
+                ptr_ty.array_type(1),
+                Some(AddressSpace::default()),
+                "__nudl_type_table",
+            );
+            table_global.set_initializer(&ptr_ty.const_array(&[ptr_ty.const_null()]));
+            table_global.set_constant(true);
+            table_global.set_linkage(inkwell::module::Linkage::External);
+        }
+
+        // Build __nudl_type_table_len
+        let len_global = module.add_global(
+            i32_ty,
+            Some(AddressSpace::default()),
+            "__nudl_type_table_len",
+        );
+        len_global.set_initializer(&i32_ty.const_int(table_len as u64, false));
+        len_global.set_constant(true);
+        len_global.set_linkage(inkwell::module::Linkage::External);
     }
 
     // Emit function bodies
@@ -640,7 +767,6 @@ fn build_module<'ctx>(
             &mut reg_string_info,
             types,
             &arc,
-            &drop_fns,
             is_entry,
             optimized,
             &dibuilder,
@@ -671,7 +797,6 @@ fn emit_function<'ctx>(
     reg_string_info: &mut HashMap<u32, RegStringInfo>,
     types: &TypeInterner,
     arc: &ArcIntrinsics<'ctx>,
-    drop_fns: &HashMap<nudl_core::types::TypeId, FunctionValue<'ctx>>,
     is_entry: bool,
     optimized: bool,
     dibuilder: &DebugInfoBuilder<'ctx>,
@@ -839,7 +964,6 @@ fn emit_function<'ctx>(
                 function_map,
                 types,
                 arc,
-                drop_fns,
             )?;
         }
 
@@ -915,7 +1039,6 @@ fn emit_instruction<'ctx>(
     function_map: &HashMap<u32, FunctionValue<'ctx>>,
     types: &TypeInterner,
     arc: &ArcIntrinsics<'ctx>,
-    drop_fns: &HashMap<nudl_core::types::TypeId, FunctionValue<'ctx>>,
 ) -> Result<(), BackendError> {
     match inst {
         Instruction::Const(reg, ConstValue::I32(val)) => {
@@ -1288,17 +1411,9 @@ fn emit_instruction<'ctx>(
                 .build_direct_call(arc.arc_retain, &[obj_ptr.into()], "")
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?;
         }
-        Instruction::Release(reg, type_id) => {
+        Instruction::Release(reg, _type_id) => {
             let obj_ptr = load_ptr(context, builder, register_allocas, reg.0)?;
-            let drop_fn_ptr = if let Some(tid) = type_id {
-                if let Some(dfn) = drop_fns.get(tid) {
-                    dfn.as_global_value().as_pointer_value()
-                } else {
-                    arc.drop_noop.as_global_value().as_pointer_value()
-                }
-            } else {
-                arc.drop_noop.as_global_value().as_pointer_value()
-            };
+            let drop_fn_ptr = arc.arc_drop.as_global_value().as_pointer_value();
             builder
                 .build_direct_call(arc.arc_release, &[obj_ptr.into(), drop_fn_ptr.into()], "")
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?;

@@ -157,17 +157,10 @@ impl Lowerer {
             let param_reg = Register(i as u32);
             if ctx.types.is_struct(*pty) {
                 ctx.push_inst(Instruction::Release(param_reg, Some(*pty)));
-            } else if let TypeKind::FixedArray { element, length } = ctx.types.resolve(*pty) {
+            } else if let TypeKind::FixedArray { element, .. } = ctx.types.resolve(*pty) {
                 let elem = *element;
-                let len = *length;
                 if ctx.types.is_reference_type(elem) {
-                    for idx in 0..len {
-                        let idx_reg = ctx.alloc_register();
-                        ctx.push_inst(Instruction::Const(idx_reg, ConstValue::I32(idx as i32)));
-                        let elem_reg = ctx.alloc_register();
-                        ctx.push_inst(Instruction::IndexLoad(elem_reg, param_reg, idx_reg, elem));
-                        ctx.push_inst(Instruction::Release(elem_reg, Some(elem)));
-                    }
+                    ctx.push_inst(Instruction::Release(param_reg, Some(*pty)));
                 }
             }
         }
@@ -308,17 +301,10 @@ impl<'a> FunctionLowerCtx<'a> {
             if let Some(&reg) = self.locals.get(name) {
                 if self.types.is_struct(*type_id) {
                     self.push_inst(Instruction::Release(reg, Some(*type_id)));
-                } else if let TypeKind::FixedArray { element, length } = self.types.resolve(*type_id) {
+                } else if let TypeKind::FixedArray { element, .. } = self.types.resolve(*type_id) {
                     let elem = *element;
-                    let len = *length;
                     if self.types.is_reference_type(elem) {
-                        for idx in 0..len {
-                            let idx_reg = self.alloc_register();
-                            self.push_inst(Instruction::Const(idx_reg, ConstValue::I32(idx as i32)));
-                            let elem_reg = self.alloc_register();
-                            self.push_inst(Instruction::IndexLoad(elem_reg, reg, idx_reg, elem));
-                            self.push_inst(Instruction::Release(elem_reg, Some(elem)));
-                        }
+                        self.push_inst(Instruction::Release(reg, Some(*type_id)));
                     }
                 }
             }
