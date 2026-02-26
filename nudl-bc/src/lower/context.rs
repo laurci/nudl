@@ -29,6 +29,7 @@ pub struct FunctionLowerCtx<'a> {
     pub(super) interner: &'a mut StringInterner,
     pub(super) function_sigs: &'a HashMap<String, FunctionSig>,
     pub(super) struct_defs: &'a HashMap<String, nudl_core::types::TypeId>,
+    pub(super) enum_defs: &'a HashMap<String, nudl_core::types::TypeId>,
     pub(super) types: &'a mut TypeInterner,
     pub(super) loop_stack: Vec<LoopContext>,
     /// Default parameter expressions for all functions (for filling in defaults at call sites)

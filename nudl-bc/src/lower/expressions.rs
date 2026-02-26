@@ -61,6 +61,27 @@ impl<'a> FunctionLowerCtx<'a> {
                 method,
                 args,
             } => {
+                // Check if this is an enum tuple variant constructor: Enum::Variant(args)
+                if let Some(&enum_ty) = self.enum_defs.get(type_name.as_str()) {
+                    if let nudl_core::types::TypeKind::Enum { variants, .. } =
+                        self.types.resolve(enum_ty).clone()
+                    {
+                        if let Some((tag, variant)) = variants
+                            .iter()
+                            .enumerate()
+                            .find(|(_, v)| v.name == *method)
+                        {
+                            if !variant.fields.is_empty() {
+                                // This is a tuple variant constructor
+                                let variant_fields = variant.fields.clone();
+                                return self.lower_enum_construct(
+                                    enum_ty, tag, &variant_fields, args,
+                                );
+                            }
+                        }
+                    }
+                }
+
                 let mangled_name = format!("{}__{}", type_name, method);
                 if let Some(sig) = self.function_sigs.get(&mangled_name).cloned() {
                     return self.lower_resolved_call(&mangled_name, &sig, args, false, 0);
@@ -222,6 +243,44 @@ impl<'a> FunctionLowerCtx<'a> {
             }
 
             Expr::StructLiteral { name, fields } => {
+                // Check for enum struct variant: "EnumName::VariantName"
+                if let Some((enum_name, variant_name)) = name.split_once("::") {
+                    if let Some(&enum_ty) = self.enum_defs.get(enum_name) {
+                        if let nudl_core::types::TypeKind::Enum { variants, .. } =
+                            self.types.resolve(enum_ty).clone()
+                        {
+                            if let Some((tag, var_def)) = variants
+                                .iter()
+                                .enumerate()
+                                .find(|(_, v)| v.name == variant_name)
+                            {
+                                let variant_fields = var_def.fields.clone();
+                                // Convert struct fields to call args in order
+                                let call_args: Vec<CallArg> = variant_fields
+                                    .iter()
+                                    .map(|(fname, _)| {
+                                        let val = fields
+                                            .iter()
+                                            .find(|(n, _)| n == fname)
+                                            .map(|(_, v)| v.clone())
+                                            .unwrap();
+                                        CallArg {
+                                            name: Some(fname.clone()),
+                                            value: val,
+                                        }
+                                    })
+                                    .collect();
+                                return self.lower_enum_construct(
+                                    enum_ty,
+                                    tag,
+                                    &variant_fields,
+                                    &call_args,
+                                );
+                            }
+                        }
+                    }
+                }
+
                 let type_id = self.struct_defs.get(name.as_str()).copied().unwrap();
                 let dst = self.alloc_register();
                 self.push_inst(Instruction::Alloc(dst, type_id));
@@ -605,7 +664,56 @@ impl<'a> FunctionLowerCtx<'a> {
                 }
             }
 
-            _ => {
+            Expr::EnumLiteral {
+                enum_name,
+                variant,
+                args,
+            } => {
+                if let Some(&enum_ty) = self.enum_defs.get(enum_name.as_str()) {
+                    if let nudl_core::types::TypeKind::Enum { variants, .. } =
+                        self.types.resolve(enum_ty).clone()
+                    {
+                        if let Some((tag, var_def)) = variants
+                            .iter()
+                            .enumerate()
+                            .find(|(_, v)| v.name == *variant)
+                        {
+                            let variant_fields = var_def.fields.clone();
+                            let call_args: Vec<CallArg> = args
+                                .iter()
+                                .map(|a| CallArg {
+                                    name: None,
+                                    value: a.clone(),
+                                })
+                                .collect();
+                            return self.lower_enum_construct(
+                                enum_ty,
+                                tag,
+                                &variant_fields,
+                                &call_args,
+                            );
+                        }
+                    }
+                }
+                let reg = self.alloc_register();
+                self.push_inst(Instruction::ConstUnit(reg));
+                reg
+            }
+
+            Expr::Match {
+                expr: scrutinee,
+                arms,
+            } => self.lower_match(scrutinee, arms),
+
+            Expr::IfLet {
+                pattern,
+                expr: scrutinee,
+                then_branch,
+                else_branch,
+            } => self.lower_if_let(pattern, scrutinee, then_branch, else_branch),
+
+            Expr::Literal(Literal::TemplateString { .. }) => {
+                // Template strings not yet lowered
                 let reg = self.alloc_register();
                 self.push_inst(Instruction::ConstUnit(reg));
                 reg
@@ -636,6 +744,339 @@ impl<'a> FunctionLowerCtx<'a> {
         // If lhs is false, short-circuit
         self.start_block(false_block);
         self.push_inst(Instruction::Const(result_reg, ConstValue::Bool(false)));
+        self.finish_block(Terminator::Jump(merge_block));
+
+        self.start_block(merge_block);
+        result_reg
+    }
+
+    /// Lower enum variant construction. Tag at field 0, data at field 1+.
+    /// Enum memory layout: [ARC header] [tag: i64] [field0: i64] [field1: i64] ...
+    fn lower_enum_construct(
+        &mut self,
+        enum_ty: nudl_core::types::TypeId,
+        tag: usize,
+        variant_fields: &[(String, nudl_core::types::TypeId)],
+        args: &[CallArg],
+    ) -> Register {
+        let dst = self.alloc_typed_register(enum_ty);
+        self.push_inst(Instruction::Alloc(dst, enum_ty));
+
+        // Store tag at field 0
+        let tag_reg = self.alloc_register();
+        self.push_inst(Instruction::Const(tag_reg, ConstValue::I32(tag as i32)));
+        self.push_inst(Instruction::Store(dst, 0, tag_reg));
+
+        // Store variant data at field 1+
+        for (i, arg) in args.iter().enumerate() {
+            let val_reg = self.lower_expr(&arg.value);
+            self.push_inst(Instruction::Store(dst, (i + 1) as u32, val_reg));
+            let _ = variant_fields; // fields used by checker
+        }
+
+        dst
+    }
+
+    /// Lower a match expression into a chain of tag comparisons and branches
+    fn lower_match(
+        &mut self,
+        scrutinee: &nudl_core::span::Spanned<Expr>,
+        arms: &[MatchArm],
+    ) -> Register {
+        let scrutinee_reg = self.lower_expr(scrutinee);
+        let scrutinee_ty = self.infer_expr_type(scrutinee);
+        let result_reg = self.alloc_register();
+
+        let merge_block = self.new_block_id();
+
+        // For enum scrutinees, load the tag
+        let tag_reg = if scrutinee_ty
+            .map(|t| self.types.is_enum(t))
+            .unwrap_or(false)
+        {
+            let tag = self.alloc_register();
+            self.push_inst(Instruction::Load(tag, scrutinee_reg, 0));
+            Some(tag)
+        } else {
+            None
+        };
+
+        let mut remaining_arms: Vec<(usize, &MatchArm)> = arms.iter().enumerate().collect();
+        self.lower_match_arms(
+            &remaining_arms,
+            scrutinee_reg,
+            scrutinee_ty,
+            tag_reg,
+            result_reg,
+            merge_block,
+        );
+
+        self.start_block(merge_block);
+        result_reg
+    }
+
+    fn lower_match_arms(
+        &mut self,
+        arms: &[(usize, &MatchArm)],
+        scrutinee_reg: Register,
+        scrutinee_ty: Option<nudl_core::types::TypeId>,
+        tag_reg: Option<Register>,
+        result_reg: Register,
+        merge_block: BlockId,
+    ) {
+        if arms.is_empty() {
+            // Default: unit
+            self.push_inst(Instruction::ConstUnit(result_reg));
+            self.finish_block(Terminator::Jump(merge_block));
+            return;
+        }
+
+        let (_, arm) = &arms[0];
+        let rest = &arms[1..];
+
+        match &arm.pattern.node {
+            Pattern::Wildcard | Pattern::Binding(_) => {
+                // Always matches - introduce binding if needed
+                self.locals.push_scope();
+                self.local_types.push_scope();
+                if let Pattern::Binding(name) = &arm.pattern.node {
+                    self.locals.insert(name.clone(), scrutinee_reg);
+                    if let Some(ty) = scrutinee_ty {
+                        self.local_types.insert(name.clone(), ty);
+                    }
+                }
+                let body_result = self.lower_expr(&arm.body);
+                self.push_inst(Instruction::Copy(result_reg, body_result));
+                self.local_types.pop_scope();
+                self.locals.pop_scope();
+                self.finish_block(Terminator::Jump(merge_block));
+            }
+            Pattern::Literal(lit) => {
+                let lit_reg = self.lower_literal_pattern(lit);
+                let cmp_reg = self.alloc_register();
+                self.push_inst(Instruction::Eq(cmp_reg, scrutinee_reg, lit_reg));
+
+                let match_block = self.new_block_id();
+                let next_block = self.new_block_id();
+                self.finish_block(Terminator::Branch(cmp_reg, match_block, next_block));
+
+                self.start_block(match_block);
+                let body_result = self.lower_expr(&arm.body);
+                self.push_inst(Instruction::Copy(result_reg, body_result));
+                self.finish_block(Terminator::Jump(merge_block));
+
+                self.start_block(next_block);
+                self.lower_match_arms(rest, scrutinee_reg, scrutinee_ty, tag_reg, result_reg, merge_block);
+            }
+            Pattern::Enum {
+                enum_name,
+                variant,
+                fields,
+            } => {
+                // Find the tag for this variant
+                let enum_ty = scrutinee_ty.unwrap_or(self.types.i64());
+                let variant_info = if let nudl_core::types::TypeKind::Enum { variants, .. } =
+                    self.types.resolve(enum_ty).clone()
+                {
+                    variants
+                        .iter()
+                        .enumerate()
+                        .find(|(_, v)| v.name == *variant)
+                        .map(|(tag, v)| (tag, v.fields.clone()))
+                } else {
+                    None
+                };
+
+                if let (Some(tag_r), Some((expected_tag, variant_fields))) =
+                    (tag_reg, variant_info)
+                {
+                    let expected_tag_reg = self.alloc_register();
+                    self.push_inst(Instruction::Const(
+                        expected_tag_reg,
+                        ConstValue::I32(expected_tag as i32),
+                    ));
+                    let cmp_reg = self.alloc_register();
+                    self.push_inst(Instruction::Eq(cmp_reg, tag_r, expected_tag_reg));
+
+                    let match_block = self.new_block_id();
+                    let next_block = self.new_block_id();
+                    self.finish_block(Terminator::Branch(cmp_reg, match_block, next_block));
+
+                    self.start_block(match_block);
+                    self.locals.push_scope();
+                    self.local_types.push_scope();
+
+                    // Bind pattern fields
+                    for (i, pat) in fields.iter().enumerate() {
+                        if let Pattern::Binding(name) = &pat.node {
+                            let field_reg = self.alloc_register();
+                            self.push_inst(Instruction::Load(
+                                field_reg,
+                                scrutinee_reg,
+                                (i + 1) as u32,
+                            ));
+                            self.locals.insert(name.clone(), field_reg);
+                            if let Some((_, field_ty)) = variant_fields.get(i) {
+                                self.local_types.insert(name.clone(), *field_ty);
+                            }
+                        }
+                    }
+
+                    let body_result = self.lower_expr(&arm.body);
+                    self.push_inst(Instruction::Copy(result_reg, body_result));
+                    self.local_types.pop_scope();
+                    self.locals.pop_scope();
+                    self.finish_block(Terminator::Jump(merge_block));
+
+                    self.start_block(next_block);
+                    self.lower_match_arms(
+                        rest,
+                        scrutinee_reg,
+                        scrutinee_ty,
+                        tag_reg,
+                        result_reg,
+                        merge_block,
+                    );
+                } else {
+                    // Can't match - skip
+                    self.lower_match_arms(
+                        rest,
+                        scrutinee_reg,
+                        scrutinee_ty,
+                        tag_reg,
+                        result_reg,
+                        merge_block,
+                    );
+                }
+            }
+            Pattern::Tuple(_) => {
+                // Tuple pattern matching - just use wildcard semantics for now
+                let body_result = self.lower_expr(&arm.body);
+                self.push_inst(Instruction::Copy(result_reg, body_result));
+                self.finish_block(Terminator::Jump(merge_block));
+            }
+        }
+    }
+
+    fn lower_literal_pattern(&mut self, lit: &Literal) -> Register {
+        let reg = self.alloc_register();
+        match lit {
+            Literal::Int(s, suffix) => {
+                let val = parse_int_const(s, *suffix);
+                self.push_inst(Instruction::Const(reg, val));
+            }
+            Literal::Bool(b) => {
+                self.push_inst(Instruction::Const(reg, ConstValue::Bool(*b)));
+            }
+            Literal::String(s) => {
+                let idx = if let Some(pos) = self.string_constants.iter().position(|c| c == s) {
+                    pos as u32
+                } else {
+                    let idx = self.string_constants.len() as u32;
+                    self.string_constants.push(s.clone());
+                    idx
+                };
+                self.push_inst(Instruction::Const(reg, ConstValue::StringLiteral(idx)));
+            }
+            Literal::Char(c) => {
+                self.push_inst(Instruction::Const(reg, ConstValue::Char(*c)));
+            }
+            _ => {
+                self.push_inst(Instruction::ConstUnit(reg));
+            }
+        }
+        reg
+    }
+
+    fn lower_if_let(
+        &mut self,
+        pattern: &nudl_core::span::Spanned<Pattern>,
+        scrutinee: &nudl_core::span::Spanned<Expr>,
+        then_branch: &nudl_core::span::Spanned<Block>,
+        else_branch: &Option<Box<nudl_core::span::Spanned<Expr>>>,
+    ) -> Register {
+        let scrutinee_reg = self.lower_expr(scrutinee);
+        let scrutinee_ty = self.infer_expr_type(scrutinee);
+        let result_reg = self.alloc_register();
+
+        let then_block = self.new_block_id();
+        let else_block = self.new_block_id();
+        let merge_block = self.new_block_id();
+
+        match &pattern.node {
+            Pattern::Enum {
+                variant, fields, ..
+            } => {
+                let enum_ty = scrutinee_ty.unwrap_or(self.types.i64());
+                let variant_info = if let nudl_core::types::TypeKind::Enum { variants, .. } =
+                    self.types.resolve(enum_ty).clone()
+                {
+                    variants
+                        .iter()
+                        .enumerate()
+                        .find(|(_, v)| v.name == *variant)
+                        .map(|(tag, v)| (tag, v.fields.clone()))
+                } else {
+                    None
+                };
+
+                if let Some((expected_tag, variant_fields)) = variant_info {
+                    let tag_reg = self.alloc_register();
+                    self.push_inst(Instruction::Load(tag_reg, scrutinee_reg, 0));
+                    let expected_tag_reg = self.alloc_register();
+                    self.push_inst(Instruction::Const(
+                        expected_tag_reg,
+                        ConstValue::I32(expected_tag as i32),
+                    ));
+                    let cmp_reg = self.alloc_register();
+                    self.push_inst(Instruction::Eq(cmp_reg, tag_reg, expected_tag_reg));
+                    self.finish_block(Terminator::Branch(cmp_reg, then_block, else_block));
+
+                    // Then block: bind fields
+                    self.start_block(then_block);
+                    self.locals.push_scope();
+                    self.local_types.push_scope();
+                    for (i, pat) in fields.iter().enumerate() {
+                        if let Pattern::Binding(name) = &pat.node {
+                            let field_reg = self.alloc_register();
+                            self.push_inst(Instruction::Load(
+                                field_reg,
+                                scrutinee_reg,
+                                (i + 1) as u32,
+                            ));
+                            self.locals.insert(name.clone(), field_reg);
+                            if let Some((_, field_ty)) = variant_fields.get(i) {
+                                self.local_types.insert(name.clone(), *field_ty);
+                            }
+                        }
+                    }
+                    let then_result = self.lower_block_expr(&then_branch.node);
+                    self.push_inst(Instruction::Copy(result_reg, then_result));
+                    self.local_types.pop_scope();
+                    self.locals.pop_scope();
+                    self.finish_block(Terminator::Jump(merge_block));
+                } else {
+                    self.finish_block(Terminator::Jump(else_block));
+                }
+            }
+            _ => {
+                // Non-enum pattern in if-let - always match
+                self.finish_block(Terminator::Jump(then_block));
+                self.start_block(then_block);
+                let then_result = self.lower_block_expr(&then_branch.node);
+                self.push_inst(Instruction::Copy(result_reg, then_result));
+                self.finish_block(Terminator::Jump(merge_block));
+            }
+        }
+
+        // Else block
+        self.start_block(else_block);
+        if let Some(else_expr) = else_branch {
+            let else_result = self.lower_expr(else_expr);
+            self.push_inst(Instruction::Copy(result_reg, else_result));
+        } else {
+            self.push_inst(Instruction::ConstUnit(result_reg));
+        }
         self.finish_block(Terminator::Jump(merge_block));
 
         self.start_block(merge_block);

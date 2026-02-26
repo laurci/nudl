@@ -23,6 +23,7 @@ fn fmt_ast_item(item: &Item, out: &mut String, level: usize) {
             return_type,
             body,
             is_pub,
+            ..
         } => {
             indent(out, level);
             if *is_pub {
@@ -54,6 +55,7 @@ fn fmt_ast_item(item: &Item, out: &mut String, level: usize) {
             name,
             fields,
             is_pub,
+            ..
         } => {
             indent(out, level);
             if *is_pub {
@@ -63,6 +65,62 @@ fn fmt_ast_item(item: &Item, out: &mut String, level: usize) {
             for f in fields {
                 indent(out, level + 1);
                 out.push_str(&format!("{}: {}\n", f.name, fmt_type_expr(&f.ty.node)));
+            }
+        }
+        Item::EnumDef {
+            name,
+            variants,
+            is_pub,
+            ..
+        } => {
+            indent(out, level);
+            if *is_pub {
+                out.push_str("pub ");
+            }
+            out.push_str(&format!("EnumDef \"{}\":\n", name));
+            for v in variants {
+                indent(out, level + 1);
+                out.push_str(&format!("{}", v.name));
+                match &v.kind {
+                    VariantKind::Unit => {}
+                    VariantKind::Tuple(types) => {
+                        out.push('(');
+                        for (i, t) in types.iter().enumerate() {
+                            if i > 0 {
+                                out.push_str(", ");
+                            }
+                            out.push_str(&fmt_type_expr(&t.node));
+                        }
+                        out.push(')');
+                    }
+                    VariantKind::Struct(fields) => {
+                        out.push_str(" { ");
+                        for (i, f) in fields.iter().enumerate() {
+                            if i > 0 {
+                                out.push_str(", ");
+                            }
+                            out.push_str(&format!("{}: {}", f.name, fmt_type_expr(&f.ty.node)));
+                        }
+                        out.push_str(" }");
+                    }
+                }
+                out.push('\n');
+            }
+        }
+        Item::InterfaceDef {
+            name,
+            methods,
+            is_pub,
+            ..
+        } => {
+            indent(out, level);
+            if *is_pub {
+                out.push_str("pub ");
+            }
+            out.push_str(&format!("InterfaceDef \"{}\":\n", name));
+            for m in methods {
+                indent(out, level + 1);
+                out.push_str(&format!("fn {}\n", m.name));
             }
         }
         Item::ExternBlock { library, items } => {
@@ -91,7 +149,9 @@ fn fmt_ast_item(item: &Item, out: &mut String, level: usize) {
                 ));
             }
         }
-        Item::ImplBlock { type_name, methods } => {
+        Item::ImplBlock {
+            type_name, methods, ..
+        } => {
             indent(out, level);
             out.push_str(&format!("ImplBlock \"{}\":\n", type_name));
             for method in methods {
@@ -403,6 +463,51 @@ fn fmt_ast_expr(expr: &Expr, out: &mut String, level: usize) {
             indent(out, level);
             out.push(')');
         }
+        Expr::EnumLiteral {
+            enum_name,
+            variant,
+            args,
+        } => {
+            out.push_str(&format!("{}::{}", enum_name, variant));
+            if !args.is_empty() {
+                out.push('(');
+                for (i, a) in args.iter().enumerate() {
+                    if i > 0 {
+                        out.push_str(", ");
+                    }
+                    fmt_ast_expr(&a.node, out, level);
+                }
+                out.push(')');
+            }
+        }
+        Expr::Match { expr, arms } => {
+            out.push_str("Match ");
+            fmt_ast_expr(&expr.node, out, level);
+            out.push('\n');
+            for arm in arms {
+                indent(out, level + 1);
+                out.push_str("=> ");
+                fmt_ast_expr(&arm.body.node, out, level + 1);
+                out.push('\n');
+            }
+        }
+        Expr::IfLet {
+            pattern,
+            expr,
+            then_branch,
+            else_branch,
+        } => {
+            out.push_str("IfLet ");
+            fmt_ast_expr(&expr.node, out, level);
+            out.push('\n');
+            fmt_ast_block(&then_branch.node, out, level + 1);
+            if let Some(else_br) = else_branch {
+                indent(out, level + 1);
+                out.push_str("Else: ");
+                fmt_ast_expr(&else_br.node, out, level + 1);
+                out.push('\n');
+            }
+        }
     }
 }
 
@@ -416,6 +521,16 @@ fn fmt_type_expr(ty: &TypeExpr) -> String {
         }
         TypeExpr::FixedArray { element, length } => {
             format!("[{}; {}]", fmt_type_expr(&element.node), length)
+        }
+        TypeExpr::Generic { name, args } => {
+            let parts: Vec<String> = args.iter().map(|a| fmt_type_expr(&a.node)).collect();
+            format!("{}<{}>", name, parts.join(", "))
+        }
+        TypeExpr::DynamicArray { element } => {
+            format!("{}[]", fmt_type_expr(&element.node))
+        }
+        TypeExpr::DynInterface { name } => {
+            format!("dyn {}", name)
         }
     }
 }

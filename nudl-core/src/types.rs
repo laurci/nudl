@@ -55,6 +55,19 @@ impl PrimitiveType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnumVariant {
+    pub name: String,
+    pub fields: Vec<(String, TypeId)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InterfaceMethod {
+    pub name: String,
+    pub params: Vec<(String, TypeId)>,
+    pub return_type: TypeId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeKind {
     Primitive(PrimitiveType),
     String,
@@ -70,10 +83,28 @@ pub enum TypeKind {
         name: String,
         fields: Vec<(String, TypeId)>,
     },
+    Enum {
+        name: String,
+        variants: Vec<EnumVariant>,
+    },
+    Interface {
+        name: String,
+        methods: Vec<InterfaceMethod>,
+    },
+    DynInterface {
+        name: String,
+    },
     Tuple(Vec<TypeId>),
     FixedArray {
         element: TypeId,
         length: usize,
+    },
+    DynamicArray {
+        element: TypeId,
+    },
+    Map {
+        key: TypeId,
+        value: TypeId,
     },
     Error,
 }
@@ -188,6 +219,10 @@ impl TypeInterner {
         matches!(self.resolve(id), TypeKind::Struct { .. })
     }
 
+    pub fn is_enum(&self, id: TypeId) -> bool {
+        matches!(self.resolve(id), TypeKind::Enum { .. })
+    }
+
     pub fn is_tuple(&self, id: TypeId) -> bool {
         matches!(self.resolve(id), TypeKind::Tuple(_))
     }
@@ -196,9 +231,37 @@ impl TypeInterner {
         matches!(self.resolve(id), TypeKind::FixedArray { .. })
     }
 
+    pub fn is_dynamic_array(&self, id: TypeId) -> bool {
+        matches!(self.resolve(id), TypeKind::DynamicArray { .. })
+    }
+
+    pub fn is_map(&self, id: TypeId) -> bool {
+        matches!(self.resolve(id), TypeKind::Map { .. })
+    }
+
     /// Returns true if this type is a reference type (heap-allocated, ARC-managed)
     pub fn is_reference_type(&self, id: TypeId) -> bool {
-        matches!(self.resolve(id), TypeKind::Struct { .. } | TypeKind::String)
+        matches!(
+            self.resolve(id),
+            TypeKind::Struct { .. }
+                | TypeKind::Enum { .. }
+                | TypeKind::String
+                | TypeKind::DynamicArray { .. }
+                | TypeKind::Map { .. }
+                | TypeKind::DynInterface { .. }
+        )
+    }
+
+    /// Returns true if this type needs ARC management (struct or enum)
+    pub fn is_arc_managed(&self, id: TypeId) -> bool {
+        matches!(
+            self.resolve(id),
+            TypeKind::Struct { .. }
+                | TypeKind::Enum { .. }
+                | TypeKind::DynamicArray { .. }
+                | TypeKind::Map { .. }
+                | TypeKind::DynInterface { .. }
+        )
     }
 
     pub fn iter_types(&self) -> impl Iterator<Item = (TypeId, &TypeKind)> {

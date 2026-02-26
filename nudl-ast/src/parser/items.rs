@@ -7,6 +7,8 @@ impl Parser {
         match self.peek_kind() {
             TokenKind::Fn => self.parse_fn_def(is_pub),
             TokenKind::Struct => self.parse_struct_def(is_pub),
+            TokenKind::Enum => self.parse_enum_def(is_pub),
+            TokenKind::Interface => self.parse_interface_def(is_pub),
             TokenKind::Impl => self.parse_impl_block(),
             TokenKind::Extern => self.parse_extern_block(),
             _ => {
@@ -29,6 +31,9 @@ impl Parser {
         let name_tok = self.expect(TokenKind::Ident)?;
         let name = name_tok.text.clone();
 
+        // Optional type parameters: fn foo<T, U>
+        let type_params = self.parse_optional_type_params();
+
         self.expect(TokenKind::LParen)?;
         let params = self.parse_param_list();
         self.expect(TokenKind::RParen)?;
@@ -45,6 +50,7 @@ impl Parser {
         Some(Spanned::new(
             Item::FnDef {
                 name,
+                type_params,
                 params,
                 return_type,
                 body,
@@ -58,6 +64,9 @@ impl Parser {
         let start = self.expect(TokenKind::Struct)?.span;
         let name_tok = self.expect(TokenKind::Ident)?;
         let name = name_tok.text.clone();
+
+        let type_params = self.parse_optional_type_params();
+
         self.expect(TokenKind::LBrace)?;
 
         let mut fields = Vec::new();
@@ -81,7 +90,130 @@ impl Parser {
         Some(Spanned::new(
             Item::StructDef {
                 name,
+                type_params,
                 fields,
+                is_pub,
+            },
+            start.merge(end),
+        ))
+    }
+
+    fn parse_enum_def(&mut self, is_pub: bool) -> Option<SpannedItem> {
+        let start = self.expect(TokenKind::Enum)?.span;
+        let name_tok = self.expect(TokenKind::Ident)?;
+        let name = name_tok.text.clone();
+
+        let type_params = self.parse_optional_type_params();
+
+        self.expect(TokenKind::LBrace)?;
+
+        let mut variants = Vec::new();
+        while self.peek_kind() != TokenKind::RBrace && !self.at_eof() {
+            let var_tok = self.expect(TokenKind::Ident)?;
+            let var_start = var_tok.span;
+            let var_name = var_tok.text.clone();
+
+            let kind = if self.peek_kind() == TokenKind::LParen {
+                // Tuple variant: Variant(T1, T2, ...)
+                self.advance();
+                let mut types = Vec::new();
+                while self.peek_kind() != TokenKind::RParen && !self.at_eof() {
+                    types.push(self.parse_type()?);
+                    if !self.eat(TokenKind::Comma) {
+                        break;
+                    }
+                }
+                self.expect(TokenKind::RParen)?;
+                VariantKind::Tuple(types)
+            } else if self.peek_kind() == TokenKind::LBrace {
+                // Struct variant: Variant { field: T, ... }
+                self.advance();
+                let mut fields = Vec::new();
+                while self.peek_kind() != TokenKind::RBrace && !self.at_eof() {
+                    let field_name_tok = self.expect(TokenKind::Ident)?;
+                    let field_start = field_name_tok.span;
+                    self.expect(TokenKind::Colon)?;
+                    let ty = self.parse_type()?;
+                    let field_end = ty.span;
+                    fields.push(StructField {
+                        name: field_name_tok.text.clone(),
+                        ty,
+                        span: field_start.merge(field_end),
+                    });
+                    if !self.eat(TokenKind::Comma) {
+                        break;
+                    }
+                }
+                self.expect(TokenKind::RBrace)?;
+                VariantKind::Struct(fields)
+            } else {
+                VariantKind::Unit
+            };
+
+            let var_end = self.prev_span();
+            variants.push(EnumVariantDef {
+                name: var_name,
+                kind,
+                span: var_start.merge(var_end),
+            });
+
+            if !self.eat(TokenKind::Comma) {
+                break;
+            }
+        }
+
+        let end = self.expect(TokenKind::RBrace)?.span;
+        Some(Spanned::new(
+            Item::EnumDef {
+                name,
+                type_params,
+                variants,
+                is_pub,
+            },
+            start.merge(end),
+        ))
+    }
+
+    fn parse_interface_def(&mut self, is_pub: bool) -> Option<SpannedItem> {
+        let start = self.expect(TokenKind::Interface)?.span;
+        let name_tok = self.expect(TokenKind::Ident)?;
+        let name = name_tok.text.clone();
+
+        let type_params = self.parse_optional_type_params();
+
+        self.expect(TokenKind::LBrace)?;
+
+        let mut methods = Vec::new();
+        while self.peek_kind() != TokenKind::RBrace && !self.at_eof() {
+            let method_start = self.expect(TokenKind::Fn)?.span;
+            let method_name = self.expect(TokenKind::Ident)?.text.clone();
+            self.expect(TokenKind::LParen)?;
+            let params = self.parse_param_list();
+            self.expect(TokenKind::RParen)?;
+
+            let return_type = if self.eat(TokenKind::Arrow) {
+                Some(self.parse_type()?)
+            } else {
+                None
+            };
+
+            let method_end = self.prev_span();
+            methods.push(InterfaceMethodDef {
+                name: method_name,
+                params,
+                return_type,
+                span: method_start.merge(method_end),
+            });
+
+            self.eat(TokenKind::Semi);
+        }
+
+        let end = self.expect(TokenKind::RBrace)?.span;
+        Some(Spanned::new(
+            Item::InterfaceDef {
+                name,
+                type_params,
+                methods,
                 is_pub,
             },
             start.merge(end),
@@ -90,8 +222,26 @@ impl Parser {
 
     fn parse_impl_block(&mut self) -> Option<SpannedItem> {
         let start = self.expect(TokenKind::Impl)?.span;
-        let type_name_tok = self.expect(TokenKind::Ident)?;
-        let type_name = type_name_tok.text.clone();
+
+        // Parse the first identifier (could be interface name or type name)
+        let first_name = self.expect(TokenKind::Ident)?.text.clone();
+
+        // Check for `impl Interface for Type`
+        let (interface_name, type_name) = if self.peek_kind() == TokenKind::For {
+            self.advance();
+            let tn = self.expect(TokenKind::Ident)?.text.clone();
+            (Some(first_name), tn)
+        } else {
+            (None, first_name)
+        };
+
+        // Parse optional type arguments on the type: `impl Foo<i32>`
+        let type_args = if self.peek_kind() == TokenKind::Lt {
+            self.parse_type_args()
+        } else {
+            Vec::new()
+        };
+
         self.expect(TokenKind::LBrace)?;
 
         let mut methods = Vec::new();
@@ -105,7 +255,12 @@ impl Parser {
 
         let end = self.expect(TokenKind::RBrace)?.span;
         Some(Spanned::new(
-            Item::ImplBlock { type_name, methods },
+            Item::ImplBlock {
+                type_name,
+                type_args,
+                interface_name,
+                methods,
+            },
             start.merge(end),
         ))
     }
@@ -222,7 +377,88 @@ impl Parser {
         })
     }
 
+    /// Parse optional type parameters: `<T, U: Display>`
+    fn parse_optional_type_params(&mut self) -> Vec<TypeParam> {
+        if self.peek_kind() != TokenKind::Lt {
+            return Vec::new();
+        }
+        self.advance(); // consume '<'
+
+        let mut params = Vec::new();
+        while self.peek_kind() != TokenKind::Gt && !self.at_eof() {
+            let name_tok = self.expect(TokenKind::Ident);
+            let name_tok = match name_tok {
+                Some(t) => t,
+                None => break,
+            };
+            let start = name_tok.span;
+            let name = name_tok.text.clone();
+
+            // Optional bounds: T: Display + Debug
+            let mut bounds = Vec::new();
+            if self.eat(TokenKind::Colon) {
+                let bound_tok = self.expect(TokenKind::Ident);
+                if let Some(bt) = bound_tok {
+                    bounds.push(bt.text.clone());
+                }
+                while self.eat(TokenKind::Plus) {
+                    if let Some(bt) = self.expect(TokenKind::Ident) {
+                        bounds.push(bt.text.clone());
+                    }
+                }
+            }
+
+            let end = self.prev_span();
+            params.push(TypeParam {
+                name,
+                bounds,
+                span: start.merge(end),
+            });
+
+            if !self.eat(TokenKind::Comma) {
+                break;
+            }
+        }
+
+        self.expect(TokenKind::Gt);
+        params
+    }
+
+    /// Parse type arguments: `<i32, string>`
+    fn parse_type_args(&mut self) -> Vec<Spanned<TypeExpr>> {
+        if self.peek_kind() != TokenKind::Lt {
+            return Vec::new();
+        }
+        self.advance(); // consume '<'
+
+        let mut args = Vec::new();
+        while self.peek_kind() != TokenKind::Gt && !self.at_eof() {
+            if let Some(ty) = self.parse_type() {
+                args.push(ty);
+            }
+            if !self.eat(TokenKind::Comma) {
+                break;
+            }
+        }
+
+        self.expect(TokenKind::Gt);
+        args
+    }
+
     pub(super) fn parse_type(&mut self) -> Option<Spanned<TypeExpr>> {
+        // dyn Interface
+        if self.peek_kind() == TokenKind::Dyn {
+            let start = self.advance().span;
+            let name_tok = self.expect(TokenKind::Ident)?;
+            let end = name_tok.span;
+            return Some(Spanned::new(
+                TypeExpr::DynInterface {
+                    name: name_tok.text.clone(),
+                },
+                start.merge(end),
+            ));
+        }
+
         if self.peek_kind() == TokenKind::LParen {
             let start = self.advance().span;
             // Unit type: ()
@@ -262,11 +498,165 @@ impl Parser {
 
         if self.peek_kind() == TokenKind::Ident {
             let tok = self.advance().clone();
-            return Some(Spanned::new(TypeExpr::Named(tok.text.clone()), tok.span));
+            let name = tok.text.clone();
+
+            // Check for generic type args: Name<T, U>
+            if self.peek_kind() == TokenKind::Lt {
+                // Save position for backtrack
+                let saved_pos = self.pos;
+                self.advance(); // consume '<'
+
+                let mut args = Vec::new();
+                let mut success = true;
+                loop {
+                    if self.peek_kind() == TokenKind::Gt || self.at_eof() {
+                        break;
+                    }
+                    match self.parse_type() {
+                        Some(ty) => args.push(ty),
+                        None => {
+                            success = false;
+                            break;
+                        }
+                    }
+                    if !self.eat(TokenKind::Comma) {
+                        break;
+                    }
+                }
+
+                if success && self.peek_kind() == TokenKind::Gt {
+                    let end = self.advance().span; // consume '>'
+                    return Some(Spanned::new(
+                        TypeExpr::Generic { name, args },
+                        tok.span.merge(end),
+                    ));
+                } else {
+                    // Backtrack - this wasn't a generic type
+                    self.pos = saved_pos;
+                }
+            }
+
+            // Check for dynamic array: T[]
+            if self.peek_kind() == TokenKind::LBracket {
+                let saved_pos = self.pos;
+                self.advance(); // consume '['
+                if self.peek_kind() == TokenKind::RBracket {
+                    let end = self.advance().span; // consume ']'
+                    return Some(Spanned::new(
+                        TypeExpr::DynamicArray {
+                            element: Box::new(Spanned::new(TypeExpr::Named(name), tok.span)),
+                        },
+                        tok.span.merge(end),
+                    ));
+                } else {
+                    // Backtrack
+                    self.pos = saved_pos;
+                }
+            }
+
+            return Some(Spanned::new(TypeExpr::Named(name), tok.span));
         }
 
         self.diagnostics.add(&ParserDiagnostic::ExpectedType {
             span: self.peek().span,
+        });
+        None
+    }
+
+    /// Parse a pattern for match arms and if-let
+    pub(super) fn parse_pattern(&mut self) -> Option<Spanned<Pattern>> {
+        let start = self.peek().span;
+
+        // Wildcard: _
+        if self.peek_kind() == TokenKind::Underscore {
+            let tok = self.advance().clone();
+            return Some(Spanned::new(Pattern::Wildcard, tok.span));
+        }
+
+        // Literal patterns
+        match self.peek_kind() {
+            TokenKind::IntLiteral => {
+                let tok = self.advance().clone();
+                return Some(Spanned::new(
+                    Pattern::Literal(Literal::Int(tok.text.clone(), None)),
+                    tok.span,
+                ));
+            }
+            TokenKind::BoolLiteral | TokenKind::True | TokenKind::False => {
+                let tok = self.advance().clone();
+                let val = tok.text == "true";
+                return Some(Spanned::new(Pattern::Literal(Literal::Bool(val)), tok.span));
+            }
+            TokenKind::StringLiteral => {
+                let tok = self.advance().clone();
+                return Some(Spanned::new(
+                    Pattern::Literal(Literal::String(tok.text.clone())),
+                    tok.span,
+                ));
+            }
+            _ => {}
+        }
+
+        // Tuple pattern: (p1, p2)
+        if self.peek_kind() == TokenKind::LParen {
+            self.advance();
+            let mut elements = Vec::new();
+            while self.peek_kind() != TokenKind::RParen && !self.at_eof() {
+                elements.push(self.parse_pattern()?);
+                if !self.eat(TokenKind::Comma) {
+                    break;
+                }
+            }
+            let end = self.expect(TokenKind::RParen)?.span;
+            return Some(Spanned::new(Pattern::Tuple(elements), start.merge(end)));
+        }
+
+        // Identifier-based patterns
+        if self.peek_kind() == TokenKind::Ident {
+            let tok = self.advance().clone();
+            let name = tok.text.clone();
+
+            // Check for enum variant pattern: Enum::Variant or Enum::Variant(...)
+            if self.peek_kind() == TokenKind::ColonColon {
+                self.advance(); // consume '::'
+                let variant_tok = self.expect(TokenKind::Ident)?;
+                let variant = variant_tok.text.clone();
+
+                // Check for fields: Variant(p1, p2) or Variant { p1, p2 }
+                let fields = if self.peek_kind() == TokenKind::LParen {
+                    self.advance();
+                    let mut pats = Vec::new();
+                    while self.peek_kind() != TokenKind::RParen && !self.at_eof() {
+                        pats.push(self.parse_pattern()?);
+                        if !self.eat(TokenKind::Comma) {
+                            break;
+                        }
+                    }
+                    self.expect(TokenKind::RParen)?;
+                    pats
+                } else {
+                    Vec::new()
+                };
+
+                let end = self.prev_span();
+                return Some(Spanned::new(
+                    Pattern::Enum {
+                        enum_name: Some(name),
+                        variant,
+                        fields,
+                    },
+                    start.merge(end),
+                ));
+            }
+
+            // Simple binding pattern
+            return Some(Spanned::new(Pattern::Binding(name), tok.span));
+        }
+
+        self.diagnostics.add(&ParserDiagnostic::UnexpectedToken {
+            span: self.peek().span,
+            expected: "pattern".into(),
+            found: self.peek().text.clone(),
         });
         None
     }

@@ -31,7 +31,9 @@ impl Checker {
 
     pub(super) fn check_item(&mut self, item: &SpannedItem) {
         match &item.node {
-            Item::StructDef { .. } => {} // Already handled in pass 1
+            Item::StructDef { .. } => {}      // Already handled in pass 1
+            Item::EnumDef { .. } => {}        // Already handled in pass 1
+            Item::InterfaceDef { .. } => {}   // Already handled in pass 1
             Item::FnDef {
                 name, params, body, ..
             } => {
