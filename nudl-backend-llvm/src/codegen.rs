@@ -8,7 +8,7 @@ use inkwell::module::Module;
 use inkwell::targets::{
     CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
 };
-use inkwell::types::BasicMetadataTypeEnum;
+use inkwell::types::{BasicMetadataTypeEnum, BasicType};
 use inkwell::values::{BasicValueEnum, FunctionValue, GlobalValue, PointerValue};
 use inkwell::debug_info::{
     AsDIScope, DICompileUnit, DIFlags, DIFlagsConstants, DWARFEmissionKind, DWARFSourceLanguage,
@@ -16,6 +16,8 @@ use inkwell::debug_info::{
 };
 use inkwell::AddressSpace;
 use inkwell::OptimizationLevel;
+
+use inkwell::FloatPredicate;
 
 use nudl_bc::ir::*;
 use nudl_core::source::SourceMap;
@@ -105,12 +107,24 @@ fn build_llvm_param_types<'ctx>(
                 params.push(context.ptr_type(AddressSpace::default()).into());
                 params.push(context.i64_type().into());
             }
+            TypeKind::Primitive(p) if p.is_float() => {
+                params.push(context.f64_type().into());
+            }
             _ => {
                 params.push(context.i64_type().into());
             }
         }
     }
     params
+}
+
+/// Check if a register holds a float type.
+fn is_float_register(func: &Function, reg: u32, types: &TypeInterner) -> bool {
+    if let Some(type_id) = func.register_types.get(reg as usize) {
+        matches!(types.resolve(*type_id), TypeKind::Primitive(p) if p.is_float())
+    } else {
+        false
+    }
 }
 
 // Safety: these extend lifetimes of LLVM values. Safe because values are valid for
@@ -544,9 +558,18 @@ fn build_module<'ctx>(
     for func in &program.functions {
         let is_entry = program.entry_function == Some(func.id);
 
+        let ret_is_float = matches!(
+            types.resolve(func.return_type),
+            TypeKind::Primitive(p) if p.is_float()
+        );
+
         if func.is_extern {
             let param_types = build_llvm_param_types(func, types, context);
-            let fn_type = context.i64_type().fn_type(&param_types, false);
+            let fn_type = if ret_is_float {
+                context.f64_type().fn_type(&param_types, false)
+            } else {
+                context.i64_type().fn_type(&param_types, false)
+            };
             let ext_name = func.extern_symbol.as_deref().unwrap_or("unknown_extern");
             let fn_val =
                 module.add_function(ext_name, fn_type, Some(inkwell::module::Linkage::External));
@@ -557,7 +580,11 @@ fn build_module<'ctx>(
             function_map.insert(func.id.0, fn_val);
         } else {
             let param_types = build_llvm_param_types(func, types, context);
-            let fn_type = context.i64_type().fn_type(&param_types, false);
+            let fn_type = if ret_is_float {
+                context.f64_type().fn_type(&param_types, false)
+            } else {
+                context.i64_type().fn_type(&param_types, false)
+            };
             let func_name = program.interner.resolve(func.name);
             let fn_val =
                 module.add_function(&format!("__func_{}", func_name), fn_type, None);
@@ -739,8 +766,13 @@ fn emit_function<'ctx>(
     let mut str_ptr_allocas: HashMap<u32, PointerValue<'ctx>> = HashMap::new();
     let mut str_len_allocas: HashMap<u32, PointerValue<'ctx>> = HashMap::new();
     for r in 0..func.register_count {
+        let alloca_ty = if is_float_register(func, r, types) {
+            context.f64_type().as_basic_type_enum()
+        } else {
+            context.i64_type().as_basic_type_enum()
+        };
         let alloca = builder
-            .build_alloca(context.i64_type(), &format!("r{}", r))
+            .build_alloca(alloca_ty, &format!("r{}", r))
             .map_err(|e| BackendError::LlvmError(e.to_string()))?;
         register_allocas.insert(r, alloca);
         // Companion allocas for string ptr/len — used when string values
@@ -785,6 +817,7 @@ fn emit_function<'ctx>(
         } else {
             let param_val = fn_val.get_nth_param(first_llvm).unwrap();
             let alloca = register_allocas[&(param_idx as u32)];
+            // Float params arrive as f64 values, stored directly into f64 allocas
             builder
                 .build_store(alloca, param_val)
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?;
@@ -829,6 +862,7 @@ fn emit_function<'ctx>(
             emit_instruction(
                 inst,
                 program,
+                func,
                 context,
                 builder,
                 &register_allocas,
@@ -872,8 +906,13 @@ fn emit_function<'ctx>(
                         let dummy_idx = if ret_reg_idx == Some(0) { None } else { Some(0u32) };
                         if let Some(idx) = dummy_idx {
                             if let Some(alloca) = register_allocas.get(&idx) {
-                                let zero = context.i64_type().const_zero();
-                                let _ = builder.build_store(*alloca, zero);
+                                if is_float_register(func, idx, types) {
+                                    let zero = context.f64_type().const_zero();
+                                    let _ = builder.build_store(*alloca, zero);
+                                } else {
+                                    let zero = context.i64_type().const_zero();
+                                    let _ = builder.build_store(*alloca, zero);
+                                }
                             }
                         }
                     }
@@ -891,10 +930,12 @@ fn emit_function<'ctx>(
 
         emit_terminator(
             &block.terminator,
+            func,
             context,
             builder,
             &block_map,
             &register_allocas,
+            types,
             is_entry,
         )?;
     }
@@ -905,6 +946,7 @@ fn emit_function<'ctx>(
 fn emit_instruction<'ctx>(
     inst: &Instruction,
     program: &Program,
+    func: &Function,
     context: &'ctx Context,
     builder: &Builder<'ctx>,
     register_allocas: &HashMap<u32, PointerValue<'ctx>>,
@@ -936,14 +978,12 @@ fn emit_instruction<'ctx>(
                 .const_int(if *val { 1 } else { 0 }, false);
             store(builder, register_allocas, reg.0, v)?;
         }
-        Instruction::Const(reg, ConstValue::F32(_)) => {
-            // F32 codegen not yet fully supported; store zero as i64
-            let v = context.i64_type().const_int(0, false);
+        Instruction::Const(reg, ConstValue::F32(val)) => {
+            let v = context.f64_type().const_float(*val as f64);
             store(builder, register_allocas, reg.0, v)?;
         }
-        Instruction::Const(reg, ConstValue::F64(_)) => {
-            // F64 codegen not yet fully supported; store zero as i64
-            let v = context.i64_type().const_int(0, false);
+        Instruction::Const(reg, ConstValue::F64(val)) => {
+            let v = context.f64_type().const_float(*val);
             store(builder, register_allocas, reg.0, v)?;
         }
         Instruction::Const(reg, ConstValue::Char(val)) => {
@@ -1041,39 +1081,79 @@ fn emit_instruction<'ctx>(
 
         // Arithmetic
         Instruction::Add(dst, lhs, rhs) => {
-            let (lv, rv) = load_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
-            let r = builder
-                .build_int_add(lv, rv, "add")
-                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-            store(builder, register_allocas, dst.0, r)?;
+            if is_float_register(func, dst.0, types) {
+                let (lv, rv) = load_float_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
+                let r = builder
+                    .build_float_add(lv, rv, "fadd")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                store(builder, register_allocas, dst.0, r)?;
+            } else {
+                let (lv, rv) = load_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
+                let r = builder
+                    .build_int_add(lv, rv, "add")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                store(builder, register_allocas, dst.0, r)?;
+            }
         }
         Instruction::Sub(dst, lhs, rhs) => {
-            let (lv, rv) = load_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
-            let r = builder
-                .build_int_sub(lv, rv, "sub")
-                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-            store(builder, register_allocas, dst.0, r)?;
+            if is_float_register(func, dst.0, types) {
+                let (lv, rv) = load_float_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
+                let r = builder
+                    .build_float_sub(lv, rv, "fsub")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                store(builder, register_allocas, dst.0, r)?;
+            } else {
+                let (lv, rv) = load_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
+                let r = builder
+                    .build_int_sub(lv, rv, "sub")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                store(builder, register_allocas, dst.0, r)?;
+            }
         }
         Instruction::Mul(dst, lhs, rhs) => {
-            let (lv, rv) = load_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
-            let r = builder
-                .build_int_mul(lv, rv, "mul")
-                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-            store(builder, register_allocas, dst.0, r)?;
+            if is_float_register(func, dst.0, types) {
+                let (lv, rv) = load_float_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
+                let r = builder
+                    .build_float_mul(lv, rv, "fmul")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                store(builder, register_allocas, dst.0, r)?;
+            } else {
+                let (lv, rv) = load_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
+                let r = builder
+                    .build_int_mul(lv, rv, "mul")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                store(builder, register_allocas, dst.0, r)?;
+            }
         }
         Instruction::Div(dst, lhs, rhs) => {
-            let (lv, rv) = load_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
-            let r = builder
-                .build_int_signed_div(lv, rv, "sdiv")
-                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-            store(builder, register_allocas, dst.0, r)?;
+            if is_float_register(func, dst.0, types) {
+                let (lv, rv) = load_float_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
+                let r = builder
+                    .build_float_div(lv, rv, "fdiv")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                store(builder, register_allocas, dst.0, r)?;
+            } else {
+                let (lv, rv) = load_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
+                let r = builder
+                    .build_int_signed_div(lv, rv, "sdiv")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                store(builder, register_allocas, dst.0, r)?;
+            }
         }
         Instruction::Mod(dst, lhs, rhs) => {
-            let (lv, rv) = load_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
-            let r = builder
-                .build_int_signed_rem(lv, rv, "srem")
-                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-            store(builder, register_allocas, dst.0, r)?;
+            if is_float_register(func, dst.0, types) {
+                let (lv, rv) = load_float_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
+                let r = builder
+                    .build_float_rem(lv, rv, "frem")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                store(builder, register_allocas, dst.0, r)?;
+            } else {
+                let (lv, rv) = load_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
+                let r = builder
+                    .build_int_signed_rem(lv, rv, "srem")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                store(builder, register_allocas, dst.0, r)?;
+            }
         }
         Instruction::Shl(dst, lhs, rhs) => {
             let (lv, rv) = load_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
@@ -1111,12 +1191,20 @@ fn emit_instruction<'ctx>(
             store(builder, register_allocas, dst.0, r)?;
         }
         Instruction::Neg(dst, src) => {
-            let sv = load_i64(context, builder, register_allocas, src.0)?;
-            let zero = context.i64_type().const_zero();
-            let r = builder
-                .build_int_sub(zero, sv, "neg")
-                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-            store(builder, register_allocas, dst.0, r)?;
+            if is_float_register(func, dst.0, types) {
+                let sv = load_f64(context, builder, register_allocas, src.0)?;
+                let r = builder
+                    .build_float_neg(sv, "fneg")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                store(builder, register_allocas, dst.0, r)?;
+            } else {
+                let sv = load_i64(context, builder, register_allocas, src.0)?;
+                let zero = context.i64_type().const_zero();
+                let r = builder
+                    .build_int_sub(zero, sv, "neg")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                store(builder, register_allocas, dst.0, r)?;
+            }
         }
         Instruction::BitNot(dst, src) => {
             let sv = load_i64(context, builder, register_allocas, src.0)?;
@@ -1128,28 +1216,75 @@ fn emit_instruction<'ctx>(
 
         // Comparisons
         Instruction::Eq(dst, lhs, rhs) => {
-            emit_icmp(context, builder, register_allocas, dst.0, lhs.0, rhs.0, inkwell::IntPredicate::EQ)?;
+            if is_float_register(func, lhs.0, types) {
+                emit_fcmp(context, builder, register_allocas, dst.0, lhs.0, rhs.0, FloatPredicate::OEQ)?;
+            } else {
+                emit_icmp(context, builder, register_allocas, dst.0, lhs.0, rhs.0, inkwell::IntPredicate::EQ)?;
+            }
         }
         Instruction::Ne(dst, lhs, rhs) => {
-            emit_icmp(context, builder, register_allocas, dst.0, lhs.0, rhs.0, inkwell::IntPredicate::NE)?;
+            if is_float_register(func, lhs.0, types) {
+                emit_fcmp(context, builder, register_allocas, dst.0, lhs.0, rhs.0, FloatPredicate::ONE)?;
+            } else {
+                emit_icmp(context, builder, register_allocas, dst.0, lhs.0, rhs.0, inkwell::IntPredicate::NE)?;
+            }
         }
         Instruction::Lt(dst, lhs, rhs) => {
-            emit_icmp(context, builder, register_allocas, dst.0, lhs.0, rhs.0, inkwell::IntPredicate::SLT)?;
+            if is_float_register(func, lhs.0, types) {
+                emit_fcmp(context, builder, register_allocas, dst.0, lhs.0, rhs.0, FloatPredicate::OLT)?;
+            } else {
+                emit_icmp(context, builder, register_allocas, dst.0, lhs.0, rhs.0, inkwell::IntPredicate::SLT)?;
+            }
         }
         Instruction::Le(dst, lhs, rhs) => {
-            emit_icmp(context, builder, register_allocas, dst.0, lhs.0, rhs.0, inkwell::IntPredicate::SLE)?;
+            if is_float_register(func, lhs.0, types) {
+                emit_fcmp(context, builder, register_allocas, dst.0, lhs.0, rhs.0, FloatPredicate::OLE)?;
+            } else {
+                emit_icmp(context, builder, register_allocas, dst.0, lhs.0, rhs.0, inkwell::IntPredicate::SLE)?;
+            }
         }
         Instruction::Gt(dst, lhs, rhs) => {
-            emit_icmp(context, builder, register_allocas, dst.0, lhs.0, rhs.0, inkwell::IntPredicate::SGT)?;
+            if is_float_register(func, lhs.0, types) {
+                emit_fcmp(context, builder, register_allocas, dst.0, lhs.0, rhs.0, FloatPredicate::OGT)?;
+            } else {
+                emit_icmp(context, builder, register_allocas, dst.0, lhs.0, rhs.0, inkwell::IntPredicate::SGT)?;
+            }
         }
         Instruction::Ge(dst, lhs, rhs) => {
-            emit_icmp(context, builder, register_allocas, dst.0, lhs.0, rhs.0, inkwell::IntPredicate::SGE)?;
+            if is_float_register(func, lhs.0, types) {
+                emit_fcmp(context, builder, register_allocas, dst.0, lhs.0, rhs.0, FloatPredicate::OGE)?;
+            } else {
+                emit_icmp(context, builder, register_allocas, dst.0, lhs.0, rhs.0, inkwell::IntPredicate::SGE)?;
+            }
         }
 
-        // Cast (currently a no-op since all registers are i64)
+        // Cast
         Instruction::Cast(dst, src, _target_type) => {
-            let sv = load_i64(context, builder, register_allocas, src.0)?;
-            store(builder, register_allocas, dst.0, sv)?;
+            let src_is_float = is_float_register(func, src.0, types);
+            let dst_is_float = is_float_register(func, dst.0, types);
+            if src_is_float && !dst_is_float {
+                // float → int: fptosi
+                let fv = load_f64(context, builder, register_allocas, src.0)?;
+                let iv = builder
+                    .build_float_to_signed_int(fv, context.i64_type(), "fptosi")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                store(builder, register_allocas, dst.0, iv)?;
+            } else if !src_is_float && dst_is_float {
+                // int → float: sitofp
+                let iv = load_i64(context, builder, register_allocas, src.0)?;
+                let fv = builder
+                    .build_signed_int_to_float(iv, context.f64_type(), "sitofp")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                store(builder, register_allocas, dst.0, fv)?;
+            } else if src_is_float && dst_is_float {
+                // float → float: copy
+                let fv = load_f64(context, builder, register_allocas, src.0)?;
+                store(builder, register_allocas, dst.0, fv)?;
+            } else {
+                // int → int: copy
+                let iv = load_i64(context, builder, register_allocas, src.0)?;
+                store(builder, register_allocas, dst.0, iv)?;
+            }
         }
 
         // Logical NOT
@@ -1168,6 +1303,7 @@ fn emit_instruction<'ctx>(
                 context,
                 builder,
                 program,
+                func,
                 register_allocas,
                 str_ptr_allocas,
                 str_len_allocas,
@@ -1183,8 +1319,13 @@ fn emit_instruction<'ctx>(
 
         // Copy
         Instruction::Copy(dst, src) => {
-            let val = load_i64(context, builder, register_allocas, src.0)?;
-            store(builder, register_allocas, dst.0, val)?;
+            if is_float_register(func, src.0, types) {
+                let val = load_f64(context, builder, register_allocas, src.0)?;
+                store(builder, register_allocas, dst.0, val)?;
+            } else {
+                let val = load_i64(context, builder, register_allocas, src.0)?;
+                store(builder, register_allocas, dst.0, val)?;
+            }
             // Note: we intentionally do NOT propagate reg_string_info here.
             // The companion allocas (str_ptr_allocas, str_len_allocas) are copied
             // below and correctly handle control flow (if/else branches).
@@ -1442,6 +1583,7 @@ fn emit_call<'ctx>(
     context: &'ctx Context,
     builder: &Builder<'ctx>,
     program: &Program,
+    _caller_func: &Function,
     register_allocas: &HashMap<u32, PointerValue<'ctx>>,
     str_ptr_allocas: &HashMap<u32, PointerValue<'ctx>>,
     str_len_allocas: &HashMap<u32, PointerValue<'ctx>>,
@@ -1550,8 +1692,18 @@ fn emit_call<'ctx>(
                     }
                 }
             } else {
-                let val = load_i64(context, builder, register_allocas, arg_reg.0)?;
-                llvm_args.push(val.into());
+                // Check if the callee param is float
+                let param_is_float = callee_func
+                    .and_then(|cf| cf.params.get(i))
+                    .map(|(_, pty)| matches!(types.resolve(*pty), TypeKind::Primitive(p) if p.is_float()))
+                    .unwrap_or(false);
+                if param_is_float {
+                    let val = load_f64(context, builder, register_allocas, arg_reg.0)?;
+                    llvm_args.push(val.into());
+                } else {
+                    let val = load_i64(context, builder, register_allocas, arg_reg.0)?;
+                    llvm_args.push(val.into());
+                }
             }
         }
     } else {
@@ -1581,6 +1733,9 @@ fn emit_call<'ctx>(
                     store(builder, register_allocas, result_reg.0, iv)?;
                 }
             }
+            BasicValueEnum::FloatValue(fv) => {
+                store(builder, register_allocas, result_reg.0, fv)?;
+            }
             _ => {
                 builder
                     .build_store(register_allocas[&result_reg.0], ret_val)
@@ -1594,10 +1749,12 @@ fn emit_call<'ctx>(
 
 fn emit_terminator<'ctx>(
     term: &Terminator,
+    func: &Function,
     context: &'ctx Context,
     builder: &Builder<'ctx>,
     block_map: &HashMap<u32, inkwell::basic_block::BasicBlock<'ctx>>,
     register_allocas: &HashMap<u32, PointerValue<'ctx>>,
+    types: &TypeInterner,
     is_entry: bool,
 ) -> Result<(), BackendError> {
     match term {
@@ -1606,6 +1763,11 @@ fn emit_terminator<'ctx>(
                 let zero = context.i32_type().const_zero();
                 builder
                     .build_return(Some(&zero))
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            } else if is_float_register(func, ret_reg.0, types) {
+                let val = load_f64(context, builder, register_allocas, ret_reg.0)?;
+                builder
+                    .build_return(Some(&val))
                     .map_err(|e| BackendError::LlvmError(e.to_string()))?;
             } else {
                 let val = load_i64(context, builder, register_allocas, ret_reg.0)?;
@@ -1683,6 +1845,19 @@ fn load_ptr<'ctx>(
     Ok(ptr)
 }
 
+fn load_f64<'ctx>(
+    context: &'ctx Context,
+    builder: &Builder<'ctx>,
+    register_allocas: &HashMap<u32, PointerValue<'ctx>>,
+    ssa_reg: u32,
+) -> Result<inkwell::values::FloatValue<'ctx>, BackendError> {
+    let alloca = register_allocas[&ssa_reg];
+    let val = builder
+        .build_load(context.f64_type(), alloca, &format!("load_f_r{}", ssa_reg))
+        .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+    Ok(val.into_float_value())
+}
+
 fn load_binop<'ctx>(
     context: &'ctx Context,
     builder: &Builder<'ctx>,
@@ -1699,6 +1874,44 @@ fn load_binop<'ctx>(
     let lv = load_i64(context, builder, register_allocas, lhs)?;
     let rv = load_i64(context, builder, register_allocas, rhs)?;
     Ok((lv, rv))
+}
+
+fn load_float_binop<'ctx>(
+    context: &'ctx Context,
+    builder: &Builder<'ctx>,
+    register_allocas: &HashMap<u32, PointerValue<'ctx>>,
+    lhs: u32,
+    rhs: u32,
+) -> Result<
+    (
+        inkwell::values::FloatValue<'ctx>,
+        inkwell::values::FloatValue<'ctx>,
+    ),
+    BackendError,
+> {
+    let lv = load_f64(context, builder, register_allocas, lhs)?;
+    let rv = load_f64(context, builder, register_allocas, rhs)?;
+    Ok((lv, rv))
+}
+
+fn emit_fcmp<'ctx>(
+    context: &'ctx Context,
+    builder: &Builder<'ctx>,
+    register_allocas: &HashMap<u32, PointerValue<'ctx>>,
+    dst: u32,
+    lhs: u32,
+    rhs: u32,
+    pred: FloatPredicate,
+) -> Result<(), BackendError> {
+    let (lv, rv) = load_float_binop(context, builder, register_allocas, lhs, rhs)?;
+    let cmp = builder
+        .build_float_compare(pred, lv, rv, "fcmp")
+        .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+    let result = builder
+        .build_int_z_extend(cmp, context.i64_type(), "zext")
+        .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+    store(builder, register_allocas, dst, result)?;
+    Ok(())
 }
 
 fn emit_icmp<'ctx>(

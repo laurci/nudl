@@ -150,6 +150,7 @@ impl Lowerer {
             return_type: sig.return_type,
             blocks: vec![],
             register_count: 0,
+            register_types: vec![],
             is_extern: true,
             extern_symbol: Some(name.to_string()),
             span: Span::dummy(),
@@ -177,15 +178,17 @@ impl Lowerer {
         // Build locals map from params: param[i].name → Register(i)
         let mut locals = ScopedLocals::<Register>::new();
         let mut next_register = 0u32;
+        let mut register_types = Vec::new();
         for param in params {
             locals.insert(param.name.clone(), Register(next_register));
             next_register += 1;
         }
 
-        // Track param types for callee-release
+        // Track param types for callee-release and initialize register_types for params
         let mut local_types = ScopedLocals::<nudl_core::types::TypeId>::new();
         for (pname, pty) in sig.params.iter() {
             local_types.insert(pname.clone(), *pty);
+            register_types.push(*pty);
         }
 
         let mut ctx = FunctionLowerCtx {
@@ -198,6 +201,7 @@ impl Lowerer {
             next_register,
             locals,
             local_types,
+            register_types,
             string_constants: &mut self.string_constants,
             interner: &mut self.interner,
             function_sigs: &self.function_sigs,
@@ -234,6 +238,7 @@ impl Lowerer {
         ctx.finish_block(Terminator::Return(result_reg));
 
         let register_count = ctx.next_register;
+        let register_types = ctx.register_types;
         let blocks = ctx.blocks;
 
         Function {
@@ -243,6 +248,7 @@ impl Lowerer {
             return_type: sig.return_type,
             blocks,
             register_count,
+            register_types,
             is_extern: false,
             extern_symbol: None,
             span: body.span,
@@ -296,6 +302,8 @@ struct FunctionLowerCtx<'a> {
     locals: ScopedLocals<Register>,
     /// Track which locals are struct-typed (for Release at scope exit)
     local_types: ScopedLocals<nudl_core::types::TypeId>,
+    /// TypeId for each register, indexed by Register.0
+    register_types: Vec<nudl_core::types::TypeId>,
     string_constants: &'a mut Vec<String>,
     interner: &'a mut StringInterner,
     function_sigs: &'a HashMap<String, FunctionSig>,
@@ -310,6 +318,16 @@ impl<'a> FunctionLowerCtx<'a> {
     fn alloc_register(&mut self) -> Register {
         let r = Register(self.next_register);
         self.next_register += 1;
+        // Default to i64
+        let default_ty = self.types.i64();
+        self.register_types.push(default_ty);
+        r
+    }
+
+    fn alloc_typed_register(&mut self, type_id: nudl_core::types::TypeId) -> Register {
+        let r = Register(self.next_register);
+        self.next_register += 1;
+        self.register_types.push(type_id);
         r
     }
 
@@ -399,15 +417,10 @@ impl<'a> FunctionLowerCtx<'a> {
                 let reg = self.lower_expr(value);
                 self.locals.insert(name.clone(), reg);
 
-                // Track typed locals (structs for scope-exit Release,
-                // tuples/arrays for field/index type inference)
+                // Track typed locals for scope-exit Release, field/index type inference,
+                // and float type propagation
                 if let Some(type_id) = self.infer_expr_type(value) {
-                    if self.types.is_struct(type_id)
-                        || self.types.is_tuple(type_id)
-                        || self.types.is_fixed_array(type_id)
-                    {
-                        self.local_types.insert(name.clone(), type_id);
-                    }
+                    self.local_types.insert(name.clone(), type_id);
                 }
             }
             Stmt::Item(_) => {} // nested items not supported yet
@@ -487,7 +500,8 @@ impl<'a> FunctionLowerCtx<'a> {
 
             Expr::Literal(Literal::Float(s)) => {
                 let val: f64 = s.parse().unwrap_or(0.0);
-                let reg = self.alloc_register();
+                let f64_ty = self.types.f64();
+                let reg = self.alloc_typed_register(f64_ty);
                 self.push_inst(Instruction::Const(reg, ConstValue::F64(val)));
                 reg
             }
@@ -546,7 +560,26 @@ impl<'a> FunctionLowerCtx<'a> {
                 let lhs = self.lower_expr(left);
                 let rhs = self.lower_expr(right);
                 self.current_span = binop_span;
-                let dst = self.alloc_register();
+
+                // Check if this is a float operation (propagate lhs type for arithmetic)
+                let lhs_type = self.register_types[lhs.0 as usize];
+                let is_float = matches!(
+                    self.types.resolve(lhs_type),
+                    TypeKind::Primitive(p) if p.is_float()
+                );
+
+                // Comparisons always produce i64 (bool); arithmetic propagates operand type
+                let is_comparison = matches!(
+                    op,
+                    BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge
+                );
+
+                let dst = if is_float && !is_comparison {
+                    self.alloc_typed_register(lhs_type)
+                } else {
+                    self.alloc_register()
+                };
+
                 let inst = match op {
                     BinOp::Add => Instruction::Add(dst, lhs, rhs),
                     BinOp::Sub => Instruction::Sub(dst, lhs, rhs),
@@ -572,7 +605,16 @@ impl<'a> FunctionLowerCtx<'a> {
 
             Expr::Unary { op, operand } => {
                 let src = self.lower_expr(operand);
-                let dst = self.alloc_register();
+                let src_type = self.register_types[src.0 as usize];
+                let is_float = matches!(
+                    self.types.resolve(src_type),
+                    TypeKind::Primitive(p) if p.is_float()
+                );
+                let dst = if is_float && matches!(op, UnaryOp::Neg) {
+                    self.alloc_typed_register(src_type)
+                } else {
+                    self.alloc_register()
+                };
                 let inst = match op {
                     UnaryOp::Neg => Instruction::Neg(dst, src),
                     UnaryOp::Not => Instruction::Not(dst, src),
@@ -757,11 +799,12 @@ impl<'a> FunctionLowerCtx<'a> {
                 result_reg
             }
 
-            Expr::Cast { expr, target_type: _ } => {
-                // For now, casts are no-ops at the IR level since all values are i64
-                // TODO: emit proper Cast instruction when type-aware registers are added
+            Expr::Cast { expr, target_type } => {
                 let src = self.lower_expr(expr);
-                src
+                let target_id = self.resolve_type_expr(&target_type.node);
+                let dst = self.alloc_typed_register(target_id);
+                self.push_inst(Instruction::Cast(dst, src, target_id));
+                dst
             }
 
             Expr::While { condition, body, label } => {
@@ -1042,6 +1085,49 @@ impl<'a> FunctionLowerCtx<'a> {
             }
         }
         0 // fallback (should have been caught by checker)
+    }
+
+    /// Resolve a TypeExpr to a TypeId (mirrors checker.rs resolve_type).
+    fn resolve_type_expr(&mut self, ty: &TypeExpr) -> nudl_core::types::TypeId {
+        match ty {
+            TypeExpr::Unit => self.types.unit(),
+            TypeExpr::Named(name) => match name.as_str() {
+                "i8" => self.types.i8(),
+                "i16" => self.types.i16(),
+                "i32" => self.types.i32(),
+                "i64" => self.types.i64(),
+                "u8" => self.types.u8(),
+                "u16" => self.types.u16(),
+                "u32" => self.types.u32(),
+                "u64" => self.types.u64(),
+                "f32" => self.types.f32(),
+                "f64" => self.types.f64(),
+                "bool" => self.types.bool(),
+                "char" => self.types.char_type(),
+                "string" => self.types.string(),
+                _ => {
+                    if let Some(&tid) = self.struct_defs.get(name.as_str()) {
+                        tid
+                    } else {
+                        self.types.i64() // fallback
+                    }
+                }
+            },
+            TypeExpr::Tuple(elements) => {
+                let elem_types: Vec<nudl_core::types::TypeId> = elements
+                    .iter()
+                    .map(|e| self.resolve_type_expr(&e.node))
+                    .collect();
+                self.types.intern(nudl_core::types::TypeKind::Tuple(elem_types))
+            }
+            TypeExpr::FixedArray { element, length } => {
+                let elem_ty = self.resolve_type_expr(&element.node);
+                self.types.intern(nudl_core::types::TypeKind::FixedArray {
+                    element: elem_ty,
+                    length: *length,
+                })
+            }
+        }
     }
 
     /// Best-effort type inference for an expression (used in lowerer for field lookups).
@@ -1375,7 +1461,8 @@ impl<'a> FunctionLowerCtx<'a> {
             FunctionRef::Named(sym)
         };
 
-        let dst = self.alloc_register();
+        let ret_type = self.function_sigs.get(name).map(|s| s.return_type).unwrap_or(self.types.i64());
+        let dst = self.alloc_typed_register(ret_type);
         self.push_inst(Instruction::Call(dst, func_ref, arg_regs));
         dst
     }
@@ -1499,7 +1586,7 @@ impl<'a> FunctionLowerCtx<'a> {
             FunctionRef::Named(sym)
         };
 
-        let dst = self.alloc_register();
+        let dst = self.alloc_typed_register(sig.return_type);
         self.push_inst(Instruction::Call(dst, func_ref, arg_regs));
         dst
     }
@@ -1531,7 +1618,7 @@ impl<'a> FunctionLowerCtx<'a> {
         let sym = self.interner.intern(mangled_name);
         let func_ref = FunctionRef::Named(sym);
 
-        let dst = self.alloc_register();
+        let dst = self.alloc_typed_register(sig.return_type);
         self.push_inst(Instruction::Call(dst, func_ref, arg_regs));
         dst
     }

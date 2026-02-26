@@ -114,6 +114,8 @@ pub struct Function {
     pub return_type: TypeId,
     pub blocks: Vec<BasicBlock>,
     pub register_count: u32,
+    /// TypeId for each register (indexed by Register.0). Defaults to i64.
+    pub register_types: Vec<TypeId>,
     pub is_extern: bool,
     pub extern_symbol: Option<String>,
     pub span: Span,
