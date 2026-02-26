@@ -344,6 +344,13 @@ fn fmt_ast_item(item: &Item, out: &mut String, level: usize) {
                 ));
             }
         }
+        Item::ImplBlock { type_name, methods } => {
+            indent(out, level);
+            out.push_str(&format!("ImplBlock \"{}\":\n", type_name));
+            for method in methods {
+                fmt_ast_item(&method.node, out, level + 1);
+            }
+        }
     }
 }
 
@@ -593,6 +600,33 @@ fn fmt_ast_expr(expr: &Expr, out: &mut String, level: usize) {
             fmt_ast_expr(&iter.node, out, level);
             out.push('\n');
             fmt_ast_block(&body.node, out, level + 1);
+        }
+        Expr::MethodCall { object, method, args } => {
+            fmt_ast_expr(&object.node, out, level);
+            out.push_str(&format!(".{}(\n", method));
+            for arg in args {
+                indent(out, level + 1);
+                if let Some(name) = &arg.name {
+                    out.push_str(&format!("{}: ", name));
+                }
+                fmt_ast_expr(&arg.value.node, out, level + 1);
+                out.push('\n');
+            }
+            indent(out, level);
+            out.push(')');
+        }
+        Expr::StaticCall { type_name, method, args } => {
+            out.push_str(&format!("{}::{}(\n", type_name, method));
+            for arg in args {
+                indent(out, level + 1);
+                if let Some(name) = &arg.name {
+                    out.push_str(&format!("{}: ", name));
+                }
+                fmt_ast_expr(&arg.value.node, out, level + 1);
+                out.push('\n');
+            }
+            indent(out, level);
+            out.push(')');
         }
     }
 }
