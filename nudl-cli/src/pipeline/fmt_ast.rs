@@ -158,6 +158,17 @@ fn fmt_ast_item(item: &Item, out: &mut String, level: usize) {
                 fmt_ast_item(&method.node, out, level + 1);
             }
         }
+        Item::TypeAlias { name, ty, is_pub } => {
+            indent(out, level);
+            if *is_pub {
+                out.push_str("pub ");
+            }
+            out.push_str(&format!(
+                "TypeAlias \"{}\" = {}\n",
+                name,
+                fmt_type_expr(&ty.node)
+            ));
+        }
         Item::Import { path, items, alias } => {
             indent(out, level);
             out.push_str(&format!("Import {}", path.join("::")));
