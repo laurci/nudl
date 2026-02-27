@@ -56,6 +56,7 @@ impl Checker {
                 }
             }
             Item::ExternBlock { .. } => {} // Already handled in pass 1
+            Item::Import { .. } => {}    // Handled at pipeline level
         }
     }
 
@@ -124,6 +125,15 @@ impl Checker {
                     );
                 }
             }
+            Stmt::LetPattern {
+                pattern,
+                ty: _,
+                value,
+                is_mut,
+            } => {
+                let val_ty = self.check_expr(value, locals);
+                self.check_pattern_bindings(&pattern.node, val_ty, *is_mut, locals);
+            }
             Stmt::Const { name, ty, value } => {
                 let val_ty = self.check_expr(value, locals);
                 if let Some(type_expr) = ty {
@@ -158,7 +168,62 @@ impl Checker {
                     );
                 }
             }
+            Stmt::Defer { body } => {
+                // Type-check the defer body
+                self.check_block(&body.node, locals);
+            }
             Stmt::Item(item) => self.collect_item(item),
+        }
+    }
+
+    /// Check pattern bindings and add them to locals
+    fn check_pattern_bindings(
+        &mut self,
+        pattern: &Pattern,
+        val_ty: TypeId,
+        is_mut: bool,
+        locals: &mut ScopedLocals<LocalInfo>,
+    ) {
+        match pattern {
+            Pattern::Wildcard => {} // ignore
+            Pattern::Binding(name) => {
+                locals.insert(name.clone(), LocalInfo { ty: val_ty, is_mut });
+            }
+            Pattern::Tuple(elements) => {
+                // Destructure tuple type
+                if let TypeKind::Tuple(elem_types) = self.types.resolve(val_ty).clone() {
+                    for (i, pat) in elements.iter().enumerate() {
+                        let elem_ty = elem_types.get(i).copied().unwrap_or_else(|| self.types.error());
+                        self.check_pattern_bindings(&pat.node, elem_ty, is_mut, locals);
+                    }
+                } else {
+                    // Not a tuple, all bindings get the val_ty
+                    for pat in elements {
+                        self.check_pattern_bindings(&pat.node, val_ty, is_mut, locals);
+                    }
+                }
+            }
+            Pattern::Struct { name, fields, .. } => {
+                // Look up struct type
+                let struct_ty = self.structs.get(name).copied().unwrap_or_else(|| self.types.error());
+                if let TypeKind::Struct { fields: struct_fields, .. } = self.types.resolve(struct_ty).clone() {
+                    for (field_name, pat) in fields {
+                        let field_ty = struct_fields
+                            .iter()
+                            .find(|(n, _)| n == field_name)
+                            .map(|(_, ty)| *ty)
+                            .unwrap_or_else(|| self.types.error());
+                        self.check_pattern_bindings(&pat.node, field_ty, is_mut, locals);
+                    }
+                }
+            }
+            Pattern::Enum { fields, .. } => {
+                // For now, bind each sub-pattern with error type
+                for field_pat in fields {
+                    self.check_pattern_bindings(&field_pat.node, self.types.error(), is_mut, locals);
+                }
+            }
+            Pattern::Literal(_) => {} // nothing to bind
         }
     }
 

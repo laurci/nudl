@@ -22,6 +22,61 @@ impl<'a> FunctionLowerCtx<'a> {
                 self.push_inst(Instruction::StringLen(dst, arg_reg));
                 dst
             }
+            "__str_concat" | "__i32_to_str" | "__i64_to_str" | "__f64_to_str"
+            | "__bool_to_str" | "__char_to_str" => {
+                let arg_regs: Vec<Register> =
+                    args.iter().map(|a| self.lower_expr(&a.value)).collect();
+                self.current_span = call_span;
+                let sym = self.interner.intern(name);
+                let string_ty = self.types.string();
+                let dst = self.alloc_typed_register(string_ty);
+                self.push_inst(Instruction::Call(
+                    dst,
+                    FunctionRef::Builtin(sym),
+                    arg_regs,
+                ));
+                dst
+            }
+            "panic" => {
+                let arg_reg = self.lower_expr(&args[0].value);
+                self.current_span = call_span;
+                let sym = self.interner.intern("panic");
+                let never_ty = self.types.never();
+                let dst = self.alloc_typed_register(never_ty);
+                self.push_inst(Instruction::Call(
+                    dst,
+                    FunctionRef::Builtin(sym),
+                    vec![arg_reg],
+                ));
+                dst
+            }
+            "assert" => {
+                let cond_reg = self.lower_expr(&args[0].value);
+                let msg_reg = self.lower_expr(&args[1].value);
+                self.current_span = call_span;
+                let sym = self.interner.intern("assert");
+                let unit_ty = self.types.unit();
+                let dst = self.alloc_typed_register(unit_ty);
+                self.push_inst(Instruction::Call(
+                    dst,
+                    FunctionRef::Builtin(sym),
+                    vec![cond_reg, msg_reg],
+                ));
+                dst
+            }
+            "exit" => {
+                let arg_reg = self.lower_expr(&args[0].value);
+                self.current_span = call_span;
+                let sym = self.interner.intern("exit");
+                let never_ty = self.types.never();
+                let dst = self.alloc_typed_register(never_ty);
+                self.push_inst(Instruction::Call(
+                    dst,
+                    FunctionRef::Builtin(sym),
+                    vec![arg_reg],
+                ));
+                dst
+            }
             _ => {
                 let reg = self.alloc_register();
                 self.push_inst(Instruction::ConstUnit(reg));

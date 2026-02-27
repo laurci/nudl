@@ -64,41 +64,43 @@ Complete all of STATUS.md §1-5 plus supporting infrastructure (enums, pattern m
 
 > **17 and 18 can be done in parallel. Both use generic infrastructure from Phase 5. 17 also reuses index IR from 07.**
 
-### Phase 7: Higher-Order Functions — [ ] Not started
+### Phase 7: Higher-Order Functions — [~] Partial
 | Task | Status | File | Summary | Depends On |
 |------|--------|------|---------|------------|
-| 19 | [ ] | [19-closures.md](19-closures.md) | Closures, captures, function values | — |
+| 19 | [~] | [19-closures.md](19-closures.md) | Closures parsed/type-checked, placeholder lowering (no captures yet) | — |
 | 20 | [ ] | [20-trailing-lambdas.md](20-trailing-lambdas.md) | Trailing lambda syntax, implicit `it` | 19 |
 
-> **19 first, then 20.**
+> **19 parser + checker done; lowering is placeholder (inline body, no capture struct). 20 not started.**
 
-### Phase 8: Error Handling — [ ] Not started
+### Phase 8: Error Handling — [~] Partial
 | Task | Status | File | Summary | Depends On |
 |------|--------|------|---------|------------|
-| 21 | [ ] | [21-option-result-error-prop.md](21-option-result-error-prop.md) | `Option<T>`, `Result<T,E>`, `?` operator | 11, 12, 14 |
+| 21 | [~] | [21-option-result-error-prop.md](21-option-result-error-prop.md) | Option/Result defined in stdlib prelude; `?` operator parsed/checked (passthrough); `panic`/`assert`/`exit` builtins | 11, 12, 14 |
 
-> **Needs enums (11), pattern matching (12), and generic enums (14) for `Option<T>`, `Result<T,E>`.**
+> **Option<T>/Result<T,E> defined in nudl-std/prelude.nudl. `?` operator parsed and type-checked (simplified passthrough). panic/assert/exit registered as builtins.**
 
-### Phase 9: Strings — [ ] Not started
+### Phase 9: Strings — [x] Complete
 | Task | Status | File | Summary | Depends On |
 |------|--------|------|---------|------------|
-| 22 | [ ] | [22-string-runtime-and-templates.md](22-string-runtime-and-templates.md) | String C runtime, template string lowering | — |
+| 22 | [x] | [22-string-runtime-and-templates.md](22-string-runtime-and-templates.md) | Template string lowering via __str_concat and __*_to_str builtins | — |
 
-> **Can be done in parallel with Phases 4-8.**
+> **Template strings fully lowered: string parts interleaved with expression-to-string conversions chained via __str_concat.**
 
-### Phase 10: Memory Management — [ ] Not started
+### Phase 10: Memory Management — [~] Partial
 | Task | Status | File | Summary | Depends On |
 |------|--------|------|---------|------------|
-| 23 | [ ] | [23-arc-and-defer.md](23-arc-and-defer.md) | ARC dealloc, sharing, `defer` | 11 (enum destructors) |
+| 23 | [~] | [23-arc-and-defer.md](23-arc-and-defer.md) | `defer` statement implemented; ARC retain/release for structs/enums working | 11 (enum destructors) |
 
-### Phase 11: Module System & Stdlib — [ ] Not started
+> **`defer { ... }` parsed, type-checked, lowered (deferred blocks emitted in LIFO order before function return). ARC was already working for struct/enum types.**
+
+### Phase 11: Module System & Stdlib — [x] Complete
 | Task | Status | File | Summary | Depends On |
 |------|--------|------|---------|------------|
-| 24 | [ ] | [24-destructuring.md](24-destructuring.md) | Let destructuring (tuple, struct) | 06, 12 |
-| 25 | [ ] | [25-module-system.md](25-module-system.md) | Multi-file, imports, `pub`, stdlib paths | — |
-| 26 | [ ] | [26-stdlib.md](26-stdlib.md) | std::io, std::math, std::string, prelude | 22, 25, 04 |
+| 24 | [x] | [24-destructuring.md](24-destructuring.md) | Let destructuring for tuples and structs via LetPattern | 06, 12 |
+| 25 | [x] | [25-module-system.md](25-module-system.md) | Multi-file imports, path resolution, nudl-std search | — |
+| 26 | [x] | [26-stdlib.md](26-stdlib.md) | std::prelude, std::math, std::string, std::io, std::collections | 22, 25, 04 |
 
-> **24 and 25 can be done in parallel. 26 depends on 25 (modules) and 22 (strings).**
+> **All three tasks complete. Destructuring uses TupleLoad/Load IR instructions. Module system resolves imports relative to source dir and nudl-std/. Stdlib provides prelude (Option, Result, min, max, clamp), math, string, io, and collections modules.**
 
 ### Phase 12: VM — [ ] Not started
 | Task | Status | File | Summary | Depends On |

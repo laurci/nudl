@@ -1,0 +1,57 @@
+// nudl standard library: collections module
+// Collection data structures and utilities
+
+/// Sum all elements in a fixed-size i32 array
+fn sum_array(arr: [i32; 0], len: i32) -> i32 {
+    let mut total = 0;
+    let mut i = 0;
+    while i < len {
+        total = total + arr[i];
+        i = i + 1;
+    }
+    total
+}
+
+/// Check if a value exists in an i32 array
+fn contains(arr: [i32; 0], len: i32, value: i32) -> bool {
+    let mut i = 0;
+    while i < len {
+        if arr[i] == value {
+            return true;
+        }
+        i = i + 1;
+    }
+    false
+}
+
+/// Find the minimum value in an i32 array (returns 0 for empty)
+fn array_min(arr: [i32; 0], len: i32) -> i32 {
+    if len == 0 {
+        return 0;
+    }
+    let mut result = arr[0];
+    let mut i = 1;
+    while i < len {
+        if arr[i] < result {
+            result = arr[i];
+        }
+        i = i + 1;
+    }
+    result
+}
+
+/// Find the maximum value in an i32 array (returns 0 for empty)
+fn array_max(arr: [i32; 0], len: i32) -> i32 {
+    if len == 0 {
+        return 0;
+    }
+    let mut result = arr[0];
+    let mut i = 1;
+    while i < len {
+        if arr[i] > result {
+            result = arr[i];
+        }
+        i = i + 1;
+    }
+    result
+}

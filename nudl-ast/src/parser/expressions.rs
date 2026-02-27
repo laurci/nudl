@@ -143,6 +143,18 @@ impl Parser {
                 continue;
             }
 
+            // Postfix: `?` error propagation operator
+            if kind == TokenKind::Question {
+                let q_bp: u8 = 24; // same precedence as `as`
+                if q_bp < min_bp {
+                    break;
+                }
+                let q_tok = self.advance().clone();
+                let span = lhs.span.merge(q_tok.span);
+                lhs = Spanned::new(Expr::QuestionMark(Box::new(lhs)), span);
+                continue;
+            }
+
             // Assignment operators (right-associative)
             if let Some(assign_bp) = assign_binding_power(kind) {
                 if assign_bp < min_bp {
@@ -525,6 +537,37 @@ impl Parser {
                 let span = block.span;
                 Some(Spanned::new(Expr::Block(block.node), span))
             }
+            // Closure: |params| body or || body
+            TokenKind::Pipe => self.parse_closure(),
+            TokenKind::PipePipe => {
+                // || is a zero-parameter closure shorthand
+                let tok = self.advance().clone();
+                let start = tok.span;
+                // Parse optional return type
+                let return_type = if self.peek_kind() == TokenKind::Arrow {
+                    self.advance();
+                    Some(self.parse_type()?)
+                } else {
+                    None
+                };
+                // Parse body: either block or single expression
+                let body = if self.peek_kind() == TokenKind::LBrace {
+                    let block = self.parse_block()?;
+                    let span = block.span;
+                    Box::new(Spanned::new(Expr::Block(block.node), span))
+                } else {
+                    Box::new(self.parse_expr()?)
+                };
+                let end = body.span;
+                Some(Spanned::new(
+                    Expr::Closure {
+                        params: vec![],
+                        return_type,
+                        body,
+                    },
+                    start.merge(end),
+                ))
+            }
             _ => {
                 self.diagnostics.add(&ParserDiagnostic::ExpectedExpression {
                     span: self.peek().span,
@@ -792,5 +835,57 @@ impl Parser {
             }
         }
         args
+    }
+
+    /// Parse a closure: |params| body or |params| -> Type { body }
+    fn parse_closure(&mut self) -> Option<SpannedExpr> {
+        let start = self.expect(TokenKind::Pipe)?.span;
+
+        let mut params = Vec::new();
+        while self.peek_kind() != TokenKind::Pipe && !self.at_eof() {
+            let param_span = self.peek().span;
+            let name = self.expect(TokenKind::Ident)?.text.clone();
+            let ty = if self.eat(TokenKind::Colon) {
+                Some(self.parse_type()?)
+            } else {
+                None
+            };
+            params.push(ClosureParam {
+                name,
+                ty,
+                span: param_span,
+            });
+            if !self.eat(TokenKind::Comma) {
+                break;
+            }
+        }
+        self.expect(TokenKind::Pipe)?;
+
+        // Optional return type: -> Type
+        let return_type = if self.peek_kind() == TokenKind::Arrow {
+            self.advance();
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+
+        // Parse body: block or single expression
+        let body = if self.peek_kind() == TokenKind::LBrace {
+            let block = self.parse_block()?;
+            let span = block.span;
+            Box::new(Spanned::new(Expr::Block(block.node), span))
+        } else {
+            Box::new(self.parse_expr()?)
+        };
+
+        let end = body.span;
+        Some(Spanned::new(
+            Expr::Closure {
+                params,
+                return_type,
+                body,
+            },
+            start.merge(end),
+        ))
     }
 }

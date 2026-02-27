@@ -1,0 +1,17 @@
+// nudl standard library: io module
+// Input/Output functions
+//
+// println! is a builtin macro that doesn't need importing.
+// This module provides additional I/O utilities.
+
+// Currently, I/O beyond println! requires extern FFI.
+// These will be implemented as the runtime grows.
+
+extern "C" {
+    fn putchar(c: i32) -> i32;
+}
+
+/// Print a newline character
+fn newline() {
+    putchar(10);
+}
