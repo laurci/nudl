@@ -271,6 +271,7 @@ impl Lowerer {
             deferred_blocks: Vec::new(),
             pending_closures: &mut self.pending_closures,
             next_function_id: &mut self.next_function_id,
+            return_type: sig.return_type,
         };
 
         // Lower body — returns the register holding the result
@@ -384,6 +385,7 @@ impl Lowerer {
             deferred_blocks: Vec::new(),
             pending_closures: &mut self.pending_closures,
             next_function_id: &mut self.next_function_id,
+            return_type: closure.return_type,
         };
 
         // Load captured variables from the env pointer

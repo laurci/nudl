@@ -12,7 +12,7 @@
 - [x] SSA IR lowering framework
 - [x] LLVM backend via Inkwell (replaced ARM64 codegen + Mach-O/ELF packers)
 - [x] CLI (build, run, check, fmt commands + --dump-ast, --dump-ir, --dump-llvm-ir, --dump-asm)
-- [x] VM interpreter (register-based, step-limited, for comptime eval)
+- [x] VM interpreter (register-based, step-limited, for comptime eval) — supports closures (ClosureCreate/ClosureCall), dynamic arrays (alloc/push/pop/get/set/len), and maps (alloc/insert/get/contains/len)
 - [x] Diagnostic system with error codes and severity levels
 - [x] Source map and span tracking
 - [x] String interning
@@ -54,7 +54,7 @@
 - [x] Range (.., ..=) — parsed as infix operators, used in for-in loops via while-loop desugaring (`tests/operators/range.nudl`)
 - [x] Pipe (|>) — parsed and desugared to function calls at parse time (`tests/operators/pipe.nudl`)
 - [x] Type cast (as) — postfix `as Type` with numeric↔numeric, bool→int, char↔u32, ptr casts (`tests/operators/type_cast.nudl`)
-- [~] Error propagation (?) — parsed as postfix operator, type-checked (passthrough), lowered (passthrough); full unwrap/propagation semantics not yet implemented (`tests/operators/error_propagation.nudl`)
+- [x] Error propagation (?) — parsed as postfix operator; type checker extracts inner type from Option<T>/Result<T,E>; lowered to tag check + branch with early return (None for Option, Err(e) for Result) (`tests/operators/error_propagation.nudl`)
 - [x] Precedence — Pratt climbing with correct binding power levels (`tests/operators/precedence.nudl`)
 
 ## 4. Control Flow
@@ -75,29 +75,29 @@
 - [ ] Optional parameters (`tests/functions/optional_params.nudl`)
 - [x] Closures — `|params| body` and `|params| -> T { body }` syntax; free variable capture analysis; capture environment heap-allocated as ARC object; closure thunks lowered as separate functions with env as first param; indirect call via function pointer; SSA instructions ClosureCreate/ClosureCall; LLVM codegen with ptrtoint/inttoptr for function pointers (`tests/functions/closures.nudl`)
 - [x] Methods — `impl` blocks parsed, methods registered with mangled names (`Type__method`), `self`/`mut self` params, method calls `obj.method()` and static calls `Type::method()` (`tests/functions/methods.nudl`)
-- [ ] Trailing lambdas (`tests/functions/trailing_lambda.nudl`)
+- [x] Trailing lambdas — `func(args) |x| body`, `func(args) || body`, `func(args) { body }` (implicit `it` param); trailing closure appended as last argument at parse time (`tests/functions/trailing_lambda.nudl`)
 
 ## 6. User-Defined Types
-- [ ] Unit structs (`tests/user-defined-types/struct_unit.nudl`)
-- [ ] Tuple structs (`tests/user-defined-types/struct_tuple.nudl`)
+- [x] Unit structs — `struct Foo;` parsed, type-checked, constructed via identifier (Alloc + Retain) (`tests/user-defined-types/struct_unit.nudl`)
+- [x] Tuple structs — `struct Foo(T1, T2);` parsed with positional fields ("0", "1", ...), constructed via call syntax (Alloc + Store fields + Retain) (`tests/user-defined-types/struct_tuple.nudl`)
 - [~] Named structs — declaration, construction, field access, field assignment, ARC caller-retain/callee-release, scope-exit release, impl blocks with methods, let destructuring (`tests/user-defined-types/struct_simple.nudl`); no generics or spread yet
 - [ ] Struct spread (`tests/user-defined-types/struct_spread.nudl`)
 - [x] Unit enum variants — `enum Color { Red, Green, Blue }` parsed, type-checked, lowered as tag-only heap objects (`tests/user-defined-types/enum_unit.nudl`)
 - [x] Struct enum variants — `enum Shape { Circle { radius: i32 } }` parsed and type-checked (`tests/user-defined-types/enum_struct.nudl`)
 - [x] Data enum variants — `enum Shape { Circle(i32), Rectangle(i32, i32) }` parsed, type-checked, lowered with tag + fields; impl blocks on enums work (`tests/user-defined-types/enum_data.nudl`)
-- [ ] Type aliases (`tests/user-defined-types/type_aliases.nudl`)
+- [x] Type aliases — `type Name = ExistingType;` parsed, resolved during type checking, used transparently in all type positions (`tests/user-defined-types/type_aliases.nudl`)
 
 ## 7. Pattern Matching
 - [x] Literal patterns — integer, bool, string literals in match arms (`tests/pattern-matching/literal_patterns.nudl`)
-- [~] Tuple patterns — parsed but not fully lowered (wildcard semantics currently) (`tests/pattern-matching/tuple_patterns.nudl`)
-- [~] Struct patterns — `Struct { field, .. }` patterns in let destructuring; match arm struct patterns not yet lowered (`tests/pattern-matching/struct_patterns.nudl`)
+- [x] Tuple patterns — `(a, b, c)` patterns in match arms; lowered via TupleLoad to extract elements and bind to variables (`tests/pattern-matching/tuple_patterns.nudl`)
+- [x] Struct patterns — `Struct { field, .. }` patterns in both let destructuring and match arms; lowered via Load to extract fields by index (`tests/pattern-matching/struct_patterns.nudl`)
 - [x] Enum patterns — `Enum::Variant(binding)` with tag comparison and field extraction (`tests/pattern-matching/enum_patterns.nudl`)
 - [ ] Nested patterns (`tests/pattern-matching/nested_patterns.nudl`)
 - [ ] Or patterns (`tests/pattern-matching/or_patterns.nudl`)
 - [x] Binding patterns — `name` binds the scrutinee to a variable in the arm body (`tests/pattern-matching/binding_patterns.nudl`)
 - [x] Wildcard patterns — `_` matches anything (`tests/pattern-matching/wildcard_patterns.nudl`)
 - [ ] Range patterns (`tests/pattern-matching/range_patterns.nudl`)
-- [ ] Guard clauses (`tests/pattern-matching/guard_clauses.nudl`)
+- [x] Guard clauses — `pattern if condition => body` in match arms; guard evaluated after pattern match, branches to next arm on failure (`tests/pattern-matching/guard_clauses.nudl`)
 - [ ] Exhaustiveness checking (`tests/pattern-matching/exhaustiveness.nudl`)
 
 ## 8. Generics
@@ -116,13 +116,13 @@
 - [ ] Generic interfaces (`tests/interfaces/generic_interfaces.nudl`)
 - [~] Dynamic dispatch (dyn) — `dyn Interface` type parsed and in type system; no vtable codegen yet (`tests/interfaces/dynamic_dispatch.nudl`)
 - [x] Method resolution — methods resolved via mangled names `Type__method` for both structs and enums (`tests/interfaces/method_resolution.nudl`)
-- [ ] Operator overloading (`tests/interfaces/operator_overloading.nudl`)
+- [x] Operator overloading — binary operators (+, -, *, /, %, ==, !=, <, <=, >, >=) dispatch to interface methods (add, sub, mul, div, rem, eq, ne, lt, le, gt, ge) via mangled `Type__method` lookup; prelude defines Add, Sub, Mul, Div, Rem, Eq, Ord, Neg interfaces (`tests/interfaces/operator_overloading.nudl`)
 
 ## 10. Error Handling
 - [~] Option type — `Option<T>` enum (Some/None) defined in nudl-std/prelude.nudl; type system supports it via generic enums (`tests/error-handling/option.nudl`)
 - [~] Result type — `Result<T, E>` enum (Ok/Err) defined in nudl-std/prelude.nudl (`tests/error-handling/result.nudl`)
 - [x] Panic — `panic(string)` registered as builtin, type-checked, lowered to builtin call (`tests/error-handling/panic.nudl`)
-- [~] ? operator — parsed as postfix operator, type-checked (passthrough), lowered (passthrough); full unwrap/early-return not yet implemented (`tests/error-handling/question_mark.nudl`)
+- [x] ? operator — parsed as postfix operator; type checker extracts T from Option<T> (Some variant) and Result<T,E> (Ok variant); lowered to tag check + branch with early return of None/Err (`tests/error-handling/question_mark.nudl`)
 
 ## 11. Memory Management
 - [~] ARC runtime — C runtime (alloc, release_slow, overflow_abort, weak ops) + inline LLVM retain/release; SSA instructions (Alloc, Load, Store, Retain, Release) in IR + backend + VM; compiler emits Retain/Release for struct and enum types (caller-retain, callee-release, scope-exit release)
@@ -178,7 +178,7 @@
 - [ ] Derive macros
 - [ ] Build scripts (build.nudl)
 - [ ] Package/dependency management (nudl.toml)
-- [x] Standard library — nudl-std/ with prelude (Option, Result, min, max, clamp), math (PI, E, abs, pow, gcd, lcm), string (is_empty, repeat, join), io (putchar, newline), collections (sum_array, contains, array_min, array_max)
+- [x] Standard library — nudl-std/ with prelude (Option, Result, min, max, clamp, operator interfaces: Add, Sub, Mul, Div, Rem, Eq, Ord, Neg), math (PI, E, abs, pow, gcd, lcm), string (is_empty, repeat, join), io (putchar, newline), collections (sum_array, contains, array_min, array_max)
 - [ ] Const at module level
 - [ ] Extern statics
 - [ ] Callbacks (#[extern_callable])

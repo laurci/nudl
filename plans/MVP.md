@@ -64,20 +64,20 @@ Complete all of STATUS.md §1-5 plus supporting infrastructure (enums, pattern m
 
 > **17 and 18 can be done in parallel. Both use generic infrastructure from Phase 5. 17 also reuses index IR from 07.**
 
-### Phase 7: Higher-Order Functions — [~] Partial
+### Phase 7: Higher-Order Functions — [x] Complete
 | Task | Status | File | Summary | Depends On |
 |------|--------|------|---------|------------|
-| 19 | [~] | [19-closures.md](19-closures.md) | Closures parsed/type-checked, placeholder lowering (no captures yet) | — |
-| 20 | [ ] | [20-trailing-lambdas.md](20-trailing-lambdas.md) | Trailing lambda syntax, implicit `it` | 19 |
+| 19 | [x] | [19-closures.md](19-closures.md) | Closures with capture environments, heap-allocated ARC'd capture structs, indirect call via function pointer | — |
+| 20 | [x] | [20-trailing-lambdas.md](20-trailing-lambdas.md) | Trailing lambda syntax: `f(args) |x| body`, `f(args) || body`, `f(args) { body }` (implicit `it` param) | 19 |
 
-> **19 parser + checker done; lowering is placeholder (inline body, no capture struct). 20 not started.**
+> **Closures fully implemented with capture analysis and heap-allocated environments. Trailing lambdas parsed in 3 forms and appended as last call argument.**
 
-### Phase 8: Error Handling — [~] Partial
+### Phase 8: Error Handling — [x] Complete
 | Task | Status | File | Summary | Depends On |
 |------|--------|------|---------|------------|
-| 21 | [~] | [21-option-result-error-prop.md](21-option-result-error-prop.md) | Option/Result defined in stdlib prelude; `?` operator parsed/checked (passthrough); `panic`/`assert`/`exit` builtins | 11, 12, 14 |
+| 21 | [x] | [21-option-result-error-prop.md](21-option-result-error-prop.md) | Option/Result in prelude; `?` operator with full unwrap/early-return semantics; `panic`/`assert`/`exit` builtins | 11, 12, 14 |
 
-> **Option<T>/Result<T,E> defined in nudl-std/prelude.nudl. `?` operator parsed and type-checked (simplified passthrough). panic/assert/exit registered as builtins.**
+> **Option<T>/Result<T,E> defined in nudl-std/prelude.nudl. `?` operator extracts T from Option (Some) and Result (Ok), early-returns None/Err(e) on failure. panic/assert/exit registered as builtins.**
 
 ### Phase 9: Strings — [x] Complete
 | Task | Status | File | Summary | Depends On |
@@ -102,12 +102,12 @@ Complete all of STATUS.md §1-5 plus supporting infrastructure (enums, pattern m
 
 > **All three tasks complete. Destructuring uses TupleLoad/Load IR instructions. Module system resolves imports relative to source dir and nudl-std/. Stdlib provides prelude (Option, Result, min, max, clamp), math, string, io, and collections modules.**
 
-### Phase 12: VM — [ ] Not started
+### Phase 12: VM — [x] Complete
 | Task | Status | File | Summary | Depends On |
 |------|--------|------|---------|------------|
-| 27 | [ ] | [27-vm-updates.md](27-vm-updates.md) | VM support for all new IR instructions | All above |
+| 27 | [x] | [27-vm-updates.md](27-vm-updates.md) | VM support for closures (ClosureCreate/ClosureCall), dynamic arrays (alloc/push/pop/get/set/len), maps (alloc/insert/get/contains/len) | All above |
 
-> **Can be done incrementally alongside each task, or as a final sweep.**
+> **VM fully supports closures via heap objects, dynamic arrays via VmDynArray, and maps via VmMap. All new IR instructions implemented.**
 
 ## Dependency Graph (Critical Path)
 

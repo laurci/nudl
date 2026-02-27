@@ -52,8 +52,16 @@ impl Parser {
                     if self.peek_kind() == TokenKind::LParen {
                         let start = lhs.span;
                         self.advance(); // consume '('
-                        let args = self.parse_call_args();
-                        let end = self.expect(TokenKind::RParen)?.span;
+                        let mut args = self.parse_call_args();
+                        let mut end = self.expect(TokenKind::RParen)?.span;
+                        // Trailing lambda: obj.method(args) |params| body
+                        if let Some(trailing) = self.try_parse_trailing_lambda() {
+                            end = trailing.span;
+                            args.push(CallArg {
+                                name: None,
+                                value: trailing,
+                            });
+                        }
                         lhs = Spanned::new(
                             Expr::MethodCall {
                                 object: Box::new(lhs),
@@ -111,8 +119,16 @@ impl Parser {
                 }
                 let start = lhs.span;
                 self.advance(); // (
-                let args = self.parse_call_args();
-                let end = self.expect(TokenKind::RParen)?.span;
+                let mut args = self.parse_call_args();
+                let mut end = self.expect(TokenKind::RParen)?.span;
+                // Trailing lambda: func(args) |params| body or func(args) { body }
+                if let Some(trailing) = self.try_parse_trailing_lambda() {
+                    end = trailing.span;
+                    args.push(CallArg {
+                        name: None,
+                        value: trailing,
+                    });
+                }
                 lhs = Spanned::new(
                     Expr::Call {
                         callee: Box::new(lhs),
@@ -326,8 +342,16 @@ impl Parser {
                     if self.peek_kind() == TokenKind::LParen {
                         // Call: Type::method(args) or Enum::Variant(args)
                         self.advance(); // consume '('
-                        let args = self.parse_call_args();
-                        let end = self.expect(TokenKind::RParen)?.span;
+                        let mut args = self.parse_call_args();
+                        let mut end = self.expect(TokenKind::RParen)?.span;
+                        // Trailing lambda: Type::method(args) |params| body
+                        if let Some(trailing) = self.try_parse_trailing_lambda() {
+                            end = trailing.span;
+                            args.push(CallArg {
+                                name: None,
+                                value: trailing,
+                            });
+                        }
                         return Some(Spanned::new(
                             Expr::StaticCall {
                                 type_name: type_tok.text.clone(),
@@ -835,6 +859,59 @@ impl Parser {
             }
         }
         args
+    }
+
+    /// Try to parse a trailing lambda after a call expression.
+    /// Supports: `func(args) |params| body` and `func(args) { body }` (implicit `it` parameter).
+    fn try_parse_trailing_lambda(&mut self) -> Option<SpannedExpr> {
+        match self.peek_kind() {
+            TokenKind::Pipe => self.parse_closure(),
+            TokenKind::PipePipe => {
+                // || body — zero-parameter trailing closure
+                let tok = self.advance().clone();
+                let start = tok.span;
+                let return_type = if self.peek_kind() == TokenKind::Arrow {
+                    self.advance();
+                    Some(self.parse_type()?)
+                } else {
+                    None
+                };
+                let body = if self.peek_kind() == TokenKind::LBrace {
+                    let block = self.parse_block()?;
+                    let span = block.span;
+                    Box::new(Spanned::new(Expr::Block(block.node), span))
+                } else {
+                    Box::new(self.parse_expr()?)
+                };
+                let end = body.span;
+                Some(Spanned::new(
+                    Expr::Closure {
+                        params: vec![],
+                        return_type,
+                        body,
+                    },
+                    start.merge(end),
+                ))
+            }
+            TokenKind::LBrace => {
+                // Implicit `it` parameter: func(args) { body }
+                let block = self.parse_block()?;
+                let span = block.span;
+                Some(Spanned::new(
+                    Expr::Closure {
+                        params: vec![ClosureParam {
+                            name: "it".to_string(),
+                            ty: None,
+                            span,
+                        }],
+                        return_type: None,
+                        body: Box::new(Spanned::new(Expr::Block(block.node), span)),
+                    },
+                    span,
+                ))
+            }
+            _ => None,
+        }
     }
 
     /// Parse a closure: |params| body or |params| -> Type { body }

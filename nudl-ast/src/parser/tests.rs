@@ -374,4 +374,24 @@ fn main() {
         );
         assert_eq!(module.items.len(), 2);
     }
+
+    #[test]
+    fn parse_trailing_lambda() {
+        let module = parse(
+            r#"
+fn main() {
+    let a = foo(1, 2) |x: i32| x + 1;
+    let b = bar() { it + 1 };
+    let c = baz(1) || { 42 };
+}
+"#,
+        );
+        // Just check that it parses without error
+        assert_eq!(module.items.len(), 1);
+        if let Item::FnDef { body, .. } = &module.items[0].node {
+            assert_eq!(body.node.stmts.len(), 3);
+        } else {
+            panic!("expected function");
+        }
+    }
 }

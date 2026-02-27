@@ -53,6 +53,12 @@ pub enum Item {
         items: Option<Vec<String>>, // None = import whole module, Some = specific items
         alias: Option<String>,      // e.g., `as p`
     },
+    /// Type alias: `type Name = ExistingType;`
+    TypeAlias {
+        name: String,
+        ty: Spanned<TypeExpr>,
+        is_pub: bool,
+    },
 }
 
 #[derive(Debug, Clone)]

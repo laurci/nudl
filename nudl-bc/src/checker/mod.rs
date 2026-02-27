@@ -62,6 +62,8 @@ pub struct Checker {
     pub(super) interfaces: HashMap<String, TypeId>,
     /// Map from interface name → set of type names that implement it
     pub(super) interface_impls: HashMap<String, Vec<String>>,
+    /// Type aliases: name → resolved TypeId
+    pub(super) type_aliases: HashMap<String, TypeId>,
     pub(super) found_main: bool,
     pub(super) current_return_type: Option<TypeId>,
 }
@@ -76,6 +78,7 @@ impl Checker {
             enums: HashMap::new(),
             interfaces: HashMap::new(),
             interface_impls: HashMap::new(),
+            type_aliases: HashMap::new(),
             found_main: false,
             current_return_type: None,
         }

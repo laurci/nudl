@@ -16,6 +16,7 @@ impl Parser {
             TokenKind::Interface => self.parse_interface_def(is_pub),
             TokenKind::Impl => self.parse_impl_block(),
             TokenKind::Extern => self.parse_extern_block(),
+            TokenKind::Type => self.parse_type_alias(is_pub),
             _ => {
                 if is_pub {
                     self.diagnostics.add(&ParserDiagnostic::UnexpectedToken {
@@ -72,6 +73,55 @@ impl Parser {
 
         let type_params = self.parse_optional_type_params();
 
+        if self.peek_kind() == TokenKind::Semi {
+            // Unit struct: `struct Foo;`
+            let end = self.advance().span;
+            return Some(Spanned::new(
+                Item::StructDef {
+                    name,
+                    type_params,
+                    fields: Vec::new(),
+                    is_pub,
+                },
+                start.merge(end),
+            ));
+        }
+
+        if self.peek_kind() == TokenKind::LParen {
+            // Tuple struct: `struct Foo(T1, T2);`
+            self.advance(); // consume '('
+            let mut fields = Vec::new();
+            let mut idx = 0;
+            while self.peek_kind() != TokenKind::RParen && !self.at_eof() {
+                let ty = self.parse_type()?;
+                let span = ty.span;
+                fields.push(StructField {
+                    name: format!("{}", idx),
+                    ty,
+                    span,
+                });
+                idx += 1;
+                if !self.eat(TokenKind::Comma) {
+                    break;
+                }
+            }
+            let mut end = self.expect(TokenKind::RParen)?.span;
+            // Optional semicolon
+            if self.peek_kind() == TokenKind::Semi {
+                end = self.advance().span;
+            }
+            return Some(Spanned::new(
+                Item::StructDef {
+                    name,
+                    type_params,
+                    fields,
+                    is_pub,
+                },
+                start.merge(end),
+            ));
+        }
+
+        // Named struct: `struct Foo { field: T, ... }`
         self.expect(TokenKind::LBrace)?;
 
         let mut fields = Vec::new();
@@ -784,6 +834,21 @@ impl Parser {
                 items: None,
                 alias,
             },
+            start.merge(end),
+        ))
+    }
+
+    fn parse_type_alias(&mut self, is_pub: bool) -> Option<SpannedItem> {
+        let start = self.expect(TokenKind::Type)?.span;
+        let name_tok = self.expect(TokenKind::Ident)?;
+        let name = name_tok.text.clone();
+        self.expect(TokenKind::Eq)?;
+        let ty = self.parse_type()?;
+        let end = ty.span;
+        // Optional semicolon
+        self.eat(TokenKind::Semi);
+        Some(Spanned::new(
+            Item::TypeAlias { name, ty, is_pub },
             start.merge(end),
         ))
     }

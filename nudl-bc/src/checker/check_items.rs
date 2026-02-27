@@ -57,6 +57,7 @@ impl Checker {
             }
             Item::ExternBlock { .. } => {} // Already handled in pass 1
             Item::Import { .. } => {}    // Handled at pipeline level
+            Item::TypeAlias { .. } => {} // Already handled in collect pass
         }
     }
 
