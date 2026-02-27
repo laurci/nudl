@@ -29,6 +29,22 @@ pub enum Value {
     RawPtr(u64),
     /// ARC heap object reference (index into Vm::heap).
     HeapRef(u64),
+    /// Dynamic array reference (index into Vm::dyn_arrays).
+    DynArrayRef(u64),
+    /// Map reference (index into Vm::maps).
+    MapRef(u64),
+}
+
+/// VM-internal dynamic array.
+#[derive(Debug, Clone)]
+pub(crate) struct VmDynArray {
+    pub(crate) elements: Vec<Value>,
+}
+
+/// VM-internal map (key-value pairs, linear search).
+#[derive(Debug, Clone)]
+pub(crate) struct VmMap {
+    pub(crate) entries: Vec<(Value, Value)>,
 }
 
 impl fmt::Display for Value {
@@ -44,6 +60,8 @@ impl fmt::Display for Value {
             Value::String(idx) => write!(f, "string[{}]", idx),
             Value::RawPtr(v) => write!(f, "ptr(0x{:x})", v),
             Value::HeapRef(id) => write!(f, "heap({})", id),
+            Value::DynArrayRef(id) => write!(f, "dyn_array({})", id),
+            Value::MapRef(id) => write!(f, "map({})", id),
         }
     }
 }

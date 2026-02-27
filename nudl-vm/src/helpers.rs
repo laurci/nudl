@@ -52,5 +52,7 @@ pub(crate) fn is_truthy(val: &Value) -> bool {
         Value::String(_) => true,
         Value::RawPtr(v) => *v != 0,
         Value::HeapRef(_) => true,
+        Value::DynArrayRef(_) => true,
+        Value::MapRef(_) => true,
     }
 }

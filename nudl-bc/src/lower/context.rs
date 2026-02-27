@@ -40,6 +40,8 @@ pub struct FunctionLowerCtx<'a> {
     pub(super) pending_closures: &'a mut Vec<PendingClosure>,
     /// Next function ID counter (shared with Lowerer)
     pub(super) next_function_id: &'a mut u32,
+    /// Return type of the current function (for ? operator early return)
+    pub(super) return_type: nudl_core::types::TypeId,
 }
 
 impl<'a> FunctionLowerCtx<'a> {

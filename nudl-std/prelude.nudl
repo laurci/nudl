@@ -13,6 +13,45 @@ enum Result {
     Err(i32),
 }
 
+// Operator overloading interfaces
+// Types implementing these interfaces can use the corresponding operators.
+
+interface Add {
+    fn add(self, other: Self) -> Self;
+}
+
+interface Sub {
+    fn sub(self, other: Self) -> Self;
+}
+
+interface Mul {
+    fn mul(self, other: Self) -> Self;
+}
+
+interface Div {
+    fn div(self, other: Self) -> Self;
+}
+
+interface Rem {
+    fn rem(self, other: Self) -> Self;
+}
+
+interface Eq {
+    fn eq(self, other: Self) -> bool;
+    fn ne(self, other: Self) -> bool;
+}
+
+interface Ord {
+    fn lt(self, other: Self) -> bool;
+    fn le(self, other: Self) -> bool;
+    fn gt(self, other: Self) -> bool;
+    fn ge(self, other: Self) -> bool;
+}
+
+interface Neg {
+    fn neg(self) -> Self;
+}
+
 // Basic utility functions
 
 /// Returns the minimum of two i32 values

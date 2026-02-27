@@ -4,7 +4,7 @@ use nudl_bc::ir::*;
 use nudl_core::intern::Symbol;
 
 use crate::helpers::is_truthy;
-use crate::types::HeapObject;
+use crate::types::{HeapObject, VmDynArray, VmMap};
 use crate::{Value, VmError};
 
 pub(crate) const DEFAULT_STEP_LIMIT: u64 = 1_000_000;
@@ -18,6 +18,12 @@ pub struct Vm {
     /// Simulated heap for ARC objects (comptime).
     pub(crate) heap: HashMap<u64, HeapObject>,
     pub(crate) next_heap_id: u64,
+    /// VM-internal dynamic arrays.
+    pub(crate) dyn_arrays: HashMap<u64, VmDynArray>,
+    pub(crate) next_dyn_array_id: u64,
+    /// VM-internal maps.
+    pub(crate) maps: HashMap<u64, VmMap>,
+    pub(crate) next_map_id: u64,
 }
 
 impl Vm {
@@ -27,7 +33,11 @@ impl Vm {
             step_limit: DEFAULT_STEP_LIMIT,
             call_depth: 0,
             heap: HashMap::new(),
-            next_heap_id: 1, // 0 reserved for "null"
+            next_heap_id: 1,
+            dyn_arrays: HashMap::new(),
+            next_dyn_array_id: 1,
+            maps: HashMap::new(),
+            next_map_id: 1,
         }
     }
 
@@ -38,6 +48,10 @@ impl Vm {
             call_depth: 0,
             heap: HashMap::new(),
             next_heap_id: 1,
+            dyn_arrays: HashMap::new(),
+            next_dyn_array_id: 1,
+            maps: HashMap::new(),
+            next_map_id: 1,
         }
     }
 

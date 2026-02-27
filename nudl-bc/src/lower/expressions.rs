@@ -44,6 +44,19 @@ impl<'a> FunctionLowerCtx<'a> {
                             }
                         }
                     }
+                    // Check if it's a tuple struct constructor: Foo(val1, val2)
+                    if let Some(&struct_ty) = self.struct_defs.get(name) {
+                        let dst = self.alloc_typed_register(struct_ty);
+                        self.push_inst(Instruction::Alloc(dst, struct_ty));
+                        // Lower args and store them as positional fields
+                        for (i, arg) in args.iter().enumerate() {
+                            let val = self.lower_expr(&arg.value);
+                            self.push_inst(Instruction::Store(dst, i as u32, val));
+                        }
+                        // ARC retain for newly allocated
+                        self.push_inst(Instruction::Retain(dst));
+                        return dst;
+                    }
                 }
                 // Fallback: emit unit
                 let unit_reg = self.alloc_register();
@@ -259,6 +272,12 @@ impl<'a> FunctionLowerCtx<'a> {
             Expr::Ident(name) => {
                 if let Some(&reg) = self.locals.get(name) {
                     reg
+                } else if let Some(&struct_ty) = self.struct_defs.get(name) {
+                    // Unit struct constructor
+                    let dst = self.alloc_typed_register(struct_ty);
+                    self.push_inst(Instruction::Alloc(dst, struct_ty));
+                    self.push_inst(Instruction::Retain(dst));
+                    dst
                 } else {
                     // Should have been caught by checker
                     let reg = self.alloc_register();
@@ -292,6 +311,32 @@ impl<'a> FunctionLowerCtx<'a> {
                     BinOp::And => return self.lower_short_circuit_and(left, right),
                     BinOp::Or => return self.lower_short_circuit_or(left, right),
                     _ => {}
+                }
+
+                // Check for operator overloading: if lhs is a struct/enum with the right method
+                let op_method = match op {
+                    BinOp::Add => Some("add"),
+                    BinOp::Sub => Some("sub"),
+                    BinOp::Mul => Some("mul"),
+                    BinOp::Div => Some("div"),
+                    BinOp::Mod => Some("rem"),
+                    BinOp::Eq => Some("eq"),
+                    BinOp::Ne => Some("ne"),
+                    BinOp::Lt => Some("lt"),
+                    BinOp::Le => Some("le"),
+                    BinOp::Gt => Some("gt"),
+                    BinOp::Ge => Some("ge"),
+                    _ => None,
+                };
+                if let Some(method_name) = op_method {
+                    if let Some(type_name) = self.infer_receiver_type_name(left) {
+                        let mangled = format!("{}__{}", type_name, method_name);
+                        if let Some(sig) = self.function_sigs.get(&mangled).cloned() {
+                            let self_reg = self.lower_expr(left);
+                            let arg_args = &[CallArg { name: None, value: (**right).clone() }];
+                            return self.lower_method_call(&mangled, &sig, self_reg, arg_args);
+                        }
+                    }
                 }
 
                 let binop_span = self.current_span;
@@ -952,9 +997,7 @@ impl<'a> FunctionLowerCtx<'a> {
             }
 
             Expr::QuestionMark(inner) => {
-                // ? operator: simplified - just evaluate the inner expression
-                // In full implementation, would check for None/Err and early return
-                self.lower_expr(inner)
+                self.lower_question_mark(inner)
             }
         }
     }
@@ -1281,10 +1324,67 @@ impl<'a> FunctionLowerCtx<'a> {
                     );
                 }
             }
-            Pattern::Tuple(_) | Pattern::Struct { .. } => {
-                // Tuple/Struct pattern matching - use wildcard semantics for now
+            Pattern::Tuple(elements) => {
+                // Tuple destructuring in match: bind elements and execute body
+                self.locals.push_scope();
+                self.local_types.push_scope();
+                if let Some(ty) = scrutinee_ty {
+                    if let nudl_core::types::TypeKind::Tuple(elem_types) =
+                        self.types.resolve(ty).clone()
+                    {
+                        for (i, pat) in elements.iter().enumerate() {
+                            let elem_ty = elem_types.get(i).copied();
+                            let elem_reg = self.alloc_register();
+                            self.push_inst(Instruction::TupleLoad(
+                                elem_reg,
+                                scrutinee_reg,
+                                i as u32,
+                            ));
+                            if let Some(ety) = elem_ty {
+                                self.register_types[elem_reg.0 as usize] = ety;
+                            }
+                            self.lower_pattern_binding(&pat.node, elem_reg, elem_ty);
+                        }
+                    }
+                }
                 let body_result = self.lower_expr(&arm.body);
                 self.push_inst(Instruction::Copy(result_reg, body_result));
+                self.local_types.pop_scope();
+                self.locals.pop_scope();
+                self.finish_block(Terminator::Jump(merge_block));
+            }
+            Pattern::Struct { name, fields, .. } => {
+                // Struct destructuring in match: bind fields and execute body
+                self.locals.push_scope();
+                self.local_types.push_scope();
+                if let Some(&struct_ty) = self.struct_defs.get(name) {
+                    if let nudl_core::types::TypeKind::Struct {
+                        fields: struct_fields,
+                        ..
+                    } = self.types.resolve(struct_ty).clone()
+                    {
+                        for (field_name, pat) in fields {
+                            if let Some((idx, (_, field_ty))) = struct_fields
+                                .iter()
+                                .enumerate()
+                                .find(|(_, (n, _))| n == field_name)
+                            {
+                                let ft = *field_ty;
+                                let field_reg = self.alloc_typed_register(ft);
+                                self.push_inst(Instruction::Load(
+                                    field_reg,
+                                    scrutinee_reg,
+                                    idx as u32,
+                                ));
+                                self.lower_pattern_binding(&pat.node, field_reg, Some(ft));
+                            }
+                        }
+                    }
+                }
+                let body_result = self.lower_expr(&arm.body);
+                self.push_inst(Instruction::Copy(result_reg, body_result));
+                self.local_types.pop_scope();
+                self.locals.pop_scope();
                 self.finish_block(Terminator::Jump(merge_block));
             }
         }
@@ -1439,6 +1539,141 @@ impl<'a> FunctionLowerCtx<'a> {
         let rhs = self.lower_expr(right);
         self.push_inst(Instruction::Copy(result_reg, rhs));
         self.finish_block(Terminator::Jump(merge_block));
+
+        self.start_block(merge_block);
+        result_reg
+    }
+
+    /// Lower the `?` operator for Option and Result types.
+    /// For Option: if None, early return None; else extract Some(T) value.
+    /// For Result: if Err(e), early return Err(e); else extract Ok(T) value.
+    fn lower_question_mark(
+        &mut self,
+        inner: &nudl_core::span::Spanned<Expr>,
+    ) -> Register {
+        let inner_reg = self.lower_expr(inner);
+        let inner_ty = self.infer_expr_type(inner);
+        let result_reg = self.alloc_register();
+
+        // Check if this is an Option or Result enum
+        let enum_info = inner_ty.and_then(|ty| {
+            if let nudl_core::types::TypeKind::Enum { name, variants } =
+                self.types.resolve(ty).clone()
+            {
+                Some((name, variants))
+            } else {
+                None
+            }
+        });
+
+        let (name, variants) = match enum_info {
+            Some(info) => info,
+            None => {
+                // Not an enum — just pass through
+                self.push_inst(Instruction::Copy(result_reg, inner_reg));
+                return result_reg;
+            }
+        };
+
+        // Load the tag from the enum
+        let tag_reg = self.alloc_register();
+        self.push_inst(Instruction::Load(tag_reg, inner_reg, 0));
+
+        let success_block = self.new_block_id();
+        let error_block = self.new_block_id();
+        let merge_block = self.new_block_id();
+
+        if name == "Option" {
+            // Option: Some = tag 0, None = tag 1
+            let some_tag = variants
+                .iter()
+                .enumerate()
+                .find(|(_, v)| v.name == "Some")
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            let some_tag_reg = self.alloc_register();
+            self.push_inst(Instruction::Const(
+                some_tag_reg,
+                ConstValue::I32(some_tag as i32),
+            ));
+            let is_some = self.alloc_register();
+            self.push_inst(Instruction::Eq(is_some, tag_reg, some_tag_reg));
+            self.finish_block(Terminator::Branch(is_some, success_block, error_block));
+
+            // Success: extract the value from Some(T)
+            self.start_block(success_block);
+            self.push_inst(Instruction::Load(result_reg, inner_reg, 1));
+            self.finish_block(Terminator::Jump(merge_block));
+
+            // Error: early return None
+            self.start_block(error_block);
+            // Construct a None value to return
+            let none_tag = variants
+                .iter()
+                .enumerate()
+                .find(|(_, v)| v.name == "None")
+                .map(|(i, _)| i)
+                .unwrap_or(1);
+            let ret_ty = self.return_type;
+            let none_reg = self.alloc_register();
+            self.push_inst(Instruction::Alloc(none_reg, ret_ty));
+            let none_tag_val = self.alloc_register();
+            self.push_inst(Instruction::Const(
+                none_tag_val,
+                ConstValue::I32(none_tag as i32),
+            ));
+            self.push_inst(Instruction::Store(none_reg, 0, none_tag_val));
+            self.finish_block(Terminator::Return(none_reg));
+        } else if name == "Result" {
+            // Result: Ok = tag 0, Err = tag 1
+            let ok_tag = variants
+                .iter()
+                .enumerate()
+                .find(|(_, v)| v.name == "Ok")
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            let ok_tag_reg = self.alloc_register();
+            self.push_inst(Instruction::Const(
+                ok_tag_reg,
+                ConstValue::I32(ok_tag as i32),
+            ));
+            let is_ok = self.alloc_register();
+            self.push_inst(Instruction::Eq(is_ok, tag_reg, ok_tag_reg));
+            self.finish_block(Terminator::Branch(is_ok, success_block, error_block));
+
+            // Success: extract value from Ok(T)
+            self.start_block(success_block);
+            self.push_inst(Instruction::Load(result_reg, inner_reg, 1));
+            self.finish_block(Terminator::Jump(merge_block));
+
+            // Error: early return Err(E) — propagate the original error
+            self.start_block(error_block);
+            let ret_ty = self.return_type;
+            let err_reg = self.alloc_register();
+            self.push_inst(Instruction::Alloc(err_reg, ret_ty));
+            // Copy the tag
+            let err_tag = variants
+                .iter()
+                .enumerate()
+                .find(|(_, v)| v.name == "Err")
+                .map(|(i, _)| i)
+                .unwrap_or(1);
+            let err_tag_val = self.alloc_register();
+            self.push_inst(Instruction::Const(
+                err_tag_val,
+                ConstValue::I32(err_tag as i32),
+            ));
+            self.push_inst(Instruction::Store(err_reg, 0, err_tag_val));
+            // Copy the error value from the original
+            let err_val = self.alloc_register();
+            self.push_inst(Instruction::Load(err_val, inner_reg, 1));
+            self.push_inst(Instruction::Store(err_reg, 1, err_val));
+            self.finish_block(Terminator::Return(err_reg));
+        } else {
+            // Unknown enum — just pass through
+            self.push_inst(Instruction::Copy(result_reg, inner_reg));
+            self.finish_block(Terminator::Jump(merge_block));
+        }
 
         self.start_block(merge_block);
         result_reg

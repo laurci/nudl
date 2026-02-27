@@ -32,6 +32,9 @@ impl Checker {
             Expr::Ident(name) => {
                 if let Some(info) = locals.get(name) {
                     info.ty
+                } else if let Some(&struct_ty) = self.structs.get(name.as_str()) {
+                    // Unit struct constructor: just the name creates an instance
+                    struct_ty
                 } else {
                     self.diagnostics.add(&CheckerDiagnostic::UndefinedVariable {
                         span: expr.span,
@@ -71,6 +74,31 @@ impl Checker {
                                     }
                                 }
                                 return ret;
+                            }
+                        }
+                        // Check if it's a tuple struct constructor: Foo(val1, val2)
+                        if let Some(&struct_ty) = self.structs.get(name.as_str()) {
+                            if let TypeKind::Struct { fields, .. } =
+                                self.types.resolve(struct_ty).clone()
+                            {
+                                for (i, arg) in args.iter().enumerate() {
+                                    let arg_ty = self.check_expr(&arg.value, locals);
+                                    if let Some((_, expected_ty)) = fields.get(i) {
+                                        if arg_ty != *expected_ty
+                                            && arg_ty != self.types.error()
+                                            && *expected_ty != self.types.error()
+                                        {
+                                            self.diagnostics.add(
+                                                &CheckerDiagnostic::TypeMismatch {
+                                                    span: arg.value.span,
+                                                    expected: self.type_name(*expected_ty),
+                                                    found: self.type_name(arg_ty),
+                                                },
+                                            );
+                                        }
+                                    }
+                                }
+                                return struct_ty;
                             }
                         }
                         self.diagnostics.add(&CheckerDiagnostic::UndefinedFunction {
@@ -312,7 +340,33 @@ impl Checker {
                     return self.types.error();
                 }
 
-                // Both sides must be same type
+                // Check for operator overloading on user-defined types
+                let op_method = match op {
+                    BinOp::Add => Some("add"),
+                    BinOp::Sub => Some("sub"),
+                    BinOp::Mul => Some("mul"),
+                    BinOp::Div => Some("div"),
+                    BinOp::Mod => Some("rem"),
+                    BinOp::Eq => Some("eq"),
+                    BinOp::Ne => Some("ne"),
+                    BinOp::Lt => Some("lt"),
+                    BinOp::Le => Some("le"),
+                    BinOp::Gt => Some("gt"),
+                    BinOp::Ge => Some("ge"),
+                    _ => None,
+                };
+
+                if let Some(method_name) = op_method {
+                    let type_name = self.type_name(left_ty);
+                    let mangled = format!("{}__{}", type_name, method_name);
+                    if self.functions.contains_key(&mangled) {
+                        // Operator overloading via method: use the method's return type
+                        let sig = self.functions.get(&mangled).unwrap();
+                        return sig.return_type;
+                    }
+                }
+
+                // Both sides must be same type for primitive ops
                 if left_ty != right_ty {
                     self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
                         span: right.span,
@@ -1096,10 +1150,27 @@ impl Checker {
 
             Expr::QuestionMark(inner) => {
                 // ? operator: extracts value from Option/Result, or propagates error
-                // For now, type-check the inner expression and return its type
                 let inner_ty = self.check_expr(inner, locals);
-                // In a full implementation, this would unwrap Option<T> to T
-                // For now, just pass through the type
+                // Check if inner type is Option (Some(T)/None) or Result (Ok(T)/Err(E))
+                // and extract the success type T
+                if let TypeKind::Enum { name, variants } = self.types.resolve(inner_ty).clone() {
+                    if name == "Option" {
+                        // Option: extract the type from Some(T) variant
+                        if let Some(some_variant) = variants.iter().find(|v| v.name == "Some") {
+                            if let Some((_, field_ty)) = some_variant.fields.first() {
+                                return *field_ty;
+                            }
+                        }
+                    } else if name == "Result" {
+                        // Result: extract the type from Ok(T) variant
+                        if let Some(ok_variant) = variants.iter().find(|v| v.name == "Ok") {
+                            if let Some((_, field_ty)) = ok_variant.fields.first() {
+                                return *field_ty;
+                            }
+                        }
+                    }
+                }
+                // Fallback: pass through the type
                 inner_ty
             }
         }
