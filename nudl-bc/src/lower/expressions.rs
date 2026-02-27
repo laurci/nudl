@@ -135,18 +135,14 @@ impl<'a> FunctionLowerCtx<'a> {
                                     let key_reg = self.lower_expr(&args[0].value);
                                     let bool_ty = self.types.bool();
                                     let dst = self.alloc_typed_register(bool_ty);
-                                    self.push_inst(Instruction::MapContains(
-                                        dst, obj_reg, key_reg,
-                                    ));
+                                    self.push_inst(Instruction::MapContains(dst, obj_reg, key_reg));
                                     return dst;
                                 }
                                 "remove" => {
                                     let key_reg = self.lower_expr(&args[0].value);
                                     let bool_ty = self.types.bool();
                                     let dst = self.alloc_typed_register(bool_ty);
-                                    self.push_inst(Instruction::MapContains(
-                                        dst, obj_reg, key_reg,
-                                    ));
+                                    self.push_inst(Instruction::MapContains(dst, obj_reg, key_reg));
                                     // Reuse MapContains for remove — it returns whether the key existed
                                     // Actually we need a separate instruction but for now map_remove also returns 0/1
                                     // We'll emit a Call to the runtime instead
@@ -185,16 +181,17 @@ impl<'a> FunctionLowerCtx<'a> {
                     if let nudl_core::types::TypeKind::Enum { variants, .. } =
                         self.types.resolve(enum_ty).clone()
                     {
-                        if let Some((tag, variant)) = variants
-                            .iter()
-                            .enumerate()
-                            .find(|(_, v)| v.name == *method)
+                        if let Some((tag, variant)) =
+                            variants.iter().enumerate().find(|(_, v)| v.name == *method)
                         {
                             if !variant.fields.is_empty() {
                                 // This is a tuple variant constructor
                                 let variant_fields = variant.fields.clone();
                                 return self.lower_enum_construct(
-                                    enum_ty, tag, &variant_fields, args,
+                                    enum_ty,
+                                    tag,
+                                    &variant_fields,
+                                    args,
                                 );
                             }
                         }
@@ -333,7 +330,10 @@ impl<'a> FunctionLowerCtx<'a> {
                         let mangled = format!("{}__{}", type_name, method_name);
                         if let Some(sig) = self.function_sigs.get(&mangled).cloned() {
                             let self_reg = self.lower_expr(left);
-                            let arg_args = &[CallArg { name: None, value: (**right).clone() }];
+                            let arg_args = &[CallArg {
+                                name: None,
+                                value: (**right).clone(),
+                            }];
                             return self.lower_method_call(&mangled, &sig, self_reg, arg_args);
                         }
                     }
@@ -945,7 +945,8 @@ impl<'a> FunctionLowerCtx<'a> {
                     })
                     .collect();
 
-                let param_names: Vec<String> = closure_params.iter().map(|(n, _)| n.clone()).collect();
+                let param_names: Vec<String> =
+                    closure_params.iter().map(|(n, _)| n.clone()).collect();
 
                 // Collect captures: variables from enclosing scope referenced in the body
                 let captures = self.collect_captures(body, &param_names);
@@ -964,7 +965,8 @@ impl<'a> FunctionLowerCtx<'a> {
 
                 // Emit ClosureCreate instruction
                 let capture_regs: Vec<Register> = captures.iter().map(|(_, reg, _)| *reg).collect();
-                let capture_names: Vec<String> = captures.iter().map(|(name, _, _)| name.clone()).collect();
+                let capture_names: Vec<String> =
+                    captures.iter().map(|(name, _, _)| name.clone()).collect();
                 let capture_types: Vec<nudl_core::types::TypeId> =
                     captures.iter().map(|(_, _, ty)| *ty).collect();
 
@@ -976,11 +978,7 @@ impl<'a> FunctionLowerCtx<'a> {
                     ret: ret_ty,
                 });
                 let dst = self.alloc_typed_register(fn_type);
-                self.push_inst(Instruction::ClosureCreate(
-                    dst,
-                    thunk_fn_id,
-                    capture_regs,
-                ));
+                self.push_inst(Instruction::ClosureCreate(dst, thunk_fn_id, capture_regs));
 
                 // Register the pending closure for later lowering
                 self.pending_closures.push(super::PendingClosure {
@@ -996,9 +994,7 @@ impl<'a> FunctionLowerCtx<'a> {
                 dst
             }
 
-            Expr::QuestionMark(inner) => {
-                self.lower_question_mark(inner)
-            }
+            Expr::QuestionMark(inner) => self.lower_question_mark(inner),
         }
     }
 
@@ -1165,10 +1161,7 @@ impl<'a> FunctionLowerCtx<'a> {
         let merge_block = self.new_block_id();
 
         // For enum scrutinees, load the tag
-        let tag_reg = if scrutinee_ty
-            .map(|t| self.types.is_enum(t))
-            .unwrap_or(false)
-        {
+        let tag_reg = if scrutinee_ty.map(|t| self.types.is_enum(t)).unwrap_or(false) {
             let tag = self.alloc_register();
             self.push_inst(Instruction::Load(tag, scrutinee_reg, 0));
             Some(tag)
@@ -1235,7 +1228,14 @@ impl<'a> FunctionLowerCtx<'a> {
                     self.finish_block(Terminator::Jump(merge_block));
 
                     self.start_block(next_block);
-                    self.lower_match_arms(rest, scrutinee_reg, scrutinee_ty, tag_reg, result_reg, merge_block);
+                    self.lower_match_arms(
+                        rest,
+                        scrutinee_reg,
+                        scrutinee_ty,
+                        tag_reg,
+                        result_reg,
+                        merge_block,
+                    );
                 } else {
                     let body_result = self.lower_expr(&arm.body);
                     self.push_inst(Instruction::Copy(result_reg, body_result));
@@ -1267,7 +1267,14 @@ impl<'a> FunctionLowerCtx<'a> {
                 self.finish_block(Terminator::Jump(merge_block));
 
                 self.start_block(next_block);
-                self.lower_match_arms(rest, scrutinee_reg, scrutinee_ty, tag_reg, result_reg, merge_block);
+                self.lower_match_arms(
+                    rest,
+                    scrutinee_reg,
+                    scrutinee_ty,
+                    tag_reg,
+                    result_reg,
+                    merge_block,
+                );
             }
             Pattern::Enum {
                 enum_name,
@@ -1288,8 +1295,7 @@ impl<'a> FunctionLowerCtx<'a> {
                     None
                 };
 
-                if let (Some(tag_r), Some((expected_tag, variant_fields))) =
-                    (tag_reg, variant_info)
+                if let (Some(tag_r), Some((expected_tag, variant_fields))) = (tag_reg, variant_info)
                 {
                     let expected_tag_reg = self.alloc_register();
                     self.push_inst(Instruction::Const(
@@ -1581,10 +1587,7 @@ impl<'a> FunctionLowerCtx<'a> {
     /// Lower the `?` operator for Option and Result types.
     /// For Option: if None, early return None; else extract Some(T) value.
     /// For Result: if Err(e), early return Err(e); else extract Ok(T) value.
-    fn lower_question_mark(
-        &mut self,
-        inner: &nudl_core::span::Spanned<Expr>,
-    ) -> Register {
+    fn lower_question_mark(&mut self, inner: &nudl_core::span::Spanned<Expr>) -> Register {
         let inner_reg = self.lower_expr(inner);
         let inner_ty = self.infer_expr_type(inner);
         let result_reg = self.alloc_register();

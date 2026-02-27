@@ -31,9 +31,9 @@ impl Checker {
 
     pub(super) fn check_item(&mut self, item: &SpannedItem) {
         match &item.node {
-            Item::StructDef { .. } => {}      // Already handled in pass 1
-            Item::EnumDef { .. } => {}        // Already handled in pass 1
-            Item::InterfaceDef { .. } => {}   // Already handled in pass 1
+            Item::StructDef { .. } => {}    // Already handled in pass 1
+            Item::EnumDef { .. } => {}      // Already handled in pass 1
+            Item::InterfaceDef { .. } => {} // Already handled in pass 1
             Item::FnDef {
                 name, params, body, ..
             } => {
@@ -56,8 +56,8 @@ impl Checker {
                 }
             }
             Item::ExternBlock { .. } => {} // Already handled in pass 1
-            Item::Import { .. } => {}    // Handled at pipeline level
-            Item::TypeAlias { .. } => {} // Already handled in collect pass
+            Item::Import { .. } => {}      // Handled at pipeline level
+            Item::TypeAlias { .. } => {}   // Already handled in collect pass
         }
     }
 
@@ -194,7 +194,10 @@ impl Checker {
                 // Destructure tuple type
                 if let TypeKind::Tuple(elem_types) = self.types.resolve(val_ty).clone() {
                     for (i, pat) in elements.iter().enumerate() {
-                        let elem_ty = elem_types.get(i).copied().unwrap_or_else(|| self.types.error());
+                        let elem_ty = elem_types
+                            .get(i)
+                            .copied()
+                            .unwrap_or_else(|| self.types.error());
                         self.check_pattern_bindings(&pat.node, elem_ty, is_mut, locals);
                     }
                 } else {
@@ -206,8 +209,16 @@ impl Checker {
             }
             Pattern::Struct { name, fields, .. } => {
                 // Look up struct type
-                let struct_ty = self.structs.get(name).copied().unwrap_or_else(|| self.types.error());
-                if let TypeKind::Struct { fields: struct_fields, .. } = self.types.resolve(struct_ty).clone() {
+                let struct_ty = self
+                    .structs
+                    .get(name)
+                    .copied()
+                    .unwrap_or_else(|| self.types.error());
+                if let TypeKind::Struct {
+                    fields: struct_fields,
+                    ..
+                } = self.types.resolve(struct_ty).clone()
+                {
                     for (field_name, pat) in fields {
                         let field_ty = struct_fields
                             .iter()
@@ -221,7 +232,12 @@ impl Checker {
             Pattern::Enum { fields, .. } => {
                 // For now, bind each sub-pattern with error type
                 for field_pat in fields {
-                    self.check_pattern_bindings(&field_pat.node, self.types.error(), is_mut, locals);
+                    self.check_pattern_bindings(
+                        &field_pat.node,
+                        self.types.error(),
+                        is_mut,
+                        locals,
+                    );
                 }
             }
             Pattern::Literal(_) => {} // nothing to bind

@@ -359,7 +359,7 @@ pub enum Pattern {
     Struct {
         name: String,
         fields: Vec<(String, Spanned<Pattern>)>, // (field_name, pattern)
-        has_rest: bool,                           // true if `..` is present
+        has_rest: bool,                          // true if `..` is present
     },
 }
 

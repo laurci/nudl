@@ -90,9 +90,7 @@ impl Checker {
 
                 self.structs.insert(name.clone(), type_id);
             }
-            Item::EnumDef {
-                name, variants, ..
-            } => {
+            Item::EnumDef { name, variants, .. } => {
                 if self.enums.contains_key(name) || self.structs.contains_key(name) {
                     self.diagnostics.add(&CheckerDiagnostic::DuplicateStruct {
                         span: item.span,
@@ -130,9 +128,7 @@ impl Checker {
 
                 self.enums.insert(name.clone(), type_id);
             }
-            Item::InterfaceDef {
-                name, methods, ..
-            } => {
+            Item::InterfaceDef { name, methods, .. } => {
                 let resolved_methods: Vec<nudl_core::types::InterfaceMethod> = methods
                     .iter()
                     .map(|m| {

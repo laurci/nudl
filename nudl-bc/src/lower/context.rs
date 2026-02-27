@@ -177,7 +177,12 @@ impl<'a> FunctionLowerCtx<'a> {
                 else_branch,
             } => {
                 self.collect_captures_inner(&condition.node, param_names, captures, seen);
-                self.collect_captures_inner(&Expr::Block(then_branch.node.clone()), param_names, captures, seen);
+                self.collect_captures_inner(
+                    &Expr::Block(then_branch.node.clone()),
+                    param_names,
+                    captures,
+                    seen,
+                );
                 if let Some(eb) = else_branch {
                     self.collect_captures_inner(&eb.node, param_names, captures, seen);
                 }

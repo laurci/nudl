@@ -1042,7 +1042,10 @@ impl Checker {
                 }
             }
 
-            Expr::Match { expr: scrutinee, arms } => {
+            Expr::Match {
+                expr: scrutinee,
+                arms,
+            } => {
                 let scrutinee_ty = self.check_expr(scrutinee, locals);
                 let mut result_ty = None;
 
@@ -1225,8 +1228,11 @@ impl Checker {
                     if let TypeKind::Enum { variants, .. } = self.types.resolve(enum_ty).clone() {
                         if let Some(var) = variants.iter().find(|v| v.name == *variant) {
                             for (i, pat) in fields.iter().enumerate() {
-                                let field_ty =
-                                    var.fields.get(i).map(|(_, ty)| *ty).unwrap_or(self.types.error());
+                                let field_ty = var
+                                    .fields
+                                    .get(i)
+                                    .map(|(_, ty)| *ty)
+                                    .unwrap_or(self.types.error());
                                 self.check_pattern(pat, field_ty, locals);
                             }
                         }
@@ -1235,7 +1241,11 @@ impl Checker {
             }
             Pattern::Struct { name, fields, .. } => {
                 let struct_ty = self.structs.get(name).copied().unwrap_or(scrutinee_ty);
-                if let TypeKind::Struct { fields: struct_fields, .. } = self.types.resolve(struct_ty).clone() {
+                if let TypeKind::Struct {
+                    fields: struct_fields,
+                    ..
+                } = self.types.resolve(struct_ty).clone()
+                {
                     for (field_name, pat) in fields {
                         let field_ty = struct_fields
                             .iter()

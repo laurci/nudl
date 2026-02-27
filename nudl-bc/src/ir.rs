@@ -97,19 +97,19 @@ pub enum Instruction {
     ClosureCall(Register, Register, Vec<Register>), // dst, closure_reg, args
 
     // Dynamic array operations (calls into C runtime)
-    DynArrayAlloc(Register, TypeId),               // dst = new empty dynamic array of element type
-    DynArrayPush(Register, Register),              // array, value — push value onto array
-    DynArrayPop(Register, Register),               // dst, array — pop last element
-    DynArrayLen(Register, Register),               // dst, array — get length
-    DynArrayGet(Register, Register, Register),     // dst, array, index — get element at index
-    DynArraySet(Register, Register, Register),     // array, index, value — set element at index
+    DynArrayAlloc(Register, TypeId), // dst = new empty dynamic array of element type
+    DynArrayPush(Register, Register), // array, value — push value onto array
+    DynArrayPop(Register, Register), // dst, array — pop last element
+    DynArrayLen(Register, Register), // dst, array — get length
+    DynArrayGet(Register, Register, Register), // dst, array, index — get element at index
+    DynArraySet(Register, Register, Register), // array, index, value — set element at index
 
     // Map operations (calls into C runtime)
-    MapAlloc(Register, TypeId),                    // dst = new empty map
-    MapInsert(Register, Register, Register),       // map, key, value — insert key-value pair
-    MapGet(Register, Register, Register),          // dst, map, key — get value (0 if not found)
-    MapLen(Register, Register),                    // dst, map — get entry count
-    MapContains(Register, Register, Register),     // dst, map, key — bool: contains key?
+    MapAlloc(Register, TypeId),                // dst = new empty map
+    MapInsert(Register, Register, Register),   // map, key, value — insert key-value pair
+    MapGet(Register, Register, Register),      // dst, map, key — get value (0 if not found)
+    MapLen(Register, Register),                // dst, map — get entry count
+    MapContains(Register, Register, Register), // dst, map, key — bool: contains key?
 }
 
 #[derive(Debug, Clone)]

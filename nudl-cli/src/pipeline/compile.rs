@@ -58,7 +58,10 @@ fn resolve_import_path(
     }
 
     // 4. Try nudl-std directory as directory/lib.nudl
-    let std_candidate = workspace_root.join("nudl-std").join(&dir_path).join("lib.nudl");
+    let std_candidate = workspace_root
+        .join("nudl-std")
+        .join(&dir_path)
+        .join("lib.nudl");
     if std_candidate.exists() {
         return Some(std_candidate);
     }
@@ -82,7 +85,10 @@ fn resolve_import_path(
         for segment in &import_path[1..] {
             dir_path.push(segment);
         }
-        let candidate = workspace_root.join("nudl-std").join(&dir_path).join("lib.nudl");
+        let candidate = workspace_root
+            .join("nudl-std")
+            .join(&dir_path)
+            .join("lib.nudl");
         if candidate.exists() {
             return Some(candidate);
         }
@@ -188,7 +194,7 @@ pub fn check(source_path: &Path, dump: &DumpOptions) -> PipelineResult {
             return PipelineResult {
                 source_map,
                 diagnostics,
-            }
+            };
         }
     };
 
@@ -234,7 +240,7 @@ pub fn build(
                 source_map,
                 diagnostics,
                 success: false,
-            }
+            };
         }
     };
 
@@ -312,7 +318,7 @@ pub fn run_vm(source_path: &Path, dump: &DumpOptions) -> CompileResult {
                 source_map,
                 diagnostics,
                 success: false,
-            }
+            };
         }
     };
 

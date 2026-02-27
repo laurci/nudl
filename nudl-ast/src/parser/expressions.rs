@@ -391,10 +391,7 @@ impl Parser {
                         let end = self.expect(TokenKind::RBrace)?.span;
                         return Some(Spanned::new(
                             Expr::StructLiteral {
-                                name: format!(
-                                    "{}::{}",
-                                    type_tok.text, member_tok.text
-                                ),
+                                name: format!("{}::{}", type_tok.text, member_tok.text),
                                 fields,
                             },
                             start.merge(end),

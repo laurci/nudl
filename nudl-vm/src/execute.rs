@@ -542,9 +542,12 @@ impl Vm {
                         return Ok(());
                     }
                 };
-                let obj = self.heap.get(&closure_id).ok_or_else(|| VmError::TypeError {
-                    message: "ClosureCall on freed object".into(),
-                })?;
+                let obj = self
+                    .heap
+                    .get(&closure_id)
+                    .ok_or_else(|| VmError::TypeError {
+                        message: "ClosureCall on freed object".into(),
+                    })?;
                 let func_id_val = match &obj.fields[0] {
                     Value::I64(v) => *v as u32,
                     _ => {
@@ -553,10 +556,7 @@ impl Vm {
                     }
                 };
                 // Find the closure thunk function by ID
-                let func_idx = program
-                    .functions
-                    .iter()
-                    .position(|f| f.id.0 == func_id_val);
+                let func_idx = program.functions.iter().position(|f| f.id.0 == func_id_val);
                 if let Some(idx) = func_idx {
                     // Build args: first arg is the env (closure HeapRef), then user args
                     let mut call_args = vec![Value::HeapRef(closure_id)];
@@ -682,7 +682,11 @@ impl Vm {
                 if let Some(map) = self.maps.get_mut(&id) {
                     // Update existing or insert new
                     let key_str = format!("{}", key);
-                    if let Some(entry) = map.entries.iter_mut().find(|(k, _)| format!("{}", k) == key_str) {
+                    if let Some(entry) = map
+                        .entries
+                        .iter_mut()
+                        .find(|(k, _)| format!("{}", k) == key_str)
+                    {
                         entry.1 = val;
                     } else {
                         map.entries.push((key, val));

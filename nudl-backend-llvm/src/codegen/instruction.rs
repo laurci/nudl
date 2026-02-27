@@ -747,258 +747,255 @@ pub(super) fn emit_instruction<'ctx>(
         }
 
         // ---- Closure operations ----
-
         Instruction::ClosureCreate(dst, thunk_fn_id, captures) => {
-        // A closure value is an ARC object: [header(16)] [fn_id(8)] [env_ptr(8)]
-        // The env is a separate ARC object: [header(16)] [cap0(8)] [cap1(8)] ...
-        let i64_ty = context.i64_type();
-        let ptr_ty = context.ptr_type(AddressSpace::default());
+            // A closure value is an ARC object: [header(16)] [fn_id(8)] [env_ptr(8)]
+            // The env is a separate ARC object: [header(16)] [cap0(8)] [cap1(8)] ...
+            let i64_ty = context.i64_type();
+            let ptr_ty = context.ptr_type(AddressSpace::default());
 
-        // Allocate capture environment if there are captures
-        let env_ptr_val = if captures.is_empty() {
-            // No captures: env_ptr is null
-            i64_ty.const_zero()
-        } else {
-            // Call __nudl_closure_env_alloc(num_captures)
-            let env_alloc_fn = func.id; // placeholder — we'll declare the runtime fn
-            let _ = env_alloc_fn;
-            let num_captures = i64_ty.const_int(captures.len() as u64, false);
+            // Allocate capture environment if there are captures
+            let env_ptr_val = if captures.is_empty() {
+                // No captures: env_ptr is null
+                i64_ty.const_zero()
+            } else {
+                // Call __nudl_closure_env_alloc(num_captures)
+                let env_alloc_fn = func.id; // placeholder — we'll declare the runtime fn
+                let _ = env_alloc_fn;
+                let num_captures = i64_ty.const_int(captures.len() as u64, false);
 
-            // Get or declare __nudl_closure_env_alloc
+                // Get or declare __nudl_closure_env_alloc
+                // module is passed as parameter
+                let env_alloc = module
+                    .get_function("__nudl_closure_env_alloc")
+                    .unwrap_or_else(|| {
+                        let fn_ty = ptr_ty.fn_type(&[i64_ty.into()], false);
+                        module.add_function(
+                            "__nudl_closure_env_alloc",
+                            fn_ty,
+                            Some(inkwell::module::Linkage::External),
+                        )
+                    });
+                let env_call = builder
+                    .build_direct_call(env_alloc, &[num_captures.into()], "env_alloc")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                let env_ptr = env_call
+                    .try_as_basic_value()
+                    .basic()
+                    .expect("env_alloc returns ptr")
+                    .into_pointer_value();
+
+                // Store captured values into the env: env + 16 + i*8
+                for (i, cap_reg) in captures.iter().enumerate() {
+                    let byte_offset = 16u64 + (i as u64) * 8;
+                    let field_ptr = unsafe {
+                        builder
+                            .build_gep(
+                                context.i8_type(),
+                                env_ptr,
+                                &[i64_ty.const_int(byte_offset, false)],
+                                "cap_ptr",
+                            )
+                            .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                    };
+                    let val = load_i64(context, builder, register_allocas, cap_reg.0)?;
+                    builder
+                        .build_store(field_ptr, val)
+                        .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                }
+
+                // Convert env pointer to i64
+                builder
+                    .build_ptr_to_int(env_ptr, i64_ty, "env_as_i64")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            };
+
+            // Allocate closure object: [header(16)] [fn_id(8)] [env_ptr(8)]
+            let closure_size = i64_ty.const_int(32, false); // 16 header + 8 fn_id + 8 env_ptr
+            let type_tag = context.i32_type().const_zero();
+            let closure_alloc = builder
+                .build_direct_call(
+                    arc.arc_alloc,
+                    &[closure_size.into(), type_tag.into()],
+                    "closure_alloc",
+                )
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let closure_ptr = closure_alloc
+                .try_as_basic_value()
+                .basic()
+                .expect("alloc returns ptr")
+                .into_pointer_value();
+
+            // Store fn_ptr at offset 16 — the actual LLVM function pointer, cast to i64
+            let fn_ptr_val = if let Some(&thunk_fn) = function_map.get(&thunk_fn_id.0) {
+                // Convert function pointer to i64
+                builder
+                    .build_ptr_to_int(
+                        thunk_fn.as_global_value().as_pointer_value(),
+                        i64_ty,
+                        "fn_ptr_i64",
+                    )
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            } else {
+                i64_ty.const_zero()
+            };
+            let fn_ptr_field = unsafe {
+                builder
+                    .build_gep(
+                        context.i8_type(),
+                        closure_ptr,
+                        &[i64_ty.const_int(16, false)],
+                        "fn_ptr_field",
+                    )
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            };
+            builder
+                .build_store(fn_ptr_field, fn_ptr_val)
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+            // Store env_ptr at offset 24
+            let env_ptr_field = unsafe {
+                builder
+                    .build_gep(
+                        context.i8_type(),
+                        closure_ptr,
+                        &[i64_ty.const_int(24, false)],
+                        "env_ptr_field",
+                    )
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            };
+            builder
+                .build_store(env_ptr_field, env_ptr_val)
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+            // Store closure pointer as i64 in the register
+            let ptr_as_i64 = builder
+                .build_ptr_to_int(closure_ptr, i64_ty, "closure_i64")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            store(builder, register_allocas, dst.0, ptr_as_i64)?;
+        }
+
+        Instruction::ClosureCall(dst, closure_reg, args) => {
+            let i64_ty = context.i64_type();
+            let ptr_ty = context.ptr_type(AddressSpace::default());
+
+            // Load closure pointer
+            let closure_ptr = load_ptr(context, builder, register_allocas, closure_reg.0)?;
+
+            // Load env_ptr from offset 24
+            let env_ptr_field = unsafe {
+                builder
+                    .build_gep(
+                        context.i8_type(),
+                        closure_ptr,
+                        &[i64_ty.const_int(24, false)],
+                        "env_ptr_field",
+                    )
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            };
+            let env_ptr = builder
+                .build_load(i64_ty, env_ptr_field, "env_ptr")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+            // Load fn_ptr from offset 16 (stored as i64, convert to function pointer)
+            let fn_ptr_field = unsafe {
+                builder
+                    .build_gep(
+                        context.i8_type(),
+                        closure_ptr,
+                        &[i64_ty.const_int(16, false)],
+                        "fn_ptr_field",
+                    )
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            };
+            let fn_ptr_as_i64 = builder
+                .build_load(i64_ty, fn_ptr_field, "fn_ptr_i64")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                .into_int_value();
+            let fn_ptr = builder
+                .build_int_to_ptr(fn_ptr_as_i64, ptr_ty, "fn_ptr")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+            // Build call arguments: env_ptr first, then the closure's args
+            let mut call_args: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> =
+                vec![env_ptr.into()];
+            for arg_reg in args {
+                let val = load_i64(context, builder, register_allocas, arg_reg.0)?;
+                call_args.push(val.into());
+            }
+
+            // Build function type for indirect call: all i64 params, i64 return
+            let param_types: Vec<BasicMetadataTypeEnum<'ctx>> =
+                (0..call_args.len()).map(|_| i64_ty.into()).collect();
+            let fn_type = i64_ty.fn_type(&param_types, false);
+
+            // Indirect call through function pointer
+            let call_result = builder
+                .build_indirect_call(fn_type, fn_ptr, &call_args, "closure_call")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            if let Some(ret_val) = call_result.try_as_basic_value().basic() {
+                if let BasicValueEnum::IntValue(iv) = ret_val {
+                    store(builder, register_allocas, dst.0, iv)?;
+                }
+            } else {
+                store(builder, register_allocas, dst.0, i64_ty.const_zero())?;
+            }
+        }
+
+        // ---- Dynamic Array operations ----
+        Instruction::DynArrayAlloc(dst, _type_id) => {
+            let i64_ty = context.i64_type();
+            let ptr_ty = context.ptr_type(AddressSpace::default());
             // module is passed as parameter
-            let env_alloc = module
-                .get_function("__nudl_closure_env_alloc")
+            let array_alloc = module
+                .get_function("__nudl_array_alloc")
                 .unwrap_or_else(|| {
-                    let fn_ty = ptr_ty.fn_type(&[i64_ty.into()], false);
+                    let fn_ty = ptr_ty.fn_type(&[], false);
                     module.add_function(
-                        "__nudl_closure_env_alloc",
+                        "__nudl_array_alloc",
                         fn_ty,
                         Some(inkwell::module::Linkage::External),
                     )
                 });
-            let env_call = builder
-                .build_direct_call(env_alloc, &[num_captures.into()], "env_alloc")
+            let call_result = builder
+                .build_direct_call(array_alloc, &[], "array_alloc")
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-            let env_ptr = env_call
+            let ptr = call_result
                 .try_as_basic_value()
                 .basic()
-                .expect("env_alloc returns ptr")
+                .expect("array_alloc returns ptr")
                 .into_pointer_value();
-
-            // Store captured values into the env: env + 16 + i*8
-            for (i, cap_reg) in captures.iter().enumerate() {
-                let byte_offset = 16u64 + (i as u64) * 8;
-                let field_ptr = unsafe {
-                    builder
-                        .build_gep(
-                            context.i8_type(),
-                            env_ptr,
-                            &[i64_ty.const_int(byte_offset, false)],
-                            "cap_ptr",
-                        )
-                        .map_err(|e| BackendError::LlvmError(e.to_string()))?
-                };
-                let val = load_i64(context, builder, register_allocas, cap_reg.0)?;
-                builder
-                    .build_store(field_ptr, val)
-                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-            }
-
-            // Convert env pointer to i64
-            builder
-                .build_ptr_to_int(env_ptr, i64_ty, "env_as_i64")
-                .map_err(|e| BackendError::LlvmError(e.to_string()))?
-        };
-
-        // Allocate closure object: [header(16)] [fn_id(8)] [env_ptr(8)]
-        let closure_size = i64_ty.const_int(32, false); // 16 header + 8 fn_id + 8 env_ptr
-        let type_tag = context.i32_type().const_zero();
-        let closure_alloc = builder
-            .build_direct_call(
-                arc.arc_alloc,
-                &[closure_size.into(), type_tag.into()],
-                "closure_alloc",
-            )
-            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-        let closure_ptr = closure_alloc
-            .try_as_basic_value()
-            .basic()
-            .expect("alloc returns ptr")
-            .into_pointer_value();
-
-        // Store fn_ptr at offset 16 — the actual LLVM function pointer, cast to i64
-        let fn_ptr_val = if let Some(&thunk_fn) = function_map.get(&thunk_fn_id.0) {
-            // Convert function pointer to i64
-            builder
-                .build_ptr_to_int(
-                    thunk_fn.as_global_value().as_pointer_value(),
-                    i64_ty,
-                    "fn_ptr_i64",
-                )
-                .map_err(|e| BackendError::LlvmError(e.to_string()))?
-        } else {
-            i64_ty.const_zero()
-        };
-        let fn_ptr_field = unsafe {
-            builder
-                .build_gep(
-                    context.i8_type(),
-                    closure_ptr,
-                    &[i64_ty.const_int(16, false)],
-                    "fn_ptr_field",
-                )
-                .map_err(|e| BackendError::LlvmError(e.to_string()))?
-        };
-        builder
-            .build_store(fn_ptr_field, fn_ptr_val)
-            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-
-        // Store env_ptr at offset 24
-        let env_ptr_field = unsafe {
-            builder
-                .build_gep(
-                    context.i8_type(),
-                    closure_ptr,
-                    &[i64_ty.const_int(24, false)],
-                    "env_ptr_field",
-                )
-                .map_err(|e| BackendError::LlvmError(e.to_string()))?
-        };
-        builder
-            .build_store(env_ptr_field, env_ptr_val)
-            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-
-        // Store closure pointer as i64 in the register
-        let ptr_as_i64 = builder
-            .build_ptr_to_int(closure_ptr, i64_ty, "closure_i64")
-            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-        store(builder, register_allocas, dst.0, ptr_as_i64)?;
-    }
-
-    Instruction::ClosureCall(dst, closure_reg, args) => {
-        let i64_ty = context.i64_type();
-        let ptr_ty = context.ptr_type(AddressSpace::default());
-
-        // Load closure pointer
-        let closure_ptr = load_ptr(context, builder, register_allocas, closure_reg.0)?;
-
-        // Load env_ptr from offset 24
-        let env_ptr_field = unsafe {
-            builder
-                .build_gep(
-                    context.i8_type(),
-                    closure_ptr,
-                    &[i64_ty.const_int(24, false)],
-                    "env_ptr_field",
-                )
-                .map_err(|e| BackendError::LlvmError(e.to_string()))?
-        };
-        let env_ptr = builder
-            .build_load(i64_ty, env_ptr_field, "env_ptr")
-            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-
-        // Load fn_ptr from offset 16 (stored as i64, convert to function pointer)
-        let fn_ptr_field = unsafe {
-            builder
-                .build_gep(
-                    context.i8_type(),
-                    closure_ptr,
-                    &[i64_ty.const_int(16, false)],
-                    "fn_ptr_field",
-                )
-                .map_err(|e| BackendError::LlvmError(e.to_string()))?
-        };
-        let fn_ptr_as_i64 = builder
-            .build_load(i64_ty, fn_ptr_field, "fn_ptr_i64")
-            .map_err(|e| BackendError::LlvmError(e.to_string()))?
-            .into_int_value();
-        let fn_ptr = builder
-            .build_int_to_ptr(fn_ptr_as_i64, ptr_ty, "fn_ptr")
-            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-
-        // Build call arguments: env_ptr first, then the closure's args
-        let mut call_args: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> = vec![env_ptr.into()];
-        for arg_reg in args {
-            let val = load_i64(context, builder, register_allocas, arg_reg.0)?;
-            call_args.push(val.into());
+            let ptr_as_i64 = builder
+                .build_ptr_to_int(ptr, i64_ty, "arr_ptr_i64")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            store(builder, register_allocas, dst.0, ptr_as_i64)?;
         }
 
-        // Build function type for indirect call: all i64 params, i64 return
-        let param_types: Vec<BasicMetadataTypeEnum<'ctx>> =
-            (0..call_args.len()).map(|_| i64_ty.into()).collect();
-        let fn_type = i64_ty.fn_type(&param_types, false);
-
-        // Indirect call through function pointer
-        let call_result = builder
-            .build_indirect_call(fn_type, fn_ptr, &call_args, "closure_call")
-            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-        if let Some(ret_val) = call_result.try_as_basic_value().basic() {
-            if let BasicValueEnum::IntValue(iv) = ret_val {
-                store(builder, register_allocas, dst.0, iv)?;
-            }
-        } else {
-            store(builder, register_allocas, dst.0, i64_ty.const_zero())?;
-        }
-    }
-
-    // ---- Dynamic Array operations ----
-
-    Instruction::DynArrayAlloc(dst, _type_id) => {
-        let i64_ty = context.i64_type();
-        let ptr_ty = context.ptr_type(AddressSpace::default());
-        // module is passed as parameter
-        let array_alloc = module
-            .get_function("__nudl_array_alloc")
-            .unwrap_or_else(|| {
-                let fn_ty = ptr_ty.fn_type(&[], false);
-                module.add_function(
-                    "__nudl_array_alloc",
-                    fn_ty,
-                    Some(inkwell::module::Linkage::External),
-                )
-            });
-        let call_result = builder
-            .build_direct_call(array_alloc, &[], "array_alloc")
-            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-        let ptr = call_result
-            .try_as_basic_value()
-            .basic()
-            .expect("array_alloc returns ptr")
-            .into_pointer_value();
-        let ptr_as_i64 = builder
-            .build_ptr_to_int(ptr, i64_ty, "arr_ptr_i64")
-            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-        store(builder, register_allocas, dst.0, ptr_as_i64)?;
-    }
-
-    Instruction::DynArrayPush(arr_reg, val_reg) => {
-        let i64_ty = context.i64_type();
-        let ptr_ty = context.ptr_type(AddressSpace::default());
-        // module is passed as parameter
-        let array_push = module
-            .get_function("__nudl_array_push")
-            .unwrap_or_else(|| {
-                let fn_ty = context.void_type().fn_type(&[ptr_ty.into(), i64_ty.into()], false);
+        Instruction::DynArrayPush(arr_reg, val_reg) => {
+            let i64_ty = context.i64_type();
+            let ptr_ty = context.ptr_type(AddressSpace::default());
+            // module is passed as parameter
+            let array_push = module.get_function("__nudl_array_push").unwrap_or_else(|| {
+                let fn_ty = context
+                    .void_type()
+                    .fn_type(&[ptr_ty.into(), i64_ty.into()], false);
                 module.add_function(
                     "__nudl_array_push",
                     fn_ty,
                     Some(inkwell::module::Linkage::External),
                 )
             });
-        let arr_ptr = load_ptr(context, builder, register_allocas, arr_reg.0)?;
-        let val = load_i64(context, builder, register_allocas, val_reg.0)?;
-        builder
-            .build_direct_call(array_push, &[arr_ptr.into(), val.into()], "")
-            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-    }
+            let arr_ptr = load_ptr(context, builder, register_allocas, arr_reg.0)?;
+            let val = load_i64(context, builder, register_allocas, val_reg.0)?;
+            builder
+                .build_direct_call(array_push, &[arr_ptr.into(), val.into()], "")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        }
 
-    Instruction::DynArrayPop(dst, arr_reg) => {
-        let i64_ty = context.i64_type();
-        let ptr_ty = context.ptr_type(AddressSpace::default());
-        // module is passed as parameter
-        let array_pop = module
-            .get_function("__nudl_array_pop")
-            .unwrap_or_else(|| {
+        Instruction::DynArrayPop(dst, arr_reg) => {
+            let i64_ty = context.i64_type();
+            let ptr_ty = context.ptr_type(AddressSpace::default());
+            // module is passed as parameter
+            let array_pop = module.get_function("__nudl_array_pop").unwrap_or_else(|| {
                 let fn_ty = i64_ty.fn_type(&[ptr_ty.into()], false);
                 module.add_function(
                     "__nudl_array_pop",
@@ -1006,25 +1003,23 @@ pub(super) fn emit_instruction<'ctx>(
                     Some(inkwell::module::Linkage::External),
                 )
             });
-        let arr_ptr = load_ptr(context, builder, register_allocas, arr_reg.0)?;
-        let call_result = builder
-            .build_direct_call(array_pop, &[arr_ptr.into()], "pop_val")
-            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-        let val = call_result
-            .try_as_basic_value()
-            .basic()
-            .expect("pop returns i64")
-            .into_int_value();
-        store(builder, register_allocas, dst.0, val)?;
-    }
+            let arr_ptr = load_ptr(context, builder, register_allocas, arr_reg.0)?;
+            let call_result = builder
+                .build_direct_call(array_pop, &[arr_ptr.into()], "pop_val")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let val = call_result
+                .try_as_basic_value()
+                .basic()
+                .expect("pop returns i64")
+                .into_int_value();
+            store(builder, register_allocas, dst.0, val)?;
+        }
 
-    Instruction::DynArrayLen(dst, arr_reg) => {
-        let i64_ty = context.i64_type();
-        let ptr_ty = context.ptr_type(AddressSpace::default());
-        // module is passed as parameter
-        let array_len = module
-            .get_function("__nudl_array_len")
-            .unwrap_or_else(|| {
+        Instruction::DynArrayLen(dst, arr_reg) => {
+            let i64_ty = context.i64_type();
+            let ptr_ty = context.ptr_type(AddressSpace::default());
+            // module is passed as parameter
+            let array_len = module.get_function("__nudl_array_len").unwrap_or_else(|| {
                 let fn_ty = i64_ty.fn_type(&[ptr_ty.into()], false);
                 module.add_function(
                     "__nudl_array_len",
@@ -1032,24 +1027,22 @@ pub(super) fn emit_instruction<'ctx>(
                     Some(inkwell::module::Linkage::External),
                 )
             });
-        let arr_ptr = load_ptr(context, builder, register_allocas, arr_reg.0)?;
-        let call_result = builder
-            .build_direct_call(array_len, &[arr_ptr.into()], "arr_len")
-            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-        let val = call_result
-            .try_as_basic_value()
-            .basic()
-            .expect("len returns i64")
-            .into_int_value();
-        store(builder, register_allocas, dst.0, val)?;
-    }
+            let arr_ptr = load_ptr(context, builder, register_allocas, arr_reg.0)?;
+            let call_result = builder
+                .build_direct_call(array_len, &[arr_ptr.into()], "arr_len")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let val = call_result
+                .try_as_basic_value()
+                .basic()
+                .expect("len returns i64")
+                .into_int_value();
+            store(builder, register_allocas, dst.0, val)?;
+        }
 
-    Instruction::DynArrayGet(dst, arr_reg, idx_reg) => {
-        let i64_ty = context.i64_type();
-        let ptr_ty = context.ptr_type(AddressSpace::default());
-        let array_get = module
-            .get_function("__nudl_array_get")
-            .unwrap_or_else(|| {
+        Instruction::DynArrayGet(dst, arr_reg, idx_reg) => {
+            let i64_ty = context.i64_type();
+            let ptr_ty = context.ptr_type(AddressSpace::default());
+            let array_get = module.get_function("__nudl_array_get").unwrap_or_else(|| {
                 let fn_ty = i64_ty.fn_type(&[ptr_ty.into(), i64_ty.into()], false);
                 module.add_function(
                     "__nudl_array_get",
@@ -1057,49 +1050,50 @@ pub(super) fn emit_instruction<'ctx>(
                     Some(inkwell::module::Linkage::External),
                 )
             });
-        let arr_ptr = load_ptr(context, builder, register_allocas, arr_reg.0)?;
-        let idx = load_i64(context, builder, register_allocas, idx_reg.0)?;
-        let call_result = builder
-            .build_direct_call(array_get, &[arr_ptr.into(), idx.into()], "array_get")
-            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-        let val = call_result
-            .try_as_basic_value()
-            .basic()
-            .expect("array_get returns i64")
-            .into_int_value();
-        store(builder, register_allocas, dst.0, val)?;
-    }
+            let arr_ptr = load_ptr(context, builder, register_allocas, arr_reg.0)?;
+            let idx = load_i64(context, builder, register_allocas, idx_reg.0)?;
+            let call_result = builder
+                .build_direct_call(array_get, &[arr_ptr.into(), idx.into()], "array_get")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let val = call_result
+                .try_as_basic_value()
+                .basic()
+                .expect("array_get returns i64")
+                .into_int_value();
+            store(builder, register_allocas, dst.0, val)?;
+        }
 
-    Instruction::DynArraySet(arr_reg, idx_reg, val_reg) => {
-        let i64_ty = context.i64_type();
-        let ptr_ty = context.ptr_type(AddressSpace::default());
-        let array_set = module
-            .get_function("__nudl_array_set")
-            .unwrap_or_else(|| {
-                let fn_ty = context.void_type().fn_type(&[ptr_ty.into(), i64_ty.into(), i64_ty.into()], false);
+        Instruction::DynArraySet(arr_reg, idx_reg, val_reg) => {
+            let i64_ty = context.i64_type();
+            let ptr_ty = context.ptr_type(AddressSpace::default());
+            let array_set = module.get_function("__nudl_array_set").unwrap_or_else(|| {
+                let fn_ty = context
+                    .void_type()
+                    .fn_type(&[ptr_ty.into(), i64_ty.into(), i64_ty.into()], false);
                 module.add_function(
                     "__nudl_array_set",
                     fn_ty,
                     Some(inkwell::module::Linkage::External),
                 )
             });
-        let arr_ptr = load_ptr(context, builder, register_allocas, arr_reg.0)?;
-        let idx = load_i64(context, builder, register_allocas, idx_reg.0)?;
-        let val = load_i64(context, builder, register_allocas, val_reg.0)?;
-        builder
-            .build_direct_call(array_set, &[arr_ptr.into(), idx.into(), val.into()], "array_set")
-            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-    }
+            let arr_ptr = load_ptr(context, builder, register_allocas, arr_reg.0)?;
+            let idx = load_i64(context, builder, register_allocas, idx_reg.0)?;
+            let val = load_i64(context, builder, register_allocas, val_reg.0)?;
+            builder
+                .build_direct_call(
+                    array_set,
+                    &[arr_ptr.into(), idx.into(), val.into()],
+                    "array_set",
+                )
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        }
 
-    // ---- Map operations ----
-
-    Instruction::MapAlloc(dst, _type_id) => {
-        let i64_ty = context.i64_type();
-        let ptr_ty = context.ptr_type(AddressSpace::default());
-        // module is passed as parameter
-        let map_alloc = module
-            .get_function("__nudl_map_alloc")
-            .unwrap_or_else(|| {
+        // ---- Map operations ----
+        Instruction::MapAlloc(dst, _type_id) => {
+            let i64_ty = context.i64_type();
+            let ptr_ty = context.ptr_type(AddressSpace::default());
+            // module is passed as parameter
+            let map_alloc = module.get_function("__nudl_map_alloc").unwrap_or_else(|| {
                 let fn_ty = ptr_ty.fn_type(&[], false);
                 module.add_function(
                     "__nudl_map_alloc",
@@ -1107,91 +1101,81 @@ pub(super) fn emit_instruction<'ctx>(
                     Some(inkwell::module::Linkage::External),
                 )
             });
-        let call_result = builder
-            .build_direct_call(map_alloc, &[], "map_alloc")
-            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-        let ptr = call_result
-            .try_as_basic_value()
-            .basic()
-            .expect("map_alloc returns ptr")
-            .into_pointer_value();
-        let ptr_as_i64 = builder
-            .build_ptr_to_int(ptr, i64_ty, "map_ptr_i64")
-            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-        store(builder, register_allocas, dst.0, ptr_as_i64)?;
-    }
+            let call_result = builder
+                .build_direct_call(map_alloc, &[], "map_alloc")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let ptr = call_result
+                .try_as_basic_value()
+                .basic()
+                .expect("map_alloc returns ptr")
+                .into_pointer_value();
+            let ptr_as_i64 = builder
+                .build_ptr_to_int(ptr, i64_ty, "map_ptr_i64")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            store(builder, register_allocas, dst.0, ptr_as_i64)?;
+        }
 
-    Instruction::MapInsert(map_reg, key_reg, val_reg) => {
-        let i64_ty = context.i64_type();
-        let ptr_ty = context.ptr_type(AddressSpace::default());
-        // module is passed as parameter
-        let map_insert = module
-            .get_function("__nudl_map_insert")
-            .unwrap_or_else(|| {
-                let fn_ty = context.void_type().fn_type(
-                    &[ptr_ty.into(), i64_ty.into(), i64_ty.into()],
-                    false,
-                );
+        Instruction::MapInsert(map_reg, key_reg, val_reg) => {
+            let i64_ty = context.i64_type();
+            let ptr_ty = context.ptr_type(AddressSpace::default());
+            // module is passed as parameter
+            let map_insert = module.get_function("__nudl_map_insert").unwrap_or_else(|| {
+                let fn_ty = context
+                    .void_type()
+                    .fn_type(&[ptr_ty.into(), i64_ty.into(), i64_ty.into()], false);
                 module.add_function(
                     "__nudl_map_insert",
                     fn_ty,
                     Some(inkwell::module::Linkage::External),
                 )
             });
-        let map_ptr = load_ptr(context, builder, register_allocas, map_reg.0)?;
-        let key = load_i64(context, builder, register_allocas, key_reg.0)?;
-        let val = load_i64(context, builder, register_allocas, val_reg.0)?;
-        builder
-            .build_direct_call(map_insert, &[map_ptr.into(), key.into(), val.into()], "")
-            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-    }
+            let map_ptr = load_ptr(context, builder, register_allocas, map_reg.0)?;
+            let key = load_i64(context, builder, register_allocas, key_reg.0)?;
+            let val = load_i64(context, builder, register_allocas, val_reg.0)?;
+            builder
+                .build_direct_call(map_insert, &[map_ptr.into(), key.into(), val.into()], "")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        }
 
-    Instruction::MapGet(dst, map_reg, key_reg) => {
-        let i64_ty = context.i64_type();
-        let ptr_ty = context.ptr_type(AddressSpace::default());
-        // module is passed as parameter
-        // __nudl_map_get returns value; third param is pointer to 'found' flag
-        let map_get = module
-            .get_function("__nudl_map_get")
-            .unwrap_or_else(|| {
-                let fn_ty = i64_ty.fn_type(
-                    &[ptr_ty.into(), i64_ty.into(), ptr_ty.into()],
-                    false,
-                );
+        Instruction::MapGet(dst, map_reg, key_reg) => {
+            let i64_ty = context.i64_type();
+            let ptr_ty = context.ptr_type(AddressSpace::default());
+            // module is passed as parameter
+            // __nudl_map_get returns value; third param is pointer to 'found' flag
+            let map_get = module.get_function("__nudl_map_get").unwrap_or_else(|| {
+                let fn_ty = i64_ty.fn_type(&[ptr_ty.into(), i64_ty.into(), ptr_ty.into()], false);
                 module.add_function(
                     "__nudl_map_get",
                     fn_ty,
                     Some(inkwell::module::Linkage::External),
                 )
             });
-        let map_ptr = load_ptr(context, builder, register_allocas, map_reg.0)?;
-        let key = load_i64(context, builder, register_allocas, key_reg.0)?;
-        // Allocate a local for the 'found' flag
-        let found_alloca = builder
-            .build_alloca(i64_ty, "found")
-            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-        let call_result = builder
-            .build_direct_call(
-                map_get,
-                &[map_ptr.into(), key.into(), found_alloca.into()],
-                "map_get_val",
-            )
-            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-        let val = call_result
-            .try_as_basic_value()
-            .basic()
-            .expect("map_get returns i64")
-            .into_int_value();
-        store(builder, register_allocas, dst.0, val)?;
-    }
+            let map_ptr = load_ptr(context, builder, register_allocas, map_reg.0)?;
+            let key = load_i64(context, builder, register_allocas, key_reg.0)?;
+            // Allocate a local for the 'found' flag
+            let found_alloca = builder
+                .build_alloca(i64_ty, "found")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let call_result = builder
+                .build_direct_call(
+                    map_get,
+                    &[map_ptr.into(), key.into(), found_alloca.into()],
+                    "map_get_val",
+                )
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let val = call_result
+                .try_as_basic_value()
+                .basic()
+                .expect("map_get returns i64")
+                .into_int_value();
+            store(builder, register_allocas, dst.0, val)?;
+        }
 
-    Instruction::MapLen(dst, map_reg) => {
-        let i64_ty = context.i64_type();
-        let ptr_ty = context.ptr_type(AddressSpace::default());
-        // module is passed as parameter
-        let map_len = module
-            .get_function("__nudl_map_len")
-            .unwrap_or_else(|| {
+        Instruction::MapLen(dst, map_reg) => {
+            let i64_ty = context.i64_type();
+            let ptr_ty = context.ptr_type(AddressSpace::default());
+            // module is passed as parameter
+            let map_len = module.get_function("__nudl_map_len").unwrap_or_else(|| {
                 let fn_ty = i64_ty.fn_type(&[ptr_ty.into()], false);
                 module.add_function(
                     "__nudl_map_len",
@@ -1199,46 +1183,44 @@ pub(super) fn emit_instruction<'ctx>(
                     Some(inkwell::module::Linkage::External),
                 )
             });
-        let map_ptr = load_ptr(context, builder, register_allocas, map_reg.0)?;
-        let call_result = builder
-            .build_direct_call(map_len, &[map_ptr.into()], "map_len")
-            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-        let val = call_result
-            .try_as_basic_value()
-            .basic()
-            .expect("map_len returns i64")
-            .into_int_value();
-        store(builder, register_allocas, dst.0, val)?;
-    }
+            let map_ptr = load_ptr(context, builder, register_allocas, map_reg.0)?;
+            let call_result = builder
+                .build_direct_call(map_len, &[map_ptr.into()], "map_len")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let val = call_result
+                .try_as_basic_value()
+                .basic()
+                .expect("map_len returns i64")
+                .into_int_value();
+            store(builder, register_allocas, dst.0, val)?;
+        }
 
-    Instruction::MapContains(dst, map_reg, key_reg) => {
-        let i64_ty = context.i64_type();
-        let ptr_ty = context.ptr_type(AddressSpace::default());
-        // module is passed as parameter
-        let map_contains = module
-            .get_function("__nudl_map_contains")
-            .unwrap_or_else(|| {
-                let fn_ty = i64_ty.fn_type(&[ptr_ty.into(), i64_ty.into()], false);
-                module.add_function(
-                    "__nudl_map_contains",
-                    fn_ty,
-                    Some(inkwell::module::Linkage::External),
-                )
-            });
-        let map_ptr = load_ptr(context, builder, register_allocas, map_reg.0)?;
-        let key = load_i64(context, builder, register_allocas, key_reg.0)?;
-        let call_result = builder
-            .build_direct_call(map_contains, &[map_ptr.into(), key.into()], "map_contains")
-            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-        let val = call_result
-            .try_as_basic_value()
-            .basic()
-            .expect("map_contains returns i64")
-            .into_int_value();
-        store(builder, register_allocas, dst.0, val)?;
-    }
-
+        Instruction::MapContains(dst, map_reg, key_reg) => {
+            let i64_ty = context.i64_type();
+            let ptr_ty = context.ptr_type(AddressSpace::default());
+            // module is passed as parameter
+            let map_contains = module
+                .get_function("__nudl_map_contains")
+                .unwrap_or_else(|| {
+                    let fn_ty = i64_ty.fn_type(&[ptr_ty.into(), i64_ty.into()], false);
+                    module.add_function(
+                        "__nudl_map_contains",
+                        fn_ty,
+                        Some(inkwell::module::Linkage::External),
+                    )
+                });
+            let map_ptr = load_ptr(context, builder, register_allocas, map_reg.0)?;
+            let key = load_i64(context, builder, register_allocas, key_reg.0)?;
+            let call_result = builder
+                .build_direct_call(map_contains, &[map_ptr.into(), key.into()], "map_contains")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let val = call_result
+                .try_as_basic_value()
+                .basic()
+                .expect("map_contains returns i64")
+                .into_int_value();
+            store(builder, register_allocas, dst.0, val)?;
+        }
     }
     Ok(())
 }
-

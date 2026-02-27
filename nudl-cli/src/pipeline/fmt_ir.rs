@@ -246,7 +246,9 @@ fn fmt_instruction(
         Instruction::ClosureCreate(dst, func_id, captures) => {
             out.push_str(&format!("r{} = ClosureCreate(fn#{}, [", dst.0, func_id.0));
             for (i, r) in captures.iter().enumerate() {
-                if i > 0 { out.push_str(", "); }
+                if i > 0 {
+                    out.push_str(", ");
+                }
                 out.push_str(&format!("r{}", r.0));
             }
             out.push_str("])");
@@ -254,7 +256,9 @@ fn fmt_instruction(
         Instruction::ClosureCall(dst, closure, args) => {
             out.push_str(&format!("r{} = ClosureCall(r{}, [", dst.0, closure.0));
             for (i, r) in args.iter().enumerate() {
-                if i > 0 { out.push_str(", "); }
+                if i > 0 {
+                    out.push_str(", ");
+                }
                 out.push_str(&format!("r{}", r.0));
             }
             out.push_str("])");

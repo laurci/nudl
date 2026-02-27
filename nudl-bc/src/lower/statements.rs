@@ -59,22 +59,33 @@ impl<'a> FunctionLowerCtx<'a> {
             Stmt::Expr(expr) => {
                 self.lower_expr(expr);
             }
-            Stmt::Let { name, ty, value, .. } | Stmt::Const { name, ty, value, .. } => {
+            Stmt::Let {
+                name, ty, value, ..
+            }
+            | Stmt::Const {
+                name, ty, value, ..
+            } => {
                 // If there's a type annotation, resolve it first
                 let annotated_type = ty.as_ref().map(|t| self.resolve_type_expr(&t.node));
 
                 // If the value is an empty array literal and the type is DynArray,
                 // emit DynArrayAlloc instead of FixedArrayAlloc
-                let reg = if let (Some(type_id), Expr::ArrayLiteral(elems)) = (annotated_type, &value.node) {
+                let reg = if let (Some(type_id), Expr::ArrayLiteral(elems)) =
+                    (annotated_type, &value.node)
+                {
                     if elems.is_empty() {
-                        if let nudl_core::types::TypeKind::DynamicArray { .. } = self.types.resolve(type_id) {
+                        if let nudl_core::types::TypeKind::DynamicArray { .. } =
+                            self.types.resolve(type_id)
+                        {
                             let dst = self.alloc_typed_register(type_id);
                             self.push_inst(Instruction::DynArrayAlloc(dst, type_id));
                             dst
                         } else {
                             self.lower_expr(value)
                         }
-                    } else if let nudl_core::types::TypeKind::DynamicArray { .. } = self.types.resolve(type_id) {
+                    } else if let nudl_core::types::TypeKind::DynamicArray { .. } =
+                        self.types.resolve(type_id)
+                    {
                         // Non-empty array literal assigned to dynamic array type:
                         // alloc + push each element
                         let dst = self.alloc_typed_register(type_id);
@@ -99,9 +110,7 @@ impl<'a> FunctionLowerCtx<'a> {
                     self.local_types.insert(name.clone(), type_id);
                 }
             }
-            Stmt::LetPattern {
-                pattern, value, ..
-            } => {
+            Stmt::LetPattern { pattern, value, .. } => {
                 let val_reg = self.lower_expr(value);
                 let val_ty = self.infer_expr_type(value);
                 self.lower_pattern_binding(&pattern.node, val_reg, val_ty);
@@ -140,11 +149,7 @@ impl<'a> FunctionLowerCtx<'a> {
                             let elem_ty = elem_types.get(i).copied();
                             let elem_reg = self.alloc_register();
                             // Use TupleLoad to extract element i
-                            self.push_inst(Instruction::TupleLoad(
-                                elem_reg,
-                                val_reg,
-                                i as u32,
-                            ));
+                            self.push_inst(Instruction::TupleLoad(elem_reg, val_reg, i as u32));
                             if let Some(ety) = elem_ty {
                                 self.register_types[elem_reg.0 as usize] = ety;
                             }
@@ -174,16 +179,8 @@ impl<'a> FunctionLowerCtx<'a> {
                             {
                                 let ft = *field_ty;
                                 let field_reg = self.alloc_typed_register(ft);
-                                self.push_inst(Instruction::Load(
-                                    field_reg,
-                                    val_reg,
-                                    idx as u32,
-                                ));
-                                self.lower_pattern_binding(
-                                    &pat.node,
-                                    field_reg,
-                                    Some(ft),
-                                );
+                                self.push_inst(Instruction::Load(field_reg, val_reg, idx as u32));
+                                self.lower_pattern_binding(&pat.node, field_reg, Some(ft));
                             }
                         }
                     }

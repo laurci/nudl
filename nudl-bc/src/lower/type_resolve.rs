@@ -70,7 +70,8 @@ impl<'a> FunctionLowerCtx<'a> {
                     "Map" if args.len() == 2 => {
                         let key = self.resolve_type_expr(&args[0].node);
                         let value = self.resolve_type_expr(&args[1].node);
-                        self.types.intern(nudl_core::types::TypeKind::Map { key, value })
+                        self.types
+                            .intern(nudl_core::types::TypeKind::Map { key, value })
                     }
                     _ => {
                         // Try struct or enum
@@ -86,13 +87,12 @@ impl<'a> FunctionLowerCtx<'a> {
             }
             TypeExpr::DynamicArray { element } => {
                 let elem_ty = self.resolve_type_expr(&element.node);
-                self.types.intern(nudl_core::types::TypeKind::DynamicArray {
-                    element: elem_ty,
-                })
+                self.types
+                    .intern(nudl_core::types::TypeKind::DynamicArray { element: elem_ty })
             }
-            TypeExpr::DynInterface { name } => {
-                self.types.intern(nudl_core::types::TypeKind::DynInterface { name: name.clone() })
-            }
+            TypeExpr::DynInterface { name } => self
+                .types
+                .intern(nudl_core::types::TypeKind::DynInterface { name: name.clone() }),
         }
     }
 
@@ -212,7 +212,11 @@ impl<'a> FunctionLowerCtx<'a> {
             Expr::Literal(Literal::Bool(_)) => Some(self.types.bool()),
             Expr::Literal(Literal::Char(_)) => Some(self.types.char_type()),
             Expr::Literal(Literal::String(_)) => Some(self.types.string()),
-            Expr::Closure { params, return_type, .. } => {
+            Expr::Closure {
+                params,
+                return_type,
+                ..
+            } => {
                 let param_types: Vec<nudl_core::types::TypeId> = params
                     .iter()
                     .map(|p| {
@@ -274,9 +278,7 @@ impl<'a> FunctionLowerCtx<'a> {
             } => {
                 // Check if this is an enum variant constructor
                 if let Some(&enum_ty) = self.enum_defs.get(type_name.as_str()) {
-                    if let TypeKind::Enum { name, variants, .. } =
-                        self.types.resolve(enum_ty)
-                    {
+                    if let TypeKind::Enum { name, variants, .. } = self.types.resolve(enum_ty) {
                         if variants.iter().any(|v| v.name == *method) {
                             return Some(name.clone());
                         }

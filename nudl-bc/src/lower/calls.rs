@@ -22,19 +22,15 @@ impl<'a> FunctionLowerCtx<'a> {
                 self.push_inst(Instruction::StringLen(dst, arg_reg));
                 dst
             }
-            "__str_concat" | "__i32_to_str" | "__i64_to_str" | "__f64_to_str"
-            | "__bool_to_str" | "__char_to_str" => {
+            "__str_concat" | "__i32_to_str" | "__i64_to_str" | "__f64_to_str" | "__bool_to_str"
+            | "__char_to_str" => {
                 let arg_regs: Vec<Register> =
                     args.iter().map(|a| self.lower_expr(&a.value)).collect();
                 self.current_span = call_span;
                 let sym = self.interner.intern(name);
                 let string_ty = self.types.string();
                 let dst = self.alloc_typed_register(string_ty);
-                self.push_inst(Instruction::Call(
-                    dst,
-                    FunctionRef::Builtin(sym),
-                    arg_regs,
-                ));
+                self.push_inst(Instruction::Call(dst, FunctionRef::Builtin(sym), arg_regs));
                 dst
             }
             "panic" => {

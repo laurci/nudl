@@ -257,11 +257,12 @@ impl Checker {
             }
             TypeExpr::DynamicArray { element } => {
                 let elem_ty = self.resolve_type(element);
-                self.types.intern(TypeKind::DynamicArray { element: elem_ty })
+                self.types
+                    .intern(TypeKind::DynamicArray { element: elem_ty })
             }
-            TypeExpr::DynInterface { name } => {
-                self.types.intern(TypeKind::DynInterface { name: name.clone() })
-            }
+            TypeExpr::DynInterface { name } => self
+                .types
+                .intern(TypeKind::DynInterface { name: name.clone() }),
         }
     }
 
