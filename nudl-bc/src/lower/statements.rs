@@ -59,13 +59,43 @@ impl<'a> FunctionLowerCtx<'a> {
             Stmt::Expr(expr) => {
                 self.lower_expr(expr);
             }
-            Stmt::Let { name, value, .. } | Stmt::Const { name, value, .. } => {
-                let reg = self.lower_expr(value);
+            Stmt::Let { name, ty, value, .. } | Stmt::Const { name, ty, value, .. } => {
+                // If there's a type annotation, resolve it first
+                let annotated_type = ty.as_ref().map(|t| self.resolve_type_expr(&t.node));
+
+                // If the value is an empty array literal and the type is DynArray,
+                // emit DynArrayAlloc instead of FixedArrayAlloc
+                let reg = if let (Some(type_id), Expr::ArrayLiteral(elems)) = (annotated_type, &value.node) {
+                    if elems.is_empty() {
+                        if let nudl_core::types::TypeKind::DynamicArray { .. } = self.types.resolve(type_id) {
+                            let dst = self.alloc_typed_register(type_id);
+                            self.push_inst(Instruction::DynArrayAlloc(dst, type_id));
+                            dst
+                        } else {
+                            self.lower_expr(value)
+                        }
+                    } else if let nudl_core::types::TypeKind::DynamicArray { .. } = self.types.resolve(type_id) {
+                        // Non-empty array literal assigned to dynamic array type:
+                        // alloc + push each element
+                        let dst = self.alloc_typed_register(type_id);
+                        self.push_inst(Instruction::DynArrayAlloc(dst, type_id));
+                        for elem in elems {
+                            let elem_reg = self.lower_expr(elem);
+                            self.push_inst(Instruction::DynArrayPush(dst, elem_reg));
+                        }
+                        dst
+                    } else {
+                        self.lower_expr(value)
+                    }
+                } else {
+                    self.lower_expr(value)
+                };
                 self.locals.insert(name.clone(), reg);
 
-                // Track typed locals for scope-exit Release, field/index type inference,
-                // and float type propagation
-                if let Some(type_id) = self.infer_expr_type(value) {
+                // Track typed locals: prefer annotation, fall back to expression inference
+                if let Some(type_id) = annotated_type {
+                    self.local_types.insert(name.clone(), type_id);
+                } else if let Some(type_id) = self.infer_expr_type(value) {
                     self.local_types.insert(name.clone(), type_id);
                 }
             }

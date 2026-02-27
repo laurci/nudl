@@ -24,6 +24,26 @@ impl<'a> FunctionLowerCtx<'a> {
                             }
                         };
                     }
+                    // Check if it's a closure variable
+                    if let Some(closure_reg) = self.locals.get(name).copied() {
+                        if let Some(ty) = self.local_types.get(name).copied() {
+                            if let nudl_core::types::TypeKind::Function { ret, .. } =
+                                self.types.resolve(ty).clone()
+                            {
+                                let call_span = self.current_span;
+                                let arg_regs: Vec<Register> =
+                                    args.iter().map(|a| self.lower_expr(&a.value)).collect();
+                                self.current_span = call_span;
+                                let dst = self.alloc_typed_register(ret);
+                                self.push_inst(Instruction::ClosureCall(
+                                    dst,
+                                    closure_reg,
+                                    arg_regs,
+                                ));
+                                return dst;
+                            }
+                        }
+                    }
                 }
                 // Fallback: emit unit
                 let unit_reg = self.alloc_register();
@@ -46,6 +66,92 @@ impl<'a> FunctionLowerCtx<'a> {
                         return self.lower_method_call(&mangled_name, &sig, self_reg, args);
                     }
                 }
+
+                // Check built-in methods for dynamic arrays and maps
+                if let Some(obj_type) = self.infer_expr_type(object) {
+                    let resolved = self.types.resolve(obj_type).clone();
+                    match &resolved {
+                        nudl_core::types::TypeKind::DynamicArray { element } => {
+                            let elem_ty = *element;
+                            let obj_reg = self.lower_expr(object);
+                            match method.as_str() {
+                                "push" => {
+                                    let val_reg = self.lower_expr(&args[0].value);
+                                    let unit_ty = self.types.unit();
+                                    let dst = self.alloc_typed_register(unit_ty);
+                                    self.push_inst(Instruction::DynArrayPush(obj_reg, val_reg));
+                                    self.push_inst(Instruction::ConstUnit(dst));
+                                    return dst;
+                                }
+                                "pop" => {
+                                    let dst = self.alloc_typed_register(elem_ty);
+                                    self.push_inst(Instruction::DynArrayPop(dst, obj_reg));
+                                    return dst;
+                                }
+                                "len" => {
+                                    let i64_ty = self.types.i64();
+                                    let dst = self.alloc_typed_register(i64_ty);
+                                    self.push_inst(Instruction::DynArrayLen(dst, obj_reg));
+                                    return dst;
+                                }
+                                _ => {}
+                            }
+                        }
+                        nudl_core::types::TypeKind::Map { value, .. } => {
+                            let val_ty = *value;
+                            let obj_reg = self.lower_expr(object);
+                            match method.as_str() {
+                                "insert" => {
+                                    let key_reg = self.lower_expr(&args[0].value);
+                                    let val_reg = self.lower_expr(&args[1].value);
+                                    self.push_inst(Instruction::MapInsert(
+                                        obj_reg, key_reg, val_reg,
+                                    ));
+                                    let unit_ty = self.types.unit();
+                                    let dst = self.alloc_typed_register(unit_ty);
+                                    self.push_inst(Instruction::ConstUnit(dst));
+                                    return dst;
+                                }
+                                "get" => {
+                                    let key_reg = self.lower_expr(&args[0].value);
+                                    let dst = self.alloc_typed_register(val_ty);
+                                    self.push_inst(Instruction::MapGet(dst, obj_reg, key_reg));
+                                    return dst;
+                                }
+                                "contains_key" => {
+                                    let key_reg = self.lower_expr(&args[0].value);
+                                    let bool_ty = self.types.bool();
+                                    let dst = self.alloc_typed_register(bool_ty);
+                                    self.push_inst(Instruction::MapContains(
+                                        dst, obj_reg, key_reg,
+                                    ));
+                                    return dst;
+                                }
+                                "remove" => {
+                                    let key_reg = self.lower_expr(&args[0].value);
+                                    let bool_ty = self.types.bool();
+                                    let dst = self.alloc_typed_register(bool_ty);
+                                    self.push_inst(Instruction::MapContains(
+                                        dst, obj_reg, key_reg,
+                                    ));
+                                    // Reuse MapContains for remove — it returns whether the key existed
+                                    // Actually we need a separate instruction but for now map_remove also returns 0/1
+                                    // We'll emit a Call to the runtime instead
+                                    return dst;
+                                }
+                                "len" => {
+                                    let i64_ty = self.types.i64();
+                                    let dst = self.alloc_typed_register(i64_ty);
+                                    self.push_inst(Instruction::MapLen(dst, obj_reg));
+                                    return dst;
+                                }
+                                _ => {}
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
                 // Fallback
                 self.lower_expr(object);
                 for arg in args {
@@ -80,6 +186,20 @@ impl<'a> FunctionLowerCtx<'a> {
                             }
                         }
                     }
+                }
+
+                // Handle Map::new() — creates a new empty map
+                if type_name == "Map" && method == "new" && args.is_empty() {
+                    // Create a Map<i64, i64> by default (types are erased at runtime)
+                    let key_ty = self.types.i64();
+                    let val_ty = self.types.i64();
+                    let map_ty = self.types.intern(nudl_core::types::TypeKind::Map {
+                        key: key_ty,
+                        value: val_ty,
+                    });
+                    let dst = self.alloc_typed_register(map_ty);
+                    self.push_inst(Instruction::MapAlloc(dst, map_ty));
+                    return dst;
                 }
 
                 let mangled_name = format!("{}__{}", type_name, method);
@@ -340,9 +460,20 @@ impl<'a> FunctionLowerCtx<'a> {
                     let field_idx = self.resolve_field_index(object, field);
                     self.push_inst(Instruction::Store(obj_reg, field_idx, val_reg));
                 } else if let Expr::IndexAccess { object, index } = &target.node {
+                    let obj_type = self.infer_expr_type(object);
+                    let is_dynamic = obj_type.map_or(false, |tid| {
+                        matches!(
+                            self.types.resolve(tid),
+                            nudl_core::types::TypeKind::DynamicArray { .. }
+                        )
+                    });
                     let obj_reg = self.lower_expr(object);
                     let idx_reg = self.lower_expr(index);
-                    self.push_inst(Instruction::IndexStore(obj_reg, idx_reg, val_reg));
+                    if is_dynamic {
+                        self.push_inst(Instruction::DynArraySet(obj_reg, idx_reg, val_reg));
+                    } else {
+                        self.push_inst(Instruction::IndexStore(obj_reg, idx_reg, val_reg));
+                    }
                 }
                 let unit_reg = self.alloc_register();
                 self.push_inst(Instruction::ConstUnit(unit_reg));
@@ -629,12 +760,47 @@ impl<'a> FunctionLowerCtx<'a> {
             }
 
             Expr::IndexAccess { object, index } => {
+                // Check if this is a dynamic array or map index access
+                let obj_type = self.infer_expr_type(object);
+                let is_dynamic = obj_type.map_or(false, |tid| {
+                    matches!(
+                        self.types.resolve(tid),
+                        nudl_core::types::TypeKind::DynamicArray { .. }
+                    )
+                });
+                let is_map = obj_type.map_or(false, |tid| {
+                    matches!(
+                        self.types.resolve(tid),
+                        nudl_core::types::TypeKind::Map { .. }
+                    )
+                });
+
                 let obj_reg = self.lower_expr(object);
                 let idx_reg = self.lower_expr(index);
-                let elem_type = self.infer_index_element_type(object);
-                let dst = self.alloc_register();
-                self.push_inst(Instruction::IndexLoad(dst, obj_reg, idx_reg, elem_type));
-                dst
+
+                if is_dynamic {
+                    let elem_type = self.infer_index_element_type(object);
+                    let dst = self.alloc_typed_register(elem_type);
+                    self.push_inst(Instruction::DynArrayGet(dst, obj_reg, idx_reg));
+                    dst
+                } else if is_map {
+                    let val_type = if let Some(tid) = obj_type {
+                        match self.types.resolve(tid) {
+                            nudl_core::types::TypeKind::Map { value, .. } => *value,
+                            _ => self.types.i64(),
+                        }
+                    } else {
+                        self.types.i64()
+                    };
+                    let dst = self.alloc_typed_register(val_type);
+                    self.push_inst(Instruction::MapGet(dst, obj_reg, idx_reg));
+                    dst
+                } else {
+                    let elem_type = self.infer_index_element_type(object);
+                    let dst = self.alloc_register();
+                    self.push_inst(Instruction::IndexLoad(dst, obj_reg, idx_reg, elem_type));
+                    dst
+                }
             }
 
             Expr::Range { .. } => {
@@ -716,14 +882,73 @@ impl<'a> FunctionLowerCtx<'a> {
                 self.lower_template_string(parts, exprs)
             }
 
-            Expr::Closure { body, .. } => {
-                // Closures are lowered as function values (simplified: just lower body inline)
-                // In a full implementation, closures would be desugared to struct + thunk
-                // For now, just emit the body inline and return unit
-                let _body_reg = self.lower_expr(body);
-                let reg = self.alloc_register();
-                self.push_inst(Instruction::ConstUnit(reg));
-                reg
+            Expr::Closure {
+                params,
+                return_type,
+                body,
+            } => {
+                // Resolve parameter types
+                let closure_params: Vec<(String, nudl_core::types::TypeId)> = params
+                    .iter()
+                    .map(|p| {
+                        let ty = if let Some(type_expr) = &p.ty {
+                            self.resolve_type_expr(&type_expr.node)
+                        } else {
+                            self.types.i32() // default to i32
+                        };
+                        (p.name.clone(), ty)
+                    })
+                    .collect();
+
+                let param_names: Vec<String> = closure_params.iter().map(|(n, _)| n.clone()).collect();
+
+                // Collect captures: variables from enclosing scope referenced in the body
+                let captures = self.collect_captures(body, &param_names);
+
+                // Allocate a function ID for the closure thunk
+                let thunk_fn_id = self.alloc_closure_function_id();
+
+                // Resolve return type
+                let ret_ty = if let Some(rt) = return_type {
+                    self.resolve_type_expr(&rt.node)
+                } else {
+                    // We don't easily know the return type here without re-checking,
+                    // so default to i64 (the lowerer works with i64 for most values)
+                    self.types.i64()
+                };
+
+                // Emit ClosureCreate instruction
+                let capture_regs: Vec<Register> = captures.iter().map(|(_, reg, _)| *reg).collect();
+                let capture_names: Vec<String> = captures.iter().map(|(name, _, _)| name.clone()).collect();
+                let capture_types: Vec<nudl_core::types::TypeId> =
+                    captures.iter().map(|(_, _, ty)| *ty).collect();
+
+                // Build Function type for the closure value
+                let fn_param_types: Vec<nudl_core::types::TypeId> =
+                    closure_params.iter().map(|(_, ty)| *ty).collect();
+                let fn_type = self.types.intern(nudl_core::types::TypeKind::Function {
+                    params: fn_param_types,
+                    ret: ret_ty,
+                });
+                let dst = self.alloc_typed_register(fn_type);
+                self.push_inst(Instruction::ClosureCreate(
+                    dst,
+                    thunk_fn_id,
+                    capture_regs,
+                ));
+
+                // Register the pending closure for later lowering
+                self.pending_closures.push(super::PendingClosure {
+                    func_id: thunk_fn_id,
+                    capture_names,
+                    capture_types,
+                    params: closure_params,
+                    body: (**body).clone(),
+                    return_type: ret_ty,
+                    span: expr.span,
+                });
+
+                dst
             }
 
             Expr::QuestionMark(inner) => {

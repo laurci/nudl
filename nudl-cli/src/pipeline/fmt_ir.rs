@@ -242,6 +242,58 @@ fn fmt_instruction(
         Instruction::IndexStore(ptr, idx, src) => {
             out.push_str(&format!("IndexStore(r{}, r{}, r{})", ptr.0, idx.0, src.0));
         }
+        // Closure operations
+        Instruction::ClosureCreate(dst, func_id, captures) => {
+            out.push_str(&format!("r{} = ClosureCreate(fn#{}, [", dst.0, func_id.0));
+            for (i, r) in captures.iter().enumerate() {
+                if i > 0 { out.push_str(", "); }
+                out.push_str(&format!("r{}", r.0));
+            }
+            out.push_str("])");
+        }
+        Instruction::ClosureCall(dst, closure, args) => {
+            out.push_str(&format!("r{} = ClosureCall(r{}, [", dst.0, closure.0));
+            for (i, r) in args.iter().enumerate() {
+                if i > 0 { out.push_str(", "); }
+                out.push_str(&format!("r{}", r.0));
+            }
+            out.push_str("])");
+        }
+        // Dynamic array operations
+        Instruction::DynArrayAlloc(dst, _ty) => {
+            out.push_str(&format!("r{} = DynArrayAlloc", dst.0));
+        }
+        Instruction::DynArrayPush(arr, val) => {
+            out.push_str(&format!("DynArrayPush(r{}, r{})", arr.0, val.0));
+        }
+        Instruction::DynArrayPop(dst, arr) => {
+            out.push_str(&format!("r{} = DynArrayPop(r{})", dst.0, arr.0));
+        }
+        Instruction::DynArrayLen(dst, arr) => {
+            out.push_str(&format!("r{} = DynArrayLen(r{})", dst.0, arr.0));
+        }
+        Instruction::DynArrayGet(dst, arr, idx) => {
+            out.push_str(&format!("r{} = DynArrayGet(r{}, r{})", dst.0, arr.0, idx.0));
+        }
+        Instruction::DynArraySet(arr, idx, val) => {
+            out.push_str(&format!("DynArraySet(r{}, r{}, r{})", arr.0, idx.0, val.0));
+        }
+        // Map operations
+        Instruction::MapAlloc(dst, _ty) => {
+            out.push_str(&format!("r{} = MapAlloc", dst.0));
+        }
+        Instruction::MapInsert(map, key, val) => {
+            out.push_str(&format!("MapInsert(r{}, r{}, r{})", map.0, key.0, val.0));
+        }
+        Instruction::MapGet(dst, map, key) => {
+            out.push_str(&format!("r{} = MapGet(r{}, r{})", dst.0, map.0, key.0));
+        }
+        Instruction::MapLen(dst, map) => {
+            out.push_str(&format!("r{} = MapLen(r{})", dst.0, map.0));
+        }
+        Instruction::MapContains(dst, map, key) => {
+            out.push_str(&format!("r{} = MapContains(r{}, r{})", dst.0, map.0, key.0));
+        }
     }
 }
 

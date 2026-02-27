@@ -182,6 +182,7 @@ pub(super) fn build_module<'ctx>(
         emit_function(
             context,
             &builder,
+            &module,
             program,
             func,
             &function_map,
