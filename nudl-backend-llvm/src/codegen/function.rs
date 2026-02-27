@@ -3,6 +3,7 @@ use super::*;
 pub(super) fn emit_function<'ctx>(
     context: &'ctx Context,
     builder: &Builder<'ctx>,
+    module: &Module<'ctx>,
     program: &Program,
     func: &Function,
     function_map: &HashMap<u32, FunctionValue<'ctx>>,
@@ -161,6 +162,7 @@ pub(super) fn emit_function<'ctx>(
                 func,
                 context,
                 builder,
+                module,
                 &register_allocas,
                 &str_ptr_allocas,
                 &str_len_allocas,

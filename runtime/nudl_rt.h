@@ -37,4 +37,23 @@ void __nudl_arc_weak_retain(void *ptr);
 void __nudl_arc_weak_release(void *ptr);
 void *__nudl_arc_weak_upgrade(void *ptr);
 
+/* Dynamic array operations. */
+void *__nudl_array_alloc(void);
+void __nudl_array_push(void *arr_ptr, int64_t value);
+int64_t __nudl_array_pop(void *arr_ptr);
+int64_t __nudl_array_len(void *arr_ptr);
+int64_t __nudl_array_get(void *arr_ptr, int64_t index);
+void __nudl_array_set(void *arr_ptr, int64_t index, int64_t value);
+
+/* Map operations. */
+void *__nudl_map_alloc(void);
+void __nudl_map_insert(void *map_ptr, int64_t key, int64_t value);
+int64_t __nudl_map_get(void *map_ptr, int64_t key, int64_t *found);
+int64_t __nudl_map_contains(void *map_ptr, int64_t key);
+int64_t __nudl_map_len(void *map_ptr);
+int64_t __nudl_map_remove(void *map_ptr, int64_t key);
+
+/* Closure runtime. */
+void *__nudl_closure_env_alloc(int64_t num_captures);
+
 #endif /* NUDL_RT_H */

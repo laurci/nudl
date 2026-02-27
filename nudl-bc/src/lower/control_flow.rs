@@ -111,18 +111,32 @@ impl<'a> FunctionLowerCtx<'a> {
         let arr_reg = self.lower_expr(iter_expr);
         let arr_type = self.infer_expr_type(iter_expr);
 
-        let length = if let Some(tid) = arr_type {
-            match self.types.resolve(tid) {
-                nudl_core::types::TypeKind::FixedArray { length, .. } => *length,
-                _ => 0,
+        let is_dynamic = if let Some(tid) = arr_type {
+            matches!(
+                self.types.resolve(tid),
+                nudl_core::types::TypeKind::DynamicArray { .. }
+            )
+        } else {
+            false
+        };
+
+        let length = if !is_dynamic {
+            if let Some(tid) = arr_type {
+                match self.types.resolve(tid) {
+                    nudl_core::types::TypeKind::FixedArray { length, .. } => *length,
+                    _ => 0,
+                }
+            } else {
+                0
             }
         } else {
-            0
+            0 // Will use runtime length
         };
 
         let elem_type = if let Some(tid) = arr_type {
             match self.types.resolve(tid) {
                 nudl_core::types::TypeKind::FixedArray { element, .. } => *element,
+                nudl_core::types::TypeKind::DynamicArray { element } => *element,
                 _ => self.types.i64(),
             }
         } else {
@@ -135,8 +149,16 @@ impl<'a> FunctionLowerCtx<'a> {
         let idx_name = format!("__for_idx_{}", binding);
         self.locals.insert(idx_name.clone(), idx_reg);
 
-        let len_reg = self.alloc_register();
-        self.push_inst(Instruction::Const(len_reg, ConstValue::I32(length as i32)));
+        let len_reg = if is_dynamic {
+            // For dynamic arrays, get length at runtime
+            let len = self.alloc_register();
+            self.push_inst(Instruction::DynArrayLen(len, arr_reg));
+            len
+        } else {
+            let len = self.alloc_register();
+            self.push_inst(Instruction::Const(len, ConstValue::I32(length as i32)));
+            len
+        };
 
         let cond_block = self.new_block_id();
         let body_block = self.new_block_id();
@@ -165,9 +187,13 @@ impl<'a> FunctionLowerCtx<'a> {
         // let binding = arr[__idx];
         let cur_idx = self.locals.get(&idx_name).copied().unwrap();
         let elem_reg = self.alloc_register();
-        self.push_inst(Instruction::IndexLoad(
-            elem_reg, arr_reg, cur_idx, elem_type,
-        ));
+        if is_dynamic {
+            self.push_inst(Instruction::DynArrayGet(elem_reg, arr_reg, cur_idx));
+        } else {
+            self.push_inst(Instruction::IndexLoad(
+                elem_reg, arr_reg, cur_idx, elem_type,
+            ));
+        }
         self.locals.insert(binding.to_string(), elem_reg);
 
         self.lower_block_expr(body);

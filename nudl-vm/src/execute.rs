@@ -513,6 +513,42 @@ impl Vm {
                 }
                 obj.fields[idx] = val;
             }
+
+            // Closure, dynamic array, and map instructions are not supported in the VM (comptime)
+            // They are only used in the native backend. Emit no-ops or errors.
+            Instruction::ClosureCreate(dst, _, _) => {
+                registers[dst.0 as usize] = Value::Unit;
+            }
+            Instruction::ClosureCall(dst, _, _) => {
+                registers[dst.0 as usize] = Value::Unit;
+            }
+            Instruction::DynArrayAlloc(dst, _) => {
+                registers[dst.0 as usize] = Value::Unit;
+            }
+            Instruction::DynArrayPush(_, _) => {}
+            Instruction::DynArrayPop(dst, _) => {
+                registers[dst.0 as usize] = Value::Unit;
+            }
+            Instruction::DynArrayLen(dst, _) => {
+                registers[dst.0 as usize] = Value::I64(0);
+            }
+            Instruction::DynArrayGet(dst, _, _) => {
+                registers[dst.0 as usize] = Value::Unit;
+            }
+            Instruction::DynArraySet(_, _, _) => {}
+            Instruction::MapAlloc(dst, _) => {
+                registers[dst.0 as usize] = Value::Unit;
+            }
+            Instruction::MapInsert(_, _, _) => {}
+            Instruction::MapGet(dst, _, _) => {
+                registers[dst.0 as usize] = Value::Unit;
+            }
+            Instruction::MapLen(dst, _) => {
+                registers[dst.0 as usize] = Value::I64(0);
+            }
+            Instruction::MapContains(dst, _, _) => {
+                registers[dst.0 as usize] = Value::Bool(false);
+            }
         }
 
         Ok(())

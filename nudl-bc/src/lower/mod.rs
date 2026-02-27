@@ -22,6 +22,24 @@ use crate::scoped_locals::ScopedLocals;
 
 pub use context::FunctionLowerCtx;
 
+/// Information about a closure that needs to be lowered as a separate function.
+pub(super) struct PendingClosure {
+    /// The function ID assigned to the closure thunk
+    pub(super) func_id: FunctionId,
+    /// Names of captured variables (in order they appear in the capture struct)
+    pub(super) capture_names: Vec<String>,
+    /// Types of captured variables
+    pub(super) capture_types: Vec<nudl_core::types::TypeId>,
+    /// The closure's parameter names and types
+    pub(super) params: Vec<(String, nudl_core::types::TypeId)>,
+    /// The closure body AST
+    pub(super) body: SpannedExpr,
+    /// Return type
+    pub(super) return_type: nudl_core::types::TypeId,
+    /// Span
+    pub(super) span: Span,
+}
+
 /// Lowers AST to SSA bytecode. Consumes CheckedModule for function signatures.
 pub struct Lowerer {
     pub(super) interner: StringInterner,
@@ -35,6 +53,8 @@ pub struct Lowerer {
     /// Default parameter expressions indexed by function name.
     /// Populated before lowering so call sites can fill in missing args.
     pub(super) param_defaults: HashMap<String, Vec<Option<SpannedExpr>>>,
+    /// Closures that need to be lowered as separate functions after the current function.
+    pub(super) pending_closures: Vec<PendingClosure>,
 }
 
 impl Lowerer {
@@ -49,6 +69,7 @@ impl Lowerer {
             string_constants: Vec::new(),
             next_function_id: 0,
             param_defaults: HashMap::new(),
+            pending_closures: Vec::new(),
         }
     }
 
@@ -147,6 +168,15 @@ impl Lowerer {
             }
         }
 
+        // Pass 3: Lower pending closures (generated during function lowering)
+        while !self.pending_closures.is_empty() {
+            let closures = std::mem::take(&mut self.pending_closures);
+            for closure in closures {
+                let func = self.lower_closure_thunk(closure);
+                self.functions.push(func);
+            }
+        }
+
         Program {
             functions: self.functions,
             string_constants: self.string_constants,
@@ -239,6 +269,8 @@ impl Lowerer {
             loop_stack: Vec::new(),
             param_defaults: &self.param_defaults,
             deferred_blocks: Vec::new(),
+            pending_closures: &mut self.pending_closures,
+            next_function_id: &mut self.next_function_id,
         };
 
         // Lower body — returns the register holding the result
@@ -290,6 +322,106 @@ impl Lowerer {
             is_extern: false,
             extern_symbol: None,
             span: body.span,
+        }
+    }
+
+    /// Lower a closure thunk function. The first parameter is `__env` (pointer to capture struct).
+    /// Subsequent parameters are the closure's declared parameters.
+    fn lower_closure_thunk(&mut self, closure: PendingClosure) -> Function {
+        let id = closure.func_id;
+        let thunk_name = format!("__closure_{}", id.0);
+        let name_sym = self.interner.intern(&thunk_name);
+
+        // Build IR params: first is __env (i64 representing pointer), then closure params
+        let env_ty = self.types.i64();
+        let env_sym = self.interner.intern("__env");
+        let mut ir_params: Vec<(nudl_core::intern::Symbol, nudl_core::types::TypeId)> =
+            vec![(env_sym, env_ty)];
+        for (pname, pty) in &closure.params {
+            ir_params.push((self.interner.intern(pname), *pty));
+        }
+
+        // Build locals: __env is register 0, params are registers 1..N,
+        // then captured vars are loaded from __env
+        let mut locals = ScopedLocals::<Register>::new();
+        let mut local_types = ScopedLocals::<nudl_core::types::TypeId>::new();
+        let mut register_types = Vec::new();
+        let mut next_register = 0u32;
+
+        // Register 0: __env
+        locals.insert("__env".to_string(), Register(next_register));
+        local_types.insert("__env".to_string(), env_ty);
+        register_types.push(env_ty);
+        next_register += 1;
+
+        // Registers 1..N: closure params
+        for (pname, pty) in &closure.params {
+            locals.insert(pname.clone(), Register(next_register));
+            local_types.insert(pname.clone(), *pty);
+            register_types.push(*pty);
+            next_register += 1;
+        }
+
+        let mut ctx = FunctionLowerCtx {
+            blocks: Vec::new(),
+            current_block_id: BlockId(0),
+            current_instructions: Vec::new(),
+            current_spans: Vec::new(),
+            current_span: closure.span,
+            next_block_id: 1,
+            next_register,
+            locals,
+            local_types,
+            register_types,
+            string_constants: &mut self.string_constants,
+            interner: &mut self.interner,
+            function_sigs: &self.function_sigs,
+            struct_defs: &self.struct_defs,
+            enum_defs: &self.enum_defs,
+            types: &mut self.types,
+            loop_stack: Vec::new(),
+            param_defaults: &self.param_defaults,
+            deferred_blocks: Vec::new(),
+            pending_closures: &mut self.pending_closures,
+            next_function_id: &mut self.next_function_id,
+        };
+
+        // Load captured variables from the env pointer
+        let env_reg = Register(0);
+        for (i, (cap_name, cap_type)) in closure
+            .capture_names
+            .iter()
+            .zip(closure.capture_types.iter())
+            .enumerate()
+        {
+            let cap_reg = ctx.alloc_typed_register(*cap_type);
+            // Load from env struct: header(16) + field_index * 8
+            ctx.push_inst(Instruction::Load(cap_reg, env_reg, i as u32));
+            ctx.locals.insert(cap_name.clone(), cap_reg);
+            ctx.local_types.insert(cap_name.clone(), *cap_type);
+        }
+
+        // Lower the closure body
+        let result_reg = ctx.lower_expr(&closure.body);
+
+        // Finish with return
+        ctx.finish_block(Terminator::Return(result_reg));
+
+        let register_count = ctx.next_register;
+        let register_types = ctx.register_types;
+        let blocks = ctx.blocks;
+
+        Function {
+            id,
+            name: name_sym,
+            params: ir_params,
+            return_type: closure.return_type,
+            blocks,
+            register_count,
+            register_types,
+            is_extern: false,
+            extern_symbol: None,
+            span: closure.span,
         }
     }
 }

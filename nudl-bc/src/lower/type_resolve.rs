@@ -147,6 +147,15 @@ impl<'a> FunctionLowerCtx<'a> {
                         }
                     }
                 }
+                // Handle Map::new() built-in
+                if type_name == "Map" && method == "new" {
+                    let key_ty = self.types.i64();
+                    let val_ty = self.types.i64();
+                    return Some(self.types.intern(nudl_core::types::TypeKind::Map {
+                        key: key_ty,
+                        value: val_ty,
+                    }));
+                }
                 let mangled = format!("{}__{}", type_name, method);
                 self.function_sigs.get(&mangled).map(|sig| sig.return_type)
             }
@@ -203,6 +212,27 @@ impl<'a> FunctionLowerCtx<'a> {
             Expr::Literal(Literal::Bool(_)) => Some(self.types.bool()),
             Expr::Literal(Literal::Char(_)) => Some(self.types.char_type()),
             Expr::Literal(Literal::String(_)) => Some(self.types.string()),
+            Expr::Closure { params, return_type, .. } => {
+                let param_types: Vec<nudl_core::types::TypeId> = params
+                    .iter()
+                    .map(|p| {
+                        if let Some(ty_expr) = &p.ty {
+                            self.resolve_type_expr(&ty_expr.node)
+                        } else {
+                            self.types.i32()
+                        }
+                    })
+                    .collect();
+                let ret = if let Some(rt) = return_type {
+                    self.resolve_type_expr(&rt.node)
+                } else {
+                    self.types.i64()
+                };
+                Some(self.types.intern(nudl_core::types::TypeKind::Function {
+                    params: param_types,
+                    ret,
+                }))
+            }
             _ => None,
         }
     }

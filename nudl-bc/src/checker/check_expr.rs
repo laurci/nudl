@@ -47,6 +47,32 @@ impl Checker {
                     if let Some(sig) = sig {
                         self.check_call_args(expr.span, &sig, args, locals, 0)
                     } else {
+                        // Check if it's a local variable with a Function type (closure call)
+                        if let Some(info) = locals.get(name) {
+                            if let TypeKind::Function { params, ret } =
+                                self.types.resolve(info.ty).clone()
+                            {
+                                // Type-check arguments against closure param types
+                                for (i, arg) in args.iter().enumerate() {
+                                    let arg_ty = self.check_expr(&arg.value, locals);
+                                    if let Some(&expected) = params.get(i) {
+                                        if arg_ty != expected
+                                            && arg_ty != self.types.error()
+                                            && expected != self.types.error()
+                                        {
+                                            self.diagnostics.add(
+                                                &CheckerDiagnostic::TypeMismatch {
+                                                    span: arg.value.span,
+                                                    expected: self.type_name(expected),
+                                                    found: self.type_name(arg_ty),
+                                                },
+                                            );
+                                        }
+                                    }
+                                }
+                                return ret;
+                            }
+                        }
                         self.diagnostics.add(&CheckerDiagnostic::UndefinedFunction {
                             span: callee.span,
                             name: name.clone(),
@@ -57,11 +83,16 @@ impl Checker {
                         self.types.error()
                     }
                 } else {
-                    self.check_expr(callee, locals);
+                    // Callee could be an expression that evaluates to a closure
+                    let callee_ty = self.check_expr(callee, locals);
                     for arg in args {
                         self.check_expr(&arg.value, locals);
                     }
-                    self.types.error()
+                    if let TypeKind::Function { ret, .. } = self.types.resolve(callee_ty).clone() {
+                        ret
+                    } else {
+                        self.types.error()
+                    }
                 }
             }
 
@@ -102,6 +133,77 @@ impl Checker {
                     // skip_params=1 to skip the self parameter
                     self.check_call_args(expr.span, &sig, args, locals, 1)
                 } else {
+                    // Check built-in methods for dynamic arrays and maps
+                    let resolved = self.types.resolve(obj_ty).clone();
+                    match &resolved {
+                        TypeKind::DynamicArray { element } => {
+                            let elem = *element;
+                            match method.as_str() {
+                                "push" => {
+                                    if let Some(arg) = args.first() {
+                                        let arg_ty = self.check_expr(&arg.value, locals);
+                                        if arg_ty != elem
+                                            && arg_ty != self.types.error()
+                                            && elem != self.types.error()
+                                        {
+                                            self.diagnostics.add(
+                                                &CheckerDiagnostic::TypeMismatch {
+                                                    span: arg.value.span,
+                                                    expected: self.type_name(elem),
+                                                    found: self.type_name(arg_ty),
+                                                },
+                                            );
+                                        }
+                                    }
+                                    return self.types.unit();
+                                }
+                                "pop" => {
+                                    return elem;
+                                }
+                                "len" => {
+                                    return self.types.i64();
+                                }
+                                _ => {}
+                            }
+                        }
+                        TypeKind::Map { key, value } => {
+                            let k = *key;
+                            let v = *value;
+                            match method.as_str() {
+                                "insert" => {
+                                    for arg in args {
+                                        self.check_expr(&arg.value, locals);
+                                    }
+                                    return self.types.unit();
+                                }
+                                "get" => {
+                                    for arg in args {
+                                        self.check_expr(&arg.value, locals);
+                                    }
+                                    return v;
+                                }
+                                "contains_key" => {
+                                    for arg in args {
+                                        self.check_expr(&arg.value, locals);
+                                    }
+                                    return self.types.bool();
+                                }
+                                "remove" => {
+                                    for arg in args {
+                                        self.check_expr(&arg.value, locals);
+                                    }
+                                    return self.types.bool();
+                                }
+                                "len" => {
+                                    return self.types.i64();
+                                }
+                                _ => {
+                                    let _ = (k, v);
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
                     self.diagnostics.add(&CheckerDiagnostic::UndefinedMethod {
                         span: expr.span,
                         ty: type_name,
@@ -151,6 +253,17 @@ impl Checker {
                         }
                         return enum_ty;
                     }
+                }
+
+                // Handle Map::new()
+                if type_name == "Map" && method == "new" && args.is_empty() {
+                    // Default to Map<i64, i64> — actual types inferred from usage
+                    let key_ty = self.types.i64();
+                    let val_ty = self.types.i64();
+                    return self.types.intern(TypeKind::Map {
+                        key: key_ty,
+                        value: val_ty,
+                    });
                 }
 
                 let mangled_name = format!("{}__{}", type_name, method);
@@ -718,6 +831,8 @@ impl Checker {
 
                 match self.types.resolve(obj_ty).clone() {
                     TypeKind::FixedArray { element, .. } => element,
+                    TypeKind::DynamicArray { element } => element,
+                    TypeKind::Map { value, .. } => value,
                     _ => {
                         self.diagnostics
                             .add(&CheckerDiagnostic::InvalidOperatorType {

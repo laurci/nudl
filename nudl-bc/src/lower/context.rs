@@ -10,7 +10,7 @@ use crate::checker::FunctionSig;
 use crate::ir::*;
 use crate::scoped_locals::ScopedLocals;
 
-use super::LoopContext;
+use super::{LoopContext, PendingClosure};
 
 pub struct FunctionLowerCtx<'a> {
     pub(super) blocks: Vec<BasicBlock>,
@@ -36,6 +36,10 @@ pub struct FunctionLowerCtx<'a> {
     pub(super) param_defaults: &'a HashMap<String, Vec<Option<SpannedExpr>>>,
     /// Deferred blocks to emit at scope exit (LIFO order)
     pub(super) deferred_blocks: Vec<Block>,
+    /// Pending closures to be lowered as separate functions
+    pub(super) pending_closures: &'a mut Vec<PendingClosure>,
+    /// Next function ID counter (shared with Lowerer)
+    pub(super) next_function_id: &'a mut u32,
 }
 
 impl<'a> FunctionLowerCtx<'a> {
@@ -86,5 +90,149 @@ impl<'a> FunctionLowerCtx<'a> {
     pub(super) fn push_inst(&mut self, inst: Instruction) {
         self.current_instructions.push(inst);
         self.current_spans.push(self.current_span);
+    }
+
+    /// Allocate a new function ID for a closure thunk
+    pub(super) fn alloc_closure_function_id(&mut self) -> FunctionId {
+        let id = FunctionId(*self.next_function_id);
+        *self.next_function_id += 1;
+        id
+    }
+
+    /// Collect free variables referenced in an expression that are in the current scope.
+    /// Returns (name, register, type) for each captured variable.
+    pub(super) fn collect_captures(
+        &self,
+        expr: &nudl_core::span::Spanned<Expr>,
+        param_names: &[String],
+    ) -> Vec<(String, Register, nudl_core::types::TypeId)> {
+        let mut captures = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        self.collect_captures_inner(&expr.node, param_names, &mut captures, &mut seen);
+        captures
+    }
+
+    fn collect_captures_inner(
+        &self,
+        expr: &Expr,
+        param_names: &[String],
+        captures: &mut Vec<(String, Register, nudl_core::types::TypeId)>,
+        seen: &mut std::collections::HashSet<String>,
+    ) {
+        match expr {
+            Expr::Ident(name) => {
+                // If this name is in scope as a local (not a closure param) and not yet captured
+                if !param_names.contains(name) && !seen.contains(name) {
+                    if let Some(reg) = self.locals.get(name) {
+                        if let Some(ty) = self.local_types.get(name) {
+                            seen.insert(name.clone());
+                            captures.push((name.clone(), *reg, *ty));
+                        }
+                    }
+                }
+            }
+            Expr::Block(block) => {
+                for stmt in &block.stmts {
+                    self.collect_captures_stmt(&stmt.node, param_names, captures, seen);
+                }
+                if let Some(tail) = &block.tail_expr {
+                    self.collect_captures_inner(&tail.node, param_names, captures, seen);
+                }
+            }
+            Expr::Binary { left, right, .. } => {
+                self.collect_captures_inner(&left.node, param_names, captures, seen);
+                self.collect_captures_inner(&right.node, param_names, captures, seen);
+            }
+            Expr::Assign { target, value } | Expr::CompoundAssign { target, value, .. } => {
+                self.collect_captures_inner(&target.node, param_names, captures, seen);
+                self.collect_captures_inner(&value.node, param_names, captures, seen);
+            }
+            Expr::Unary { operand, .. } => {
+                self.collect_captures_inner(&operand.node, param_names, captures, seen);
+            }
+            Expr::Call { callee, args } => {
+                self.collect_captures_inner(&callee.node, param_names, captures, seen);
+                for arg in args {
+                    self.collect_captures_inner(&arg.value.node, param_names, captures, seen);
+                }
+            }
+            Expr::MethodCall { object, args, .. } => {
+                self.collect_captures_inner(&object.node, param_names, captures, seen);
+                for arg in args {
+                    self.collect_captures_inner(&arg.value.node, param_names, captures, seen);
+                }
+            }
+            Expr::FieldAccess { object, .. } => {
+                self.collect_captures_inner(&object.node, param_names, captures, seen);
+            }
+            Expr::IndexAccess { object, index } => {
+                self.collect_captures_inner(&object.node, param_names, captures, seen);
+                self.collect_captures_inner(&index.node, param_names, captures, seen);
+            }
+            Expr::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                self.collect_captures_inner(&condition.node, param_names, captures, seen);
+                self.collect_captures_inner(&Expr::Block(then_branch.node.clone()), param_names, captures, seen);
+                if let Some(eb) = else_branch {
+                    self.collect_captures_inner(&eb.node, param_names, captures, seen);
+                }
+            }
+            Expr::Return(Some(inner)) => {
+                self.collect_captures_inner(&inner.node, param_names, captures, seen);
+            }
+            Expr::Grouped(inner) => {
+                self.collect_captures_inner(&inner.node, param_names, captures, seen);
+            }
+            Expr::TupleLiteral(elements) | Expr::ArrayLiteral(elements) => {
+                for e in elements {
+                    self.collect_captures_inner(&e.node, param_names, captures, seen);
+                }
+            }
+            Expr::Literal(Literal::TemplateString { exprs, .. }) => {
+                for e in exprs {
+                    self.collect_captures_inner(&e.node, param_names, captures, seen);
+                }
+            }
+            Expr::Closure { body, params, .. } => {
+                // For nested closures, don't descend into the body with our param list;
+                // the nested closure's params shadow
+                let mut nested_params: Vec<String> = param_names.to_vec();
+                for p in params {
+                    nested_params.push(p.name.clone());
+                }
+                self.collect_captures_inner(&body.node, &nested_params, captures, seen);
+            }
+            Expr::Cast { expr: inner, .. } => {
+                self.collect_captures_inner(&inner.node, param_names, captures, seen);
+            }
+            _ => {}
+        }
+    }
+
+    fn collect_captures_stmt(
+        &self,
+        stmt: &Stmt,
+        param_names: &[String],
+        captures: &mut Vec<(String, Register, nudl_core::types::TypeId)>,
+        seen: &mut std::collections::HashSet<String>,
+    ) {
+        match stmt {
+            Stmt::Let { value, .. } => {
+                self.collect_captures_inner(&value.node, param_names, captures, seen);
+            }
+            Stmt::Expr(expr) => {
+                self.collect_captures_inner(&expr.node, param_names, captures, seen);
+            }
+            Stmt::Const { value, .. } => {
+                self.collect_captures_inner(&value.node, param_names, captures, seen);
+            }
+            Stmt::LetPattern { value, .. } => {
+                self.collect_captures_inner(&value.node, param_names, captures, seen);
+            }
+            _ => {}
+        }
     }
 }

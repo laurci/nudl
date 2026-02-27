@@ -18,7 +18,7 @@
 - [x] String interning
 - [x] LSP server (diagnostics on document change)
 - [x] Debug symbols (DWARF) generation
-- [~] ARC runtime (`runtime/nudl_rt.c`) — compiled at build time, linked into output binaries; inline LLVM retain/release fast paths; compiler now emits Retain/Release for struct types
+- [~] ARC runtime (`runtime/nudl_rt.c`) — compiled at build time, linked into output binaries; inline LLVM retain/release fast paths; compiler now emits Retain/Release for struct types; runtime extended with dynamic array (alloc/push/pop/get/set/len), map (hash table alloc/insert/get/contains/remove/len), and closure environment allocation
 
 ## 1. Core Types
 - [x] Integers — all types (i8, i16, i32, i64, u8, u16, u32, u64) in type checker; IR constants for i32, i64, u64; others coerce from unsuffixed literals (`tests/core-types/integers.nudl`)
@@ -29,10 +29,10 @@
 - [x] Template strings — lexer/parser handle backtick interpolation with brace nesting; lowered via __str_concat and __*_to_str builtins (`tests/core-types/format_strings.nudl`)
 - [x] Unit type (`tests/core-types/unit.nudl`)
 - [x] Tuples — tuple types `(T1, T2)`, tuple literals, `.0`/`.1` element access, tuples as function params/returns, let destructuring (`tests/core-types/tuples_basic.nudl`)
-- [~] Dynamic arrays T[] — TypeKind::DynamicArray in type system, parsed as `T[]`, type-checked, lowered to Alloc with 3-field layout (ptr, len, capacity); no runtime push/pop/index methods yet (`tests/core-types/dynamic_arrays.nudl`)
+- [x] Dynamic arrays T[] — TypeKind::DynamicArray in type system, parsed as `T[]`, type-checked; runtime C implementation (alloc, push with auto-grow, pop, get, set, len); SSA instructions DynArrayAlloc/Push/Pop/Len/Get/Set; LLVM codegen calls runtime; for-each iteration works (`tests/core-types/dynamic_arrays.nudl`)
 - [x] Fixed-size arrays [T; N] — array literals, index access, mutable index assignment, array repeat `[0; 5]`, type annotations (`tests/core-types/fixed_arrays_basic.nudl`)
-- [~] Maps — TypeKind::Map in type system, parsed as `Map<K, V>`, type-checked, lowered to Alloc with 4-field layout; no runtime insert/get/remove methods yet (`tests/core-types/maps.nudl`)
-- [ ] Function types as values — TypeKind::Function exists but not usable as first-class values (`tests/core-types/function_types.nudl`)
+- [x] Maps — TypeKind::Map in type system, parsed as `Map<K, V>`, type-checked; runtime C hash map implementation (open-addressing, linear probing, auto-grow at 70% load); Map::new(), insert, get, contains_key, len; SSA instructions MapAlloc/Insert/Get/Len/Contains; LLVM codegen calls runtime (`tests/core-types/maps.nudl`)
+- [x] Function types as values — closures are first-class Function values with capture environments; closures can be called, passed, and stored (`tests/core-types/function_types.nudl`)
 - [x] Never type (!) — TypeKind::Never, pre-interned, recognized in type checker
 - [~] Range types — `..` and `..=` operators parsed/lowered for use in for-in loops; no standalone Range struct yet
 - [x] FFI types — RawPtr, MutRawPtr, CStr all in type checker + codegen; cast support between pointer types
@@ -73,7 +73,7 @@
 - [x] Argument shorthand — struct field shorthand `S { x, y }` desugared at parse time; function call shorthand works positionally (`tests/functions/argument_shorthand.nudl`)
 - [x] Default parameters — `Param.default_value` in AST, checker validates required vs optional, lowerer fills defaults at call sites (`tests/functions/default_params.nudl`)
 - [ ] Optional parameters (`tests/functions/optional_params.nudl`)
-- [~] Closures — `|params| body` syntax parsed, type-checked (creates Function type), placeholder lowering (inline body, no capture struct) (`tests/functions/closures.nudl`)
+- [x] Closures — `|params| body` and `|params| -> T { body }` syntax; free variable capture analysis; capture environment heap-allocated as ARC object; closure thunks lowered as separate functions with env as first param; indirect call via function pointer; SSA instructions ClosureCreate/ClosureCall; LLVM codegen with ptrtoint/inttoptr for function pointers (`tests/functions/closures.nudl`)
 - [x] Methods — `impl` blocks parsed, methods registered with mangled names (`Type__method`), `self`/`mut self` params, method calls `obj.method()` and static calls `Type::method()` (`tests/functions/methods.nudl`)
 - [ ] Trailing lambdas (`tests/functions/trailing_lambda.nudl`)
 

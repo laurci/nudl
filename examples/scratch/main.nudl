@@ -616,10 +616,57 @@ fn main() {
 
     // ── 23. Closures (Phase 7) ──
     print("\nsection: closures\n");
-    let add = |a: i32, b: i32| a + b;
-    let mul = |x: i32, y: i32| -> i32 { x * y };
-    let zero_fn = || 42;
-    print("  closures parsed OK\n");
+
+    // Basic closure - no captures
+    let add_fn = |a: i32, b: i32| -> i32 { a + b };
+    print("  add_fn(3, 4) = "); print_num_ln(add_fn(3, 4));
+
+    // Closure with capture
+    let base = 100;
+    let add_base = |x: i32| -> i32 { x + base };
+    print("  add_base(42) = "); print_num_ln(add_base(42));
+
+    // Multiple closures
+    let mul_fn = |x: i32, y: i32| -> i32 { x * y };
+    print("  mul_fn(6, 7) = "); print_num_ln(mul_fn(6, 7));
+
+    // ── 23b. Dynamic arrays ──
+    print("\nsection: dynamic arrays\n");
+
+    let mut darr: i32[] = [];
+    darr.push(10);
+    darr.push(20);
+    darr.push(30);
+    darr.push(40);
+    print("  len = "); print_num_ln(darr.len() as i32);
+    print("  darr[0] = "); print_num_ln(darr[0]);
+    print("  darr[3] = "); print_num_ln(darr[3]);
+    let popped = darr.pop();
+    print("  popped = "); print_num_ln(popped);
+    print("  len after pop = "); print_num_ln(darr.len() as i32);
+
+    // For-each over dynamic array
+    let mut dsum = 0;
+    for item in darr {
+        dsum += item;
+    }
+    print("  sum = "); print_num_ln(dsum);
+
+    // ── 23c. Maps ──
+    print("\nsection: maps\n");
+
+    let mut scores = Map::new();
+    scores.insert(1, 95);
+    scores.insert(2, 87);
+    scores.insert(3, 100);
+    print("  len = "); print_num_ln(scores.len() as i32);
+    print("  scores[1] = "); print_num_ln(scores.get(1) as i32);
+    print("  scores[2] = "); print_num_ln(scores.get(2) as i32);
+    print("  scores[3] = "); print_num_ln(scores.get(3) as i32);
+    print("  contains 2 = ");
+    if scores.contains_key(2) { println("true"); } else { println("false"); }
+    print("  contains 99 = ");
+    if scores.contains_key(99) { println("true"); } else { println("false"); }
 
     // ── 24. Destructuring (Phase 11a) ──
     print("\nsection: destructuring\n");
