@@ -945,6 +945,48 @@ impl Checker {
                     self.types.unit()
                 }
             }
+
+            Expr::Closure {
+                params,
+                return_type,
+                body,
+            } => {
+                // Type-check the closure body in a new scope
+                locals.push_scope();
+                let mut param_types = Vec::new();
+                for p in params {
+                    let ty = if let Some(type_expr) = &p.ty {
+                        self.resolve_type(type_expr)
+                    } else {
+                        // Infer as i32 if no type given (best effort)
+                        self.types.i32()
+                    };
+                    param_types.push(ty);
+                    locals.insert(p.name.clone(), LocalInfo { ty, is_mut: false });
+                }
+                let body_ty = self.check_expr(body, locals);
+                locals.pop_scope();
+
+                let ret_ty = if let Some(rt) = return_type {
+                    self.resolve_type(rt)
+                } else {
+                    body_ty
+                };
+
+                self.types.intern(TypeKind::Function {
+                    params: param_types,
+                    ret: ret_ty,
+                })
+            }
+
+            Expr::QuestionMark(inner) => {
+                // ? operator: extracts value from Option/Result, or propagates error
+                // For now, type-check the inner expression and return its type
+                let inner_ty = self.check_expr(inner, locals);
+                // In a full implementation, this would unwrap Option<T> to T
+                // For now, just pass through the type
+                inner_ty
+            }
         }
     }
 
@@ -1002,6 +1044,19 @@ impl Checker {
                                 self.check_pattern(pat, field_ty, locals);
                             }
                         }
+                    }
+                }
+            }
+            Pattern::Struct { name, fields, .. } => {
+                let struct_ty = self.structs.get(name).copied().unwrap_or(scrutinee_ty);
+                if let TypeKind::Struct { fields: struct_fields, .. } = self.types.resolve(struct_ty).clone() {
+                    for (field_name, pat) in fields {
+                        let field_ty = struct_fields
+                            .iter()
+                            .find(|(n, _)| n == field_name)
+                            .map(|(_, ty)| *ty)
+                            .unwrap_or(self.types.error());
+                        self.check_pattern(pat, field_ty, locals);
                     }
                 }
             }

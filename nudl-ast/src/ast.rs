@@ -47,6 +47,12 @@ pub enum Item {
         library: Option<String>,
         items: Vec<Spanned<ExternFnDecl>>,
     },
+    /// Import statement: `import std::io;` or `import std::io::{print, println};`
+    Import {
+        path: Vec<String>,          // e.g., ["std", "io"]
+        items: Option<Vec<String>>, // None = import whole module, Some = specific items
+        alias: Option<String>,      // e.g., `as p`
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -117,10 +123,21 @@ pub enum Stmt {
         value: SpannedExpr,
         is_mut: bool,
     },
+    /// Pattern-based let: `let (a, b) = expr;` or `let Foo { x, y } = expr;`
+    LetPattern {
+        pattern: Spanned<Pattern>,
+        ty: Option<Spanned<TypeExpr>>,
+        value: SpannedExpr,
+        is_mut: bool,
+    },
     Const {
         name: String,
         ty: Option<Spanned<TypeExpr>>,
         value: SpannedExpr,
+    },
+    /// Defer statement: `defer { ... }`
+    Defer {
+        body: Spanned<Block>,
     },
     Item(SpannedItem),
 }
@@ -235,6 +252,21 @@ pub enum Expr {
         then_branch: Box<Spanned<Block>>,
         else_branch: Option<Box<SpannedExpr>>,
     },
+    /// Closure: `|params| body` or `|params| -> RetType { body }`
+    Closure {
+        params: Vec<ClosureParam>,
+        return_type: Option<Spanned<TypeExpr>>,
+        body: Box<SpannedExpr>,
+    },
+    /// `?` postfix error propagation: `expr?`
+    QuestionMark(Box<SpannedExpr>),
+}
+
+#[derive(Debug, Clone)]
+pub struct ClosureParam {
+    pub name: String,
+    pub ty: Option<Spanned<TypeExpr>>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -317,6 +349,11 @@ pub enum Pattern {
         enum_name: Option<String>,
         variant: String,
         fields: Vec<Spanned<Pattern>>,
+    },
+    Struct {
+        name: String,
+        fields: Vec<(String, Spanned<Pattern>)>, // (field_name, pattern)
+        has_rest: bool,                           // true if `..` is present
     },
 }
 

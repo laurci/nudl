@@ -5,6 +5,13 @@ impl Checker {
         let string_ty = self.types.string();
         let raw_ptr_ty = self.types.raw_ptr();
         let u64_ty = self.types.u64();
+        let i32_ty = self.types.i32();
+        let i64_ty = self.types.i64();
+        let f64_ty = self.types.f64();
+        let bool_ty = self.types.bool();
+        let char_ty = self.types.char_type();
+        let unit_ty = self.types.unit();
+        let never_ty = self.types.never();
 
         self.functions.insert(
             "__str_ptr".into(),
@@ -26,6 +33,137 @@ impl Checker {
                 name: "__str_len".into(),
                 params: vec![("s".into(), string_ty)],
                 return_type: u64_ty,
+                kind: FunctionKind::Builtin,
+                required_params: 1,
+                has_default: vec![false],
+                is_method: false,
+                is_mut_method: false,
+            },
+        );
+
+        // String concatenation builtin
+        self.functions.insert(
+            "__str_concat".into(),
+            FunctionSig {
+                name: "__str_concat".into(),
+                params: vec![("a".into(), string_ty), ("b".into(), string_ty)],
+                return_type: string_ty,
+                kind: FunctionKind::Builtin,
+                required_params: 2,
+                has_default: vec![false, false],
+                is_method: false,
+                is_mut_method: false,
+            },
+        );
+
+        // Conversion builtins for template string interpolation
+        self.functions.insert(
+            "__i32_to_str".into(),
+            FunctionSig {
+                name: "__i32_to_str".into(),
+                params: vec![("v".into(), i32_ty)],
+                return_type: string_ty,
+                kind: FunctionKind::Builtin,
+                required_params: 1,
+                has_default: vec![false],
+                is_method: false,
+                is_mut_method: false,
+            },
+        );
+
+        self.functions.insert(
+            "__i64_to_str".into(),
+            FunctionSig {
+                name: "__i64_to_str".into(),
+                params: vec![("v".into(), i64_ty)],
+                return_type: string_ty,
+                kind: FunctionKind::Builtin,
+                required_params: 1,
+                has_default: vec![false],
+                is_method: false,
+                is_mut_method: false,
+            },
+        );
+
+        self.functions.insert(
+            "__f64_to_str".into(),
+            FunctionSig {
+                name: "__f64_to_str".into(),
+                params: vec![("v".into(), f64_ty)],
+                return_type: string_ty,
+                kind: FunctionKind::Builtin,
+                required_params: 1,
+                has_default: vec![false],
+                is_method: false,
+                is_mut_method: false,
+            },
+        );
+
+        self.functions.insert(
+            "__bool_to_str".into(),
+            FunctionSig {
+                name: "__bool_to_str".into(),
+                params: vec![("v".into(), bool_ty)],
+                return_type: string_ty,
+                kind: FunctionKind::Builtin,
+                required_params: 1,
+                has_default: vec![false],
+                is_method: false,
+                is_mut_method: false,
+            },
+        );
+
+        self.functions.insert(
+            "__char_to_str".into(),
+            FunctionSig {
+                name: "__char_to_str".into(),
+                params: vec![("v".into(), char_ty)],
+                return_type: string_ty,
+                kind: FunctionKind::Builtin,
+                required_params: 1,
+                has_default: vec![false],
+                is_method: false,
+                is_mut_method: false,
+            },
+        );
+
+        // Panic builtin: panic(msg: string) -> !
+        self.functions.insert(
+            "panic".into(),
+            FunctionSig {
+                name: "panic".into(),
+                params: vec![("msg".into(), string_ty)],
+                return_type: never_ty,
+                kind: FunctionKind::Builtin,
+                required_params: 1,
+                has_default: vec![false],
+                is_method: false,
+                is_mut_method: false,
+            },
+        );
+
+        // Assert builtin: assert(condition: bool, msg: string)
+        self.functions.insert(
+            "assert".into(),
+            FunctionSig {
+                name: "assert".into(),
+                params: vec![("condition".into(), bool_ty), ("msg".into(), string_ty)],
+                return_type: unit_ty,
+                kind: FunctionKind::Builtin,
+                required_params: 2,
+                has_default: vec![false, false],
+                is_method: false,
+                is_mut_method: false,
+            },
+        );
+
+        // Exit builtin: exit(code: i32) -> !
+        self.functions.insert(
+            "exit".into(),
+            FunctionSig {
+                name: "exit".into(),
+                params: vec![("code".into(), i32_ty)],
+                return_type: never_ty,
                 kind: FunctionKind::Builtin,
                 required_params: 1,
                 has_default: vec![false],

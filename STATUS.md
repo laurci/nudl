@@ -26,9 +26,9 @@
 - [x] Booleans (`tests/core-types/bool.nudl`)
 - [x] Characters (`tests/core-types/char.nudl`)
 - [x] Strings — reference type with (ptr, len) pair expansion (`tests/core-types/strings.nudl`)
-- [~] Template strings — lexer/parser handle backtick interpolation with brace nesting; not yet lowered to IR/codegen (`tests/core-types/format_strings.nudl`)
+- [x] Template strings — lexer/parser handle backtick interpolation with brace nesting; lowered via __str_concat and __*_to_str builtins (`tests/core-types/format_strings.nudl`)
 - [x] Unit type (`tests/core-types/unit.nudl`)
-- [~] Tuples — tuple types `(T1, T2)`, tuple literals, `.0`/`.1` element access, tuples as function params/returns; no destructuring yet (`tests/core-types/tuples_basic.nudl`)
+- [x] Tuples — tuple types `(T1, T2)`, tuple literals, `.0`/`.1` element access, tuples as function params/returns, let destructuring (`tests/core-types/tuples_basic.nudl`)
 - [~] Dynamic arrays T[] — TypeKind::DynamicArray in type system, parsed as `T[]`, type-checked, lowered to Alloc with 3-field layout (ptr, len, capacity); no runtime push/pop/index methods yet (`tests/core-types/dynamic_arrays.nudl`)
 - [x] Fixed-size arrays [T; N] — array literals, index access, mutable index assignment, array repeat `[0; 5]`, type annotations (`tests/core-types/fixed_arrays_basic.nudl`)
 - [~] Maps — TypeKind::Map in type system, parsed as `Map<K, V>`, type-checked, lowered to Alloc with 4-field layout; no runtime insert/get/remove methods yet (`tests/core-types/maps.nudl`)
@@ -39,7 +39,7 @@
 
 ## 2. Variables & Bindings
 - [x] Let bindings — immutable and mutable, with mutability enforcement in type checker (`tests/variables/let_bindings.nudl`)
-- [ ] Destructuring (`tests/variables/destructuring.nudl`)
+- [x] Destructuring — let destructuring for tuples `let (a, b) = expr` and structs `let Foo { x, y } = expr` (`tests/variables/destructuring.nudl`)
 - [x] Type annotations — primitive types and string; complex types not yet (`tests/variables/type_annotations.nudl`)
 - [x] Constants — `const` declarations (parsed, type-checked, lowered as immutable let) (`tests/variables/constants.nudl`)
 - [ ] Comptime constants (`tests/variables/const_comptime.nudl`)
@@ -54,7 +54,7 @@
 - [x] Range (.., ..=) — parsed as infix operators, used in for-in loops via while-loop desugaring (`tests/operators/range.nudl`)
 - [x] Pipe (|>) — parsed and desugared to function calls at parse time (`tests/operators/pipe.nudl`)
 - [x] Type cast (as) — postfix `as Type` with numeric↔numeric, bool→int, char↔u32, ptr casts (`tests/operators/type_cast.nudl`)
-- [ ] Error propagation (?) — token exists, not parsed (`tests/operators/error_propagation.nudl`)
+- [~] Error propagation (?) — parsed as postfix operator, type-checked (passthrough), lowered (passthrough); full unwrap/propagation semantics not yet implemented (`tests/operators/error_propagation.nudl`)
 - [x] Precedence — Pratt climbing with correct binding power levels (`tests/operators/precedence.nudl`)
 
 ## 4. Control Flow
@@ -73,14 +73,14 @@
 - [x] Argument shorthand — struct field shorthand `S { x, y }` desugared at parse time; function call shorthand works positionally (`tests/functions/argument_shorthand.nudl`)
 - [x] Default parameters — `Param.default_value` in AST, checker validates required vs optional, lowerer fills defaults at call sites (`tests/functions/default_params.nudl`)
 - [ ] Optional parameters (`tests/functions/optional_params.nudl`)
-- [ ] Closures (`tests/functions/closures.nudl`)
+- [~] Closures — `|params| body` syntax parsed, type-checked (creates Function type), placeholder lowering (inline body, no capture struct) (`tests/functions/closures.nudl`)
 - [x] Methods — `impl` blocks parsed, methods registered with mangled names (`Type__method`), `self`/`mut self` params, method calls `obj.method()` and static calls `Type::method()` (`tests/functions/methods.nudl`)
 - [ ] Trailing lambdas (`tests/functions/trailing_lambda.nudl`)
 
 ## 6. User-Defined Types
 - [ ] Unit structs (`tests/user-defined-types/struct_unit.nudl`)
 - [ ] Tuple structs (`tests/user-defined-types/struct_tuple.nudl`)
-- [~] Named structs — declaration, construction, field access, field assignment, ARC caller-retain/callee-release, scope-exit release, impl blocks with methods (`tests/user-defined-types/struct_simple.nudl`); no generics, destructuring, or spread yet
+- [~] Named structs — declaration, construction, field access, field assignment, ARC caller-retain/callee-release, scope-exit release, impl blocks with methods, let destructuring (`tests/user-defined-types/struct_simple.nudl`); no generics or spread yet
 - [ ] Struct spread (`tests/user-defined-types/struct_spread.nudl`)
 - [x] Unit enum variants — `enum Color { Red, Green, Blue }` parsed, type-checked, lowered as tag-only heap objects (`tests/user-defined-types/enum_unit.nudl`)
 - [x] Struct enum variants — `enum Shape { Circle { radius: i32 } }` parsed and type-checked (`tests/user-defined-types/enum_struct.nudl`)
@@ -90,7 +90,7 @@
 ## 7. Pattern Matching
 - [x] Literal patterns — integer, bool, string literals in match arms (`tests/pattern-matching/literal_patterns.nudl`)
 - [~] Tuple patterns — parsed but not fully lowered (wildcard semantics currently) (`tests/pattern-matching/tuple_patterns.nudl`)
-- [ ] Struct patterns (`tests/pattern-matching/struct_patterns.nudl`)
+- [~] Struct patterns — `Struct { field, .. }` patterns in let destructuring; match arm struct patterns not yet lowered (`tests/pattern-matching/struct_patterns.nudl`)
 - [x] Enum patterns — `Enum::Variant(binding)` with tag comparison and field extraction (`tests/pattern-matching/enum_patterns.nudl`)
 - [ ] Nested patterns (`tests/pattern-matching/nested_patterns.nudl`)
 - [ ] Or patterns (`tests/pattern-matching/or_patterns.nudl`)
@@ -119,10 +119,10 @@
 - [ ] Operator overloading (`tests/interfaces/operator_overloading.nudl`)
 
 ## 10. Error Handling
-- [ ] Option type (`tests/error-handling/option.nudl`)
-- [ ] Result type (`tests/error-handling/result.nudl`)
-- [ ] Panic (`tests/error-handling/panic.nudl`)
-- [ ] ? operator (`tests/error-handling/question_mark.nudl`)
+- [~] Option type — `Option<T>` enum (Some/None) defined in nudl-std/prelude.nudl; type system supports it via generic enums (`tests/error-handling/option.nudl`)
+- [~] Result type — `Result<T, E>` enum (Ok/Err) defined in nudl-std/prelude.nudl (`tests/error-handling/result.nudl`)
+- [x] Panic — `panic(string)` registered as builtin, type-checked, lowered to builtin call (`tests/error-handling/panic.nudl`)
+- [~] ? operator — parsed as postfix operator, type-checked (passthrough), lowered (passthrough); full unwrap/early-return not yet implemented (`tests/error-handling/question_mark.nudl`)
 
 ## 11. Memory Management
 - [~] ARC runtime — C runtime (alloc, release_slow, overflow_abort, weak ops) + inline LLVM retain/release; SSA instructions (Alloc, Load, Store, Retain, Release) in IR + backend + VM; compiler emits Retain/Release for struct and enum types (caller-retain, callee-release, scope-exit release)
@@ -130,19 +130,19 @@
 - [ ] ARC deallocation (`tests/memory-management/arc_deallocation.nudl`)
 - [ ] Value type copy (`tests/memory-management/value_type_copy.nudl`)
 - [x] Mutability enforcement — type checker rejects assignment to immutable bindings (`tests/memory-management/mutability.nudl`)
-- [ ] Defer (`tests/memory-management/defer.nudl`)
+- [x] Defer — `defer { ... }` parsed, type-checked, lowered (deferred blocks emitted LIFO before function return) (`tests/memory-management/defer.nudl`)
 - [ ] Drop interface (`tests/memory-management/drop_interface.nudl`)
 - [ ] Clone interface (`tests/memory-management/clone_interface.nudl`)
 - [ ] Weak references (`tests/memory-management/weak_upgrade.nudl`)
 - [ ] Aliased mutation (`tests/memory-management/aliased_mutation.nudl`)
 
 ## 12. Modules
-- [ ] Basic imports (`tests/modules/basic-import/`)
-- [ ] Grouped imports (`tests/modules/grouped-import/`)
-- [ ] Aliased imports (`tests/modules/aliased-import/`)
-- [ ] Glob imports (`tests/modules/glob-import/`)
-- [ ] Module paths (`tests/modules/module-paths/`)
-- [ ] Visibility (`tests/modules/visibility/`)
+- [x] Basic imports — `import std::io;` parsed, resolved relative to source dir and nudl-std/ (`tests/modules/basic-import/`)
+- [x] Grouped imports — `import std::io::{print, println};` parsed (`tests/modules/grouped-import/`)
+- [x] Aliased imports — `import std::io as io_lib;` parsed (`tests/modules/aliased-import/`)
+- [x] Glob imports — `import std::io::*;` parsed (`tests/modules/glob-import/`)
+- [x] Module paths — `::` path resolution, nudl-std/ search, workspace root detection (`tests/modules/module-paths/`)
+- [ ] Visibility — `pub` keyword parsed but not enforced at import boundaries (`tests/modules/visibility/`)
 
 ## 13. Async & Concurrency
 - [ ] Async functions (`tests/async/async_fn.nudl`)
@@ -174,11 +174,11 @@
 
 ## Features Without Dedicated Tests
 - [x] FFI extern blocks — extern function declarations and calls work end-to-end
-- [~] String interpolation nesting — lexer handles brace-depth tracking, not lowered
+- [x] String interpolation nesting — lexer handles brace-depth tracking, lowered via __str_concat chain
 - [ ] Derive macros
 - [ ] Build scripts (build.nudl)
 - [ ] Package/dependency management (nudl.toml)
-- [ ] Standard library (std::math, std::io, iterators)
+- [x] Standard library — nudl-std/ with prelude (Option, Result, min, max, clamp), math (PI, E, abs, pow, gcd, lcm), string (is_empty, repeat, join), io (putchar, newline), collections (sum_array, contains, array_min, array_max)
 - [ ] Const at module level
 - [ ] Extern statics
 - [ ] Callbacks (#[extern_callable])

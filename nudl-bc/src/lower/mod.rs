@@ -140,6 +140,9 @@ impl Lowerer {
                         }
                     }
                 }
+                Item::Import { .. } => {
+                    // Imports handled at pipeline level
+                }
                 _ => {}
             }
         }
@@ -235,10 +238,17 @@ impl Lowerer {
             types: &mut self.types,
             loop_stack: Vec::new(),
             param_defaults: &self.param_defaults,
+            deferred_blocks: Vec::new(),
         };
 
         // Lower body — returns the register holding the result
         let result_reg = ctx.lower_block_expr(&body.node);
+
+        // Emit deferred blocks in LIFO order
+        let deferred = std::mem::take(&mut ctx.deferred_blocks);
+        for block in deferred.into_iter().rev() {
+            ctx.lower_block_expr(&block);
+        }
 
         // Callee-release: emit Release for reference-typed params at function exit
         for (i, (_pname, pty)) in sig.params.iter().enumerate() {

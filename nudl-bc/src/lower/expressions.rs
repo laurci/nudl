@@ -712,11 +712,24 @@ impl<'a> FunctionLowerCtx<'a> {
                 else_branch,
             } => self.lower_if_let(pattern, scrutinee, then_branch, else_branch),
 
-            Expr::Literal(Literal::TemplateString { .. }) => {
-                // Template strings not yet lowered
+            Expr::Literal(Literal::TemplateString { parts, exprs }) => {
+                self.lower_template_string(parts, exprs)
+            }
+
+            Expr::Closure { body, .. } => {
+                // Closures are lowered as function values (simplified: just lower body inline)
+                // In a full implementation, closures would be desugared to struct + thunk
+                // For now, just emit the body inline and return unit
+                let _body_reg = self.lower_expr(body);
                 let reg = self.alloc_register();
                 self.push_inst(Instruction::ConstUnit(reg));
                 reg
+            }
+
+            Expr::QuestionMark(inner) => {
+                // ? operator: simplified - just evaluate the inner expression
+                // In full implementation, would check for None/Err and early return
+                self.lower_expr(inner)
             }
         }
     }
@@ -748,6 +761,100 @@ impl<'a> FunctionLowerCtx<'a> {
 
         self.start_block(merge_block);
         result_reg
+    }
+
+    /// Lower a template string like `hello {name}, you are {age} years old`
+    /// into a chain of string concatenation calls.
+    fn lower_template_string(
+        &mut self,
+        parts: &[String],
+        exprs: &[nudl_core::span::Spanned<Expr>],
+    ) -> Register {
+        let string_ty = self.types.string();
+        let concat_sym = self.interner.intern("__str_concat");
+
+        // Start with the first text part as a string constant
+        let mut result_reg = self.lower_string_const(&parts[0]);
+
+        // Interleave: expr[i], then parts[i+1]
+        for (i, expr) in exprs.iter().enumerate() {
+            // Convert expression to string
+            let expr_str_reg = self.lower_expr_to_string(expr);
+
+            // Concat result with expr string
+            let concat_dst = self.alloc_typed_register(string_ty);
+            self.push_inst(Instruction::Call(
+                concat_dst,
+                FunctionRef::Builtin(concat_sym),
+                vec![result_reg, expr_str_reg],
+            ));
+            result_reg = concat_dst;
+
+            // Concat with next text part
+            if i + 1 < parts.len() && !parts[i + 1].is_empty() {
+                let part_reg = self.lower_string_const(&parts[i + 1]);
+                let concat_dst2 = self.alloc_typed_register(string_ty);
+                self.push_inst(Instruction::Call(
+                    concat_dst2,
+                    FunctionRef::Builtin(concat_sym),
+                    vec![result_reg, part_reg],
+                ));
+                result_reg = concat_dst2;
+            }
+        }
+
+        result_reg
+    }
+
+    /// Lower a string constant into a register
+    fn lower_string_const(&mut self, s: &str) -> Register {
+        let string_ty = self.types.string();
+        let idx = self.string_constants.len() as u32;
+        self.string_constants.push(s.to_string());
+        let dst = self.alloc_typed_register(string_ty);
+        self.push_inst(Instruction::Const(dst, ConstValue::StringLiteral(idx)));
+        dst
+    }
+
+    /// Convert an expression to a string register, inserting conversion calls as needed
+    fn lower_expr_to_string(&mut self, expr: &nudl_core::span::Spanned<Expr>) -> Register {
+        let expr_reg = self.lower_expr(expr);
+        let expr_type = self.infer_expr_type(expr);
+        let string_ty = self.types.string();
+
+        // If already a string, return directly
+        if expr_type == Some(string_ty) {
+            return expr_reg;
+        }
+
+        // Determine the conversion builtin based on type
+        let builtin_name = match expr_type.map(|t| self.types.resolve(t).clone()) {
+            Some(nudl_core::types::TypeKind::Primitive(nudl_core::types::PrimitiveType::I32)) => {
+                "__i32_to_str"
+            }
+            Some(nudl_core::types::TypeKind::Primitive(nudl_core::types::PrimitiveType::I64)) => {
+                "__i64_to_str"
+            }
+            Some(nudl_core::types::TypeKind::Primitive(nudl_core::types::PrimitiveType::F64)) => {
+                "__f64_to_str"
+            }
+            Some(nudl_core::types::TypeKind::Primitive(nudl_core::types::PrimitiveType::Bool)) => {
+                "__bool_to_str"
+            }
+            Some(nudl_core::types::TypeKind::Primitive(nudl_core::types::PrimitiveType::Char)) => {
+                "__char_to_str"
+            }
+            _ => "__i32_to_str", // fallback
+        };
+
+        let sym = self.interner.intern(builtin_name);
+        let dst = self.alloc_typed_register(string_ty);
+        self.push_inst(Instruction::Call(
+            dst,
+            FunctionRef::Builtin(sym),
+            vec![expr_reg],
+        ));
+        dst
     }
 
     /// Lower enum variant construction. Tag at field 0, data at field 1+.
@@ -949,8 +1056,8 @@ impl<'a> FunctionLowerCtx<'a> {
                     );
                 }
             }
-            Pattern::Tuple(_) => {
-                // Tuple pattern matching - just use wildcard semantics for now
+            Pattern::Tuple(_) | Pattern::Struct { .. } => {
+                // Tuple/Struct pattern matching - use wildcard semantics for now
                 let body_result = self.lower_expr(&arm.body);
                 self.push_inst(Instruction::Copy(result_reg, body_result));
                 self.finish_block(Terminator::Jump(merge_block));

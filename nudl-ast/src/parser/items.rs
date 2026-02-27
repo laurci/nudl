@@ -2,6 +2,11 @@ use super::*;
 
 impl Parser {
     pub(super) fn parse_item(&mut self) -> Option<SpannedItem> {
+        // Handle import at the top level (before pub)
+        if self.peek_kind() == TokenKind::Import {
+            return self.parse_import();
+        }
+
         let is_pub = self.eat(TokenKind::Pub);
 
         match self.peek_kind() {
@@ -659,5 +664,127 @@ impl Parser {
             found: self.peek().text.clone(),
         });
         None
+    }
+
+    /// Parse a struct pattern: `Foo { x, y: renamed, .. }`
+    pub(super) fn parse_struct_pattern(&mut self) -> Option<Spanned<Pattern>> {
+        let start = self.peek().span;
+        let name_tok = self.expect(TokenKind::Ident)?;
+        let name = name_tok.text.clone();
+        self.expect(TokenKind::LBrace)?;
+
+        let mut fields = Vec::new();
+        let mut has_rest = false;
+
+        while self.peek_kind() != TokenKind::RBrace && !self.at_eof() {
+            // Check for `..` rest pattern
+            if self.peek_kind() == TokenKind::DotDot {
+                self.advance();
+                has_rest = true;
+                // After `..`, expect closing brace (possibly after comma)
+                self.eat(TokenKind::Comma);
+                break;
+            }
+
+            let field_name_tok = self.expect(TokenKind::Ident)?;
+            let field_name = field_name_tok.text.clone();
+
+            // Check for `field: pattern` or shorthand `field`
+            let pattern = if self.eat(TokenKind::Colon) {
+                self.parse_pattern()?
+            } else {
+                // Shorthand: `x` is equivalent to `x: x`
+                Spanned::new(Pattern::Binding(field_name.clone()), field_name_tok.span)
+            };
+
+            fields.push((field_name, pattern));
+
+            if !self.eat(TokenKind::Comma) {
+                break;
+            }
+        }
+
+        let end = self.expect(TokenKind::RBrace)?.span;
+        Some(Spanned::new(
+            Pattern::Struct {
+                name,
+                fields,
+                has_rest,
+            },
+            start.merge(end),
+        ))
+    }
+
+    /// Parse an import statement: `import std::io;` or `import std::io::{print, println};`
+    fn parse_import(&mut self) -> Option<SpannedItem> {
+        let start = self.expect(TokenKind::Import)?.span;
+
+        // Parse module path: std::io::...
+        let mut path = Vec::new();
+        let first = self.expect(TokenKind::Ident)?;
+        path.push(first.text.clone());
+
+        while self.eat(TokenKind::ColonColon) {
+            if self.peek_kind() == TokenKind::LBrace {
+                // Grouped import: import std::io::{print, println}
+                self.advance(); // consume {
+                let mut items = Vec::new();
+                while self.peek_kind() != TokenKind::RBrace && !self.at_eof() {
+                    let item_tok = self.expect(TokenKind::Ident)?;
+                    items.push(item_tok.text.clone());
+                    if !self.eat(TokenKind::Comma) {
+                        break;
+                    }
+                }
+                let end = self.expect(TokenKind::RBrace)?.span;
+                self.eat(TokenKind::Semi);
+                return Some(Spanned::new(
+                    Item::Import {
+                        path,
+                        items: Some(items),
+                        alias: None,
+                    },
+                    start.merge(end),
+                ));
+            }
+
+            if self.peek_kind() == TokenKind::Star {
+                // Glob import: import std::io::*
+                self.advance();
+                let end = self.prev_span();
+                self.eat(TokenKind::Semi);
+                return Some(Spanned::new(
+                    Item::Import {
+                        path,
+                        items: None, // glob import
+                        alias: None,
+                    },
+                    start.merge(end),
+                ));
+            }
+
+            let next = self.expect(TokenKind::Ident)?;
+            path.push(next.text.clone());
+        }
+
+        // Check for alias: `as name`
+        let alias = if self.eat(TokenKind::As) {
+            let alias_tok = self.expect(TokenKind::Ident)?;
+            Some(alias_tok.text.clone())
+        } else {
+            None
+        };
+
+        let end = self.prev_span();
+        self.eat(TokenKind::Semi);
+
+        Some(Spanned::new(
+            Item::Import {
+                path,
+                items: None,
+                alias,
+            },
+            start.merge(end),
+        ))
     }
 }

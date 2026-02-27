@@ -158,6 +158,17 @@ fn fmt_ast_item(item: &Item, out: &mut String, level: usize) {
                 fmt_ast_item(&method.node, out, level + 1);
             }
         }
+        Item::Import { path, items, alias } => {
+            indent(out, level);
+            out.push_str(&format!("Import {}", path.join("::")));
+            if let Some(items) = items {
+                out.push_str(&format!("::{{{}}}", items.join(", ")));
+            }
+            if let Some(alias) = alias {
+                out.push_str(&format!(" as {}", alias));
+            }
+            out.push('\n');
+        }
     }
 }
 
@@ -212,6 +223,26 @@ fn fmt_ast_stmt(stmt: &Stmt, out: &mut String, level: usize) {
             out.push_str(" = ");
             fmt_ast_expr(&value.node, out, level);
             out.push('\n');
+        }
+        Stmt::LetPattern {
+            pattern,
+            ty,
+            value,
+            is_mut,
+        } => {
+            indent(out, level);
+            out.push_str("LetPattern ");
+            if *is_mut {
+                out.push_str("mut ");
+            }
+            out.push_str("... = ");
+            fmt_ast_expr(&value.node, out, level);
+            out.push('\n');
+        }
+        Stmt::Defer { body } => {
+            indent(out, level);
+            out.push_str("Defer:\n");
+            fmt_ast_block(&body.node, out, level + 1);
         }
         Stmt::Item(item) => {
             fmt_ast_item(&item.node, out, level);
@@ -507,6 +538,29 @@ fn fmt_ast_expr(expr: &Expr, out: &mut String, level: usize) {
                 fmt_ast_expr(&else_br.node, out, level + 1);
                 out.push('\n');
             }
+        }
+        Expr::Closure {
+            params,
+            return_type,
+            body,
+        } => {
+            out.push_str("Closure(|");
+            for (i, p) in params.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                out.push_str(&p.name);
+                if let Some(ty) = &p.ty {
+                    out.push_str(&format!(": {}", fmt_type_expr(&ty.node)));
+                }
+            }
+            out.push_str("| ");
+            fmt_ast_expr(&body.node, out, level);
+            out.push(')');
+        }
+        Expr::QuestionMark(inner) => {
+            fmt_ast_expr(&inner.node, out, level);
+            out.push('?');
         }
     }
 }

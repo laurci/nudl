@@ -1,5 +1,7 @@
-use std::path::Path;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
+use nudl_ast::ast::{Item, Module};
 use nudl_ast::lexer::Lexer;
 use nudl_ast::parser::Parser;
 use nudl_backend_llvm::codegen;
@@ -13,34 +15,184 @@ use super::fmt_ast::fmt_ast;
 use super::fmt_ir::fmt_ir;
 use super::{CompileResult, DumpOptions, PipelineResult};
 
-pub fn check(source_path: &Path, dump: &DumpOptions) -> PipelineResult {
-    let mut source_map = SourceMap::new();
-    let mut diagnostics = DiagnosticBag::new();
+/// Resolve an import path to a file path.
+/// Searches:
+/// 1. Relative to the source file's directory
+/// 2. In the nudl-std directory
+fn resolve_import_path(
+    source_dir: &Path,
+    import_path: &[String],
+    workspace_root: &Path,
+) -> Option<PathBuf> {
+    // Build the relative path from import segments
+    let mut rel_path = PathBuf::new();
+    for (i, segment) in import_path.iter().enumerate() {
+        if i == import_path.len() - 1 {
+            // Last segment: try as a file
+            rel_path.push(format!("{}.nudl", segment));
+        } else {
+            rel_path.push(segment);
+        }
+    }
 
-    let content = match std::fs::read_to_string(source_path) {
+    // 1. Try relative to source directory
+    let candidate = source_dir.join(&rel_path);
+    if candidate.exists() {
+        return Some(candidate);
+    }
+
+    // 2. Try relative to source directory as directory/lib.nudl
+    let mut dir_path = PathBuf::new();
+    for segment in import_path {
+        dir_path.push(segment);
+    }
+    let candidate = source_dir.join(&dir_path).join("lib.nudl");
+    if candidate.exists() {
+        return Some(candidate);
+    }
+
+    // 3. Try in nudl-std directory
+    let std_candidate = workspace_root.join("nudl-std").join(&rel_path);
+    if std_candidate.exists() {
+        return Some(std_candidate);
+    }
+
+    // 4. Try nudl-std directory as directory/lib.nudl
+    let std_candidate = workspace_root.join("nudl-std").join(&dir_path).join("lib.nudl");
+    if std_candidate.exists() {
+        return Some(std_candidate);
+    }
+
+    // 5. For "std" prefix, try nudl-std directly
+    if import_path.first().map(|s| s.as_str()) == Some("std") && import_path.len() >= 2 {
+        let mut std_rel = PathBuf::new();
+        for (i, segment) in import_path[1..].iter().enumerate() {
+            if i == import_path.len() - 2 {
+                std_rel.push(format!("{}.nudl", segment));
+            } else {
+                std_rel.push(segment);
+            }
+        }
+        let candidate = workspace_root.join("nudl-std").join(&std_rel);
+        if candidate.exists() {
+            return Some(candidate);
+        }
+
+        let mut dir_path = PathBuf::new();
+        for segment in &import_path[1..] {
+            dir_path.push(segment);
+        }
+        let candidate = workspace_root.join("nudl-std").join(&dir_path).join("lib.nudl");
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+
+    None
+}
+
+/// Find the workspace root by looking for Cargo.toml
+fn find_workspace_root(start: &Path) -> PathBuf {
+    let mut dir = start.to_path_buf();
+    loop {
+        if dir.join("Cargo.toml").exists() {
+            return dir;
+        }
+        if !dir.pop() {
+            return start.to_path_buf();
+        }
+    }
+}
+
+/// Parse a file and return its module, accumulating diagnostics.
+fn parse_file(
+    path: &Path,
+    source_map: &mut SourceMap,
+    diagnostics: &mut DiagnosticBag,
+) -> Option<Module> {
+    let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("error: could not read '{}': {}", source_path.display(), e);
-            return PipelineResult {
-                source_map,
-                diagnostics,
-            };
+            eprintln!("error: could not read '{}': {}", path.display(), e);
+            return None;
         }
     };
 
-    let file_id = source_map.add_file(source_path.to_path_buf(), content.clone());
+    let file_id = source_map.add_file(path.to_path_buf(), content.clone());
 
     let (tokens, lex_diags) = Lexer::new(&content, file_id).tokenize();
     diagnostics.merge(lex_diags);
     if diagnostics.has_errors() {
-        return PipelineResult {
-            source_map,
-            diagnostics,
-        };
+        return None;
     }
 
     let (module, parse_diags) = Parser::new(tokens).parse_module();
     diagnostics.merge(parse_diags);
+    if diagnostics.has_errors() {
+        return None;
+    }
+
+    Some(module)
+}
+
+/// Resolve and merge imports from a module.
+/// Returns the merged module with imported items prepended.
+fn resolve_imports(
+    module: Module,
+    source_path: &Path,
+    source_map: &mut SourceMap,
+    diagnostics: &mut DiagnosticBag,
+) -> Module {
+    let source_dir = source_path.parent().unwrap_or(Path::new("."));
+    let workspace_root = find_workspace_root(source_dir);
+    let mut merged_items = Vec::new();
+    let mut imported_files: HashSet<PathBuf> = HashSet::new();
+
+    // Process imports first
+    for item in &module.items {
+        if let Item::Import { path, .. } = &item.node {
+            if let Some(import_path) = resolve_import_path(source_dir, path, &workspace_root) {
+                if imported_files.contains(&import_path) {
+                    continue; // Skip duplicate imports
+                }
+                imported_files.insert(import_path.clone());
+
+                if let Some(imported_module) = parse_file(&import_path, source_map, diagnostics) {
+                    // Add all non-import items from the imported module
+                    for imp_item in imported_module.items {
+                        if !matches!(&imp_item.node, Item::Import { .. }) {
+                            merged_items.push(imp_item);
+                        }
+                    }
+                }
+            }
+            // Silently skip unresolved imports - the stdlib prelude will be auto-loaded
+        }
+    }
+
+    // Add all original items (including imports, which checker will skip)
+    merged_items.extend(module.items);
+
+    Module {
+        items: merged_items,
+    }
+}
+
+pub fn check(source_path: &Path, dump: &DumpOptions) -> PipelineResult {
+    let mut source_map = SourceMap::new();
+    let mut diagnostics = DiagnosticBag::new();
+
+    let module = match parse_file(source_path, &mut source_map, &mut diagnostics) {
+        Some(m) => m,
+        None => {
+            return PipelineResult {
+                source_map,
+                diagnostics,
+            }
+        }
+    };
+
+    let module = resolve_imports(module, source_path, &mut source_map, &mut diagnostics);
     if diagnostics.has_errors() {
         return PipelineResult {
             source_map,
@@ -75,32 +227,18 @@ pub fn build(
     let mut source_map = SourceMap::new();
     let mut diagnostics = DiagnosticBag::new();
 
-    let content = match std::fs::read_to_string(source_path) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("error: could not read '{}': {}", source_path.display(), e);
+    let module = match parse_file(source_path, &mut source_map, &mut diagnostics) {
+        Some(m) => m,
+        None => {
             return CompileResult {
                 source_map,
                 diagnostics,
                 success: false,
-            };
+            }
         }
     };
 
-    let file_id = source_map.add_file(source_path.to_path_buf(), content.clone());
-
-    let (tokens, lex_diags) = Lexer::new(&content, file_id).tokenize();
-    diagnostics.merge(lex_diags);
-    if diagnostics.has_errors() {
-        return CompileResult {
-            source_map,
-            diagnostics,
-            success: false,
-        };
-    }
-
-    let (module, parse_diags) = Parser::new(tokens).parse_module();
-    diagnostics.merge(parse_diags);
+    let module = resolve_imports(module, source_path, &mut source_map, &mut diagnostics);
     if diagnostics.has_errors() {
         return CompileResult {
             source_map,
@@ -167,32 +305,18 @@ pub fn run_vm(source_path: &Path, dump: &DumpOptions) -> CompileResult {
     let mut source_map = SourceMap::new();
     let mut diagnostics = DiagnosticBag::new();
 
-    let content = match std::fs::read_to_string(source_path) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("error: could not read '{}': {}", source_path.display(), e);
+    let module = match parse_file(source_path, &mut source_map, &mut diagnostics) {
+        Some(m) => m,
+        None => {
             return CompileResult {
                 source_map,
                 diagnostics,
                 success: false,
-            };
+            }
         }
     };
 
-    let file_id = source_map.add_file(source_path.to_path_buf(), content.clone());
-
-    let (tokens, lex_diags) = Lexer::new(&content, file_id).tokenize();
-    diagnostics.merge(lex_diags);
-    if diagnostics.has_errors() {
-        return CompileResult {
-            source_map,
-            diagnostics,
-            success: false,
-        };
-    }
-
-    let (module, parse_diags) = Parser::new(tokens).parse_module();
-    diagnostics.merge(parse_diags);
+    let module = resolve_imports(module, source_path, &mut source_map, &mut diagnostics);
     if diagnostics.has_errors() {
         return CompileResult {
             source_map,

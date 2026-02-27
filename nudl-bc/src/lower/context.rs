@@ -34,6 +34,8 @@ pub struct FunctionLowerCtx<'a> {
     pub(super) loop_stack: Vec<LoopContext>,
     /// Default parameter expressions for all functions (for filling in defaults at call sites)
     pub(super) param_defaults: &'a HashMap<String, Vec<Option<SpannedExpr>>>,
+    /// Deferred blocks to emit at scope exit (LIFO order)
+    pub(super) deferred_blocks: Vec<Block>,
 }
 
 impl<'a> FunctionLowerCtx<'a> {

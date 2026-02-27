@@ -249,6 +249,9 @@ impl Checker {
                     }
                 }
             }
+            Item::Import { .. } => {
+                // Imports are handled at the pipeline level
+            }
             Item::ExternBlock { items, .. } => {
                 for extern_fn in items {
                     let decl = &extern_fn.node;

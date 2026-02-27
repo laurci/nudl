@@ -1,0 +1,37 @@
+// nudl standard library prelude
+// This module is automatically available in all nudl programs.
+
+// Option type: represents an optional value
+enum Option {
+    Some(i32),
+    None,
+}
+
+// Result type: represents success or failure
+enum Result {
+    Ok(i32),
+    Err(i32),
+}
+
+// Basic utility functions
+
+/// Returns the minimum of two i32 values
+fn min(a: i32, b: i32) -> i32 {
+    if a < b { a } else { b }
+}
+
+/// Returns the maximum of two i32 values
+fn max(a: i32, b: i32) -> i32 {
+    if a > b { a } else { b }
+}
+
+/// Clamp a value between min and max bounds
+fn clamp(value: i32, lo: i32, hi: i32) -> i32 {
+    if value < lo {
+        lo
+    } else if value > hi {
+        hi
+    } else {
+        value
+    }
+}
