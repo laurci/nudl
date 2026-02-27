@@ -205,6 +205,9 @@ impl Checker {
                     if let Some(&iface_ty) = self.interfaces.get(name.as_str()) {
                         return iface_ty;
                     }
+                    if let Some(&alias_ty) = self.type_aliases.get(name.as_str()) {
+                        return alias_ty;
+                    }
                     self.diagnostics.add(&CheckerDiagnostic::UnknownType {
                         span: ty.span,
                         name: name.clone(),

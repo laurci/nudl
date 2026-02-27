@@ -252,6 +252,11 @@ impl Checker {
             Item::Import { .. } => {
                 // Imports are handled at the pipeline level
             }
+            Item::TypeAlias { name, ty, .. } => {
+                // Register the alias as mapping to the resolved type
+                let resolved = self.resolve_type(ty);
+                self.type_aliases.insert(name.clone(), resolved);
+            }
             Item::ExternBlock { items, .. } => {
                 for extern_fn in items {
                     let decl = &extern_fn.node;

@@ -1220,11 +1220,29 @@ impl<'a> FunctionLowerCtx<'a> {
                         self.local_types.insert(name.clone(), ty);
                     }
                 }
-                let body_result = self.lower_expr(&arm.body);
-                self.push_inst(Instruction::Copy(result_reg, body_result));
-                self.local_types.pop_scope();
-                self.locals.pop_scope();
-                self.finish_block(Terminator::Jump(merge_block));
+                // Guard clause: if guard is false, fall through to next arm
+                if let Some(guard_expr) = &arm.guard {
+                    let guard_reg = self.lower_expr(guard_expr);
+                    let body_block = self.new_block_id();
+                    let next_block = self.new_block_id();
+                    self.finish_block(Terminator::Branch(guard_reg, body_block, next_block));
+
+                    self.start_block(body_block);
+                    let body_result = self.lower_expr(&arm.body);
+                    self.push_inst(Instruction::Copy(result_reg, body_result));
+                    self.local_types.pop_scope();
+                    self.locals.pop_scope();
+                    self.finish_block(Terminator::Jump(merge_block));
+
+                    self.start_block(next_block);
+                    self.lower_match_arms(rest, scrutinee_reg, scrutinee_ty, tag_reg, result_reg, merge_block);
+                } else {
+                    let body_result = self.lower_expr(&arm.body);
+                    self.push_inst(Instruction::Copy(result_reg, body_result));
+                    self.local_types.pop_scope();
+                    self.locals.pop_scope();
+                    self.finish_block(Terminator::Jump(merge_block));
+                }
             }
             Pattern::Literal(lit) => {
                 let lit_reg = self.lower_literal_pattern(lit);
@@ -1236,6 +1254,14 @@ impl<'a> FunctionLowerCtx<'a> {
                 self.finish_block(Terminator::Branch(cmp_reg, match_block, next_block));
 
                 self.start_block(match_block);
+                // Guard clause on literal match
+                if let Some(guard_expr) = &arm.guard {
+                    let guard_reg = self.lower_expr(guard_expr);
+                    let body_block = self.new_block_id();
+                    self.finish_block(Terminator::Branch(guard_reg, body_block, next_block));
+
+                    self.start_block(body_block);
+                }
                 let body_result = self.lower_expr(&arm.body);
                 self.push_inst(Instruction::Copy(result_reg, body_result));
                 self.finish_block(Terminator::Jump(merge_block));
@@ -1297,6 +1323,14 @@ impl<'a> FunctionLowerCtx<'a> {
                         }
                     }
 
+                    // Guard clause on enum match
+                    if let Some(guard_expr) = &arm.guard {
+                        let guard_reg = self.lower_expr(guard_expr);
+                        let body_block = self.new_block_id();
+                        self.finish_block(Terminator::Branch(guard_reg, body_block, next_block));
+
+                        self.start_block(body_block);
+                    }
                     let body_result = self.lower_expr(&arm.body);
                     self.push_inst(Instruction::Copy(result_reg, body_result));
                     self.local_types.pop_scope();

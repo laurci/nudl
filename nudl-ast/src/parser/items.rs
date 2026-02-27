@@ -16,6 +16,7 @@ impl Parser {
             TokenKind::Interface => self.parse_interface_def(is_pub),
             TokenKind::Impl => self.parse_impl_block(),
             TokenKind::Extern => self.parse_extern_block(),
+            TokenKind::Type => self.parse_type_alias(is_pub),
             _ => {
                 if is_pub {
                     self.diagnostics.add(&ParserDiagnostic::UnexpectedToken {
@@ -833,6 +834,21 @@ impl Parser {
                 items: None,
                 alias,
             },
+            start.merge(end),
+        ))
+    }
+
+    fn parse_type_alias(&mut self, is_pub: bool) -> Option<SpannedItem> {
+        let start = self.expect(TokenKind::Type)?.span;
+        let name_tok = self.expect(TokenKind::Ident)?;
+        let name = name_tok.text.clone();
+        self.expect(TokenKind::Eq)?;
+        let ty = self.parse_type()?;
+        let end = ty.span;
+        // Optional semicolon
+        self.eat(TokenKind::Semi);
+        Some(Spanned::new(
+            Item::TypeAlias { name, ty, is_pub },
             start.merge(end),
         ))
     }
