@@ -59,6 +59,9 @@ pub(super) fn build_module<'ctx>(
     // Emit ARC intrinsics (inline retain/release + extern declarations)
     let arc = emit_arc_intrinsics(context, &module)?;
 
+    // Declare string builtin runtime functions
+    let string_builtins = declare_string_builtins(context, &module);
+
     // Emit string constants as globals
     for (i, s) in program.string_constants.iter().enumerate() {
         let bytes = s.as_bytes();
@@ -190,6 +193,7 @@ pub(super) fn build_module<'ctx>(
             &mut reg_string_info,
             types,
             &arc,
+            &string_builtins,
             &drop_fns,
             is_entry,
             optimized,

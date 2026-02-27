@@ -263,6 +263,18 @@ impl Checker {
             TypeExpr::DynInterface { name } => self
                 .types
                 .intern(TypeKind::DynInterface { name: name.clone() }),
+            TypeExpr::FnType {
+                params,
+                return_type,
+            } => {
+                let param_types: Vec<TypeId> =
+                    params.iter().map(|p| self.resolve_type(p)).collect();
+                let ret = self.resolve_type(return_type);
+                self.types.intern(TypeKind::Function {
+                    params: param_types,
+                    ret,
+                })
+            }
         }
     }
 
@@ -277,7 +289,18 @@ impl Checker {
             TypeKind::MutRawPtr => "MutRawPtr".into(),
             TypeKind::CStr => "CStr".into(),
             TypeKind::Never => "!".into(),
-            TypeKind::Function { .. } => "fn(...)".into(),
+            TypeKind::Function { params, ret } => {
+                let param_strs: Vec<String> = params.iter().map(|p| self.type_name(*p)).collect();
+                let is_unit = matches!(
+                    self.types.resolve(*ret),
+                    TypeKind::Primitive(PrimitiveType::Unit)
+                );
+                if is_unit {
+                    format!("|{}|", param_strs.join(", "))
+                } else {
+                    format!("|{}| -> {}", param_strs.join(", "), self.type_name(*ret))
+                }
+            }
             TypeKind::Struct { name, .. } => name.clone(),
             TypeKind::Enum { name, .. } => name.clone(),
             TypeKind::Interface { name, .. } => name.clone(),
@@ -296,6 +319,14 @@ impl Checker {
                 format!("Map<{}, {}>", self.type_name(*key), self.type_name(*value))
             }
             TypeKind::Error => "<error>".into(),
+        }
+    }
+
+    /// Set the closure type hint if `ty` is a function type.
+    /// This allows closures with untyped params to infer types from context.
+    pub(super) fn set_closure_hint_if_fn(&mut self, ty: TypeId) {
+        if matches!(self.types.resolve(ty), TypeKind::Function { .. }) {
+            self.closure_type_hint = Some(ty);
         }
     }
 

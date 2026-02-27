@@ -1,0 +1,60 @@
+
+extern {
+    fn write(fd: i32, buf: RawPtr, count: u64) -> i64;
+}
+
+fn print(s: string) {
+    write(1, __str_ptr(s), __str_len(s));
+}
+
+fn each(a: i32[], f: |(i32, i32)| -> ()) {
+    let len = a.len() as i32;
+    for i in 0..len {
+        f((a[i], i));
+    }
+}
+
+
+fn map(input: i32[], f: |i32| -> i32) -> i32[] {
+    let mut result: i32[] = [];
+    
+    for x in input {
+        result.push(f(x));
+    }
+
+    result
+}
+enum Option {
+    None,
+    Some(i32)
+}
+
+fn test_option(x: Option) -> i32 {
+    let mut z = x?;
+    z + 1
+}
+
+fn main() {
+    let a: i32[] = [1, 2, 3, 4, 5];
+
+    a |> each |a: (i32, i32)| {
+        print(`a[{a.1}] = {a.0}\n`);
+    };
+    print("\n\n");
+    
+    a |> each {
+        print(`a[{it.1}] = {it.0}\n`);    
+    }
+    print("\n\n");
+
+
+    a |> map {
+        it  * 2    
+    } |> each {
+        print(`a[{it.1}] * 2 = {it.0}\n`);    
+    };
+}
+
+// fn identity<T>(x: T) -> T {
+    
+// }

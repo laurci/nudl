@@ -385,4 +385,9 @@ pub enum TypeExpr {
     DynInterface {
         name: String,
     },
+    /// Function/closure type: `|i32, i32| -> i32` or `|| -> bool`
+    FnType {
+        params: Vec<Spanned<TypeExpr>>,
+        return_type: Box<Spanned<TypeExpr>>,
+    },
 }

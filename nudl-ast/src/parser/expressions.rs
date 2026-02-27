@@ -253,6 +253,17 @@ impl Parser {
                             span,
                         ),
                     };
+                    // Attach trailing closure: `x |> f |params| body` → `f(x, |params| body)`
+                    if let Some(trailing) = self.try_parse_trailing_lambda() {
+                        if let Expr::Call { ref mut args, .. } = lhs.node {
+                            let end = trailing.span;
+                            args.push(CallArg {
+                                name: None,
+                                value: trailing,
+                            });
+                            lhs.span = lhs.span.merge(end);
+                        }
+                    }
                     continue;
                 }
 
@@ -484,14 +495,11 @@ impl Parser {
             }
             TokenKind::LParen => {
                 let start = self.advance().clone();
-                // Check for unit literal ()
+                // Unit literal: ()
                 if self.peek_kind() == TokenKind::RParen {
                     let end = self.advance();
                     let span = start.span.merge(end.span);
-                    return Some(Spanned::new(
-                        Expr::Literal(Literal::Bool(false)), // unit as expression — use Block
-                        span,
-                    ));
+                    return Some(Spanned::new(Expr::TupleLiteral(vec![]), span));
                 }
                 let first = self.parse_expr()?;
                 // If followed by comma, this is a tuple literal
@@ -678,7 +686,10 @@ impl Parser {
             self.advance(); // consume 'let'
             let pattern = self.parse_pattern()?;
             self.expect(TokenKind::Eq)?;
+            let saved = self.inhibit_trailing_lambda;
+            self.inhibit_trailing_lambda = true;
             let expr = self.parse_expr()?;
+            self.inhibit_trailing_lambda = saved;
             let then_branch = self.parse_block()?;
 
             let else_branch = if self.eat(TokenKind::Else) {
@@ -710,7 +721,10 @@ impl Parser {
             ));
         }
 
+        let saved = self.inhibit_trailing_lambda;
+        self.inhibit_trailing_lambda = true;
         let condition = self.parse_expr()?;
+        self.inhibit_trailing_lambda = saved;
         let then_branch = self.parse_block()?;
 
         let else_branch = if self.eat(TokenKind::Else) {
@@ -745,7 +759,10 @@ impl Parser {
 
     fn parse_while_expr(&mut self, label: Option<String>) -> Option<SpannedExpr> {
         let start = self.expect(TokenKind::While)?.span;
+        let saved = self.inhibit_trailing_lambda;
+        self.inhibit_trailing_lambda = true;
         let condition = self.parse_expr()?;
+        self.inhibit_trailing_lambda = saved;
         let body = self.parse_block()?;
         let end = body.span;
 
@@ -777,7 +794,10 @@ impl Parser {
         let start = self.expect(TokenKind::For)?.span;
         let binding = self.expect(TokenKind::Ident)?.text.clone();
         self.expect(TokenKind::In)?;
+        let saved = self.inhibit_trailing_lambda;
+        self.inhibit_trailing_lambda = true;
         let iter = self.parse_expr()?;
+        self.inhibit_trailing_lambda = saved;
         let body = self.parse_block()?;
         let end = body.span;
 
@@ -861,6 +881,9 @@ impl Parser {
     /// Try to parse a trailing lambda after a call expression.
     /// Supports: `func(args) |params| body` and `func(args) { body }` (implicit `it` parameter).
     fn try_parse_trailing_lambda(&mut self) -> Option<SpannedExpr> {
+        if self.inhibit_trailing_lambda {
+            return None;
+        }
         match self.peek_kind() {
             TokenKind::Pipe => self.parse_closure(),
             TokenKind::PipePipe => {

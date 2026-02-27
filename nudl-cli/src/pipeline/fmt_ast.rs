@@ -597,5 +597,16 @@ fn fmt_type_expr(ty: &TypeExpr) -> String {
         TypeExpr::DynInterface { name } => {
             format!("dyn {}", name)
         }
+        TypeExpr::FnType {
+            params,
+            return_type,
+        } => {
+            let parts: Vec<String> = params.iter().map(|p| fmt_type_expr(&p.node)).collect();
+            format!(
+                "|{}| -> {}",
+                parts.join(", "),
+                fmt_type_expr(&return_type.node)
+            )
+        }
     }
 }

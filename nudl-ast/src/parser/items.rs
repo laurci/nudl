@@ -501,6 +501,36 @@ impl Parser {
     }
 
     pub(super) fn parse_type(&mut self) -> Option<Spanned<TypeExpr>> {
+        // Function/closure type: |T1, T2| -> R or || -> R
+        if self.peek_kind() == TokenKind::Pipe || self.peek_kind() == TokenKind::PipePipe {
+            let start = self.peek().span;
+            let params = if self.peek_kind() == TokenKind::PipePipe {
+                self.advance(); // consume '||'
+                Vec::new()
+            } else {
+                self.advance(); // consume '|'
+                let mut params = Vec::new();
+                while self.peek_kind() != TokenKind::Pipe && !self.at_eof() {
+                    params.push(self.parse_type()?);
+                    if !self.eat(TokenKind::Comma) {
+                        break;
+                    }
+                }
+                self.expect(TokenKind::Pipe)?;
+                params
+            };
+            self.expect(TokenKind::Arrow)?;
+            let return_type = self.parse_type()?;
+            let end = return_type.span;
+            return Some(Spanned::new(
+                TypeExpr::FnType {
+                    params,
+                    return_type: Box::new(return_type),
+                },
+                start.merge(end),
+            ));
+        }
+
         // dyn Interface
         if self.peek_kind() == TokenKind::Dyn {
             let start = self.advance().span;
@@ -668,6 +698,14 @@ impl Parser {
 
         // Identifier-based patterns
         if self.peek_kind() == TokenKind::Ident {
+            // Check for struct pattern: Name { field, ... } (uppercase first char)
+            if self.peek_nth(1).kind == TokenKind::LBrace {
+                let first_char = self.peek().text.chars().next().unwrap_or('a');
+                if first_char.is_uppercase() {
+                    return self.parse_struct_pattern();
+                }
+            }
+
             let tok = self.advance().clone();
             let name = tok.text.clone();
 

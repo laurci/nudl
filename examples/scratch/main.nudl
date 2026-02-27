@@ -874,10 +874,6 @@ type Coord = Pair;
 
 // ── Operator overloading (Phase 12) ──
 impl Vec2 {
-    fn add(self, other: Vec2) -> Vec2 {
-        Vec2 { x: self.x + other.x, y: self.y + other.y }
-    }
-
     fn eq(self, other: Vec2) -> bool {
         self.x == other.x && self.y == other.y
     }

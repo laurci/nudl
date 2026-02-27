@@ -327,10 +327,19 @@ impl Checker {
                                 found: self.type_name(val_ty),
                             });
                     }
+                } else {
+                    // Inside a closure without explicit return type — record the
+                    // return expression type so it can be used for inference.
+                    self.current_return_type = Some(val_ty);
                 }
-                self.types.unit()
+                self.types.never()
             }
-            Expr::Return(None) => self.types.unit(),
+            Expr::Return(None) => {
+                if self.current_return_type.is_none() {
+                    self.current_return_type = Some(self.types.unit());
+                }
+                self.types.never()
+            }
 
             Expr::Binary { op, left, right } => {
                 let left_ty = self.check_expr(left, locals);
@@ -703,10 +712,10 @@ impl Checker {
                 if let Some(val) = value {
                     self.check_expr(val, locals);
                 }
-                self.types.unit()
+                self.types.never()
             }
 
-            Expr::Continue { .. } => self.types.unit(),
+            Expr::Continue { .. } => self.types.never(),
 
             Expr::Grouped(inner) => self.check_expr(inner, locals),
 
@@ -823,6 +832,9 @@ impl Checker {
             }
 
             Expr::TupleLiteral(elements) => {
+                if elements.is_empty() {
+                    return self.types.unit();
+                }
                 let element_types: Vec<TypeId> = elements
                     .iter()
                     .map(|e| self.check_expr(e, locals))
@@ -1123,24 +1135,46 @@ impl Checker {
                 return_type,
                 body,
             } => {
-                // Type-check the closure body in a new scope
+                // Type-check the closure body in a new scope.
+                // If there's a type hint from the calling context, use it to
+                // infer types for untyped closure parameters (e.g. implicit `it`).
+                let hint_params = self.closure_type_hint.take().and_then(|hint_ty| {
+                    if let TypeKind::Function { params, .. } = self.types.resolve(hint_ty).clone() {
+                        Some(params)
+                    } else {
+                        None
+                    }
+                });
+
                 locals.push_scope();
                 let mut param_types = Vec::new();
-                for p in params {
+                for (i, p) in params.iter().enumerate() {
                     let ty = if let Some(type_expr) = &p.ty {
                         self.resolve_type(type_expr)
+                    } else if let Some(ref hint) = hint_params {
+                        // Infer from expected function type
+                        hint.get(i).copied().unwrap_or(self.types.i32())
                     } else {
-                        // Infer as i32 if no type given (best effort)
+                        // Fallback: infer as i32 if no type given
                         self.types.i32()
                     };
                     param_types.push(ty);
                     locals.insert(p.name.clone(), LocalInfo { ty, is_mut: false });
                 }
+                // Set up return type context for the closure body so that
+                // `return` statements are checked against the closure's return
+                // type, not the enclosing function's.
+                let saved_return_type = self.current_return_type.take();
                 let body_ty = self.check_expr(body, locals);
+                let closure_return_type = self.current_return_type.take();
+                self.current_return_type = saved_return_type;
                 locals.pop_scope();
 
                 let ret_ty = if let Some(rt) = return_type {
                     self.resolve_type(rt)
+                } else if body_ty == self.types.never() {
+                    // Block ended with `return` — use the return expression type
+                    closure_return_type.unwrap_or(body_ty)
                 } else {
                     body_ty
                 };

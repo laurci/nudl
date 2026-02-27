@@ -932,14 +932,29 @@ impl<'a> FunctionLowerCtx<'a> {
                 return_type,
                 body,
             } => {
+                // Use the type hint (if set) to infer types for untyped params
+                let hint_fn = self.closure_type_hint.take().and_then(|hint_ty| {
+                    if let nudl_core::types::TypeKind::Function { params, ret } =
+                        self.types.resolve(hint_ty).clone()
+                    {
+                        Some((params, ret))
+                    } else {
+                        None
+                    }
+                });
+                let hint_params = hint_fn.as_ref().map(|(p, _)| p);
+
                 // Resolve parameter types
                 let closure_params: Vec<(String, nudl_core::types::TypeId)> = params
                     .iter()
-                    .map(|p| {
+                    .enumerate()
+                    .map(|(i, p)| {
                         let ty = if let Some(type_expr) = &p.ty {
                             self.resolve_type_expr(&type_expr.node)
+                        } else if let Some(ref hint) = hint_params {
+                            hint.get(i).copied().unwrap_or(self.types.i32())
                         } else {
-                            self.types.i32() // default to i32
+                            self.types.i32()
                         };
                         (p.name.clone(), ty)
                     })
@@ -957,9 +972,9 @@ impl<'a> FunctionLowerCtx<'a> {
                 // Resolve return type
                 let ret_ty = if let Some(rt) = return_type {
                     self.resolve_type_expr(&rt.node)
+                } else if let Some((_, ret)) = &hint_fn {
+                    *ret
                 } else {
-                    // We don't easily know the return type here without re-checking,
-                    // so default to i64 (the lowerer works with i64 for most values)
                     self.types.i64()
                 };
 

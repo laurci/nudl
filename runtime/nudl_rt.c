@@ -403,6 +403,132 @@ static void nudl_map_grow(NudlMap *map) {
  *   int64_t thunk(int64_t env_ptr, int64_t arg0, int64_t arg1, ...)
  * ================================================================ */
 
+/* ================================================================
+ * String Builtins
+ *
+ * A "heap string" is an ARC object with layout:
+ *   [16-byte ARC header][int64_t length][char data[length]]
+ *
+ * Offset 16: length (i64)
+ * Offset 24: data start (char*)
+ * ================================================================ */
+
+/* Concatenate two (ptr, len) string slices into a new heap string. */
+void *__nudl_str_concat(const char *a_ptr, int64_t a_len,
+                        const char *b_ptr, int64_t b_len) {
+    int64_t total_len = a_len + b_len;
+    uint64_t alloc_size = 24 + (uint64_t)total_len;
+    void *mem = malloc((size_t)alloc_size);
+    if (!mem) {
+        fprintf(stderr, "nudl: out of memory (str_concat)\n");
+        abort();
+    }
+    NudlArcHeader *hdr = (NudlArcHeader *)mem;
+    hdr->strong_count = 1;
+    hdr->weak_count = 0;
+    hdr->type_tag = 0;
+    hdr->_padding = 0;
+    int64_t *len_field = (int64_t *)((char *)mem + 16);
+    *len_field = total_len;
+    char *data = (char *)mem + 24;
+    if (a_ptr && a_len > 0) memcpy(data, a_ptr, (size_t)a_len);
+    if (b_ptr && b_len > 0) memcpy(data + a_len, b_ptr, (size_t)b_len);
+    return mem;
+}
+
+/* Convert i64 to a new heap string. */
+void *__nudl_i64_to_str(int64_t val) {
+    char buf[32];
+    int len = snprintf(buf, sizeof(buf), "%lld", (long long)val);
+    uint64_t alloc_size = 24 + (uint64_t)len;
+    void *mem = malloc((size_t)alloc_size);
+    if (!mem) {
+        fprintf(stderr, "nudl: out of memory (i64_to_str)\n");
+        abort();
+    }
+    NudlArcHeader *hdr = (NudlArcHeader *)mem;
+    hdr->strong_count = 1;
+    hdr->weak_count = 0;
+    hdr->type_tag = 0;
+    hdr->_padding = 0;
+    *(int64_t *)((char *)mem + 16) = (int64_t)len;
+    memcpy((char *)mem + 24, buf, (size_t)len);
+    return mem;
+}
+
+/* Convert f64 to a new heap string. */
+void *__nudl_f64_to_str(double val) {
+    char buf[64];
+    int len = snprintf(buf, sizeof(buf), "%g", val);
+    uint64_t alloc_size = 24 + (uint64_t)len;
+    void *mem = malloc((size_t)alloc_size);
+    if (!mem) {
+        fprintf(stderr, "nudl: out of memory (f64_to_str)\n");
+        abort();
+    }
+    NudlArcHeader *hdr = (NudlArcHeader *)mem;
+    hdr->strong_count = 1;
+    hdr->weak_count = 0;
+    hdr->type_tag = 0;
+    hdr->_padding = 0;
+    *(int64_t *)((char *)mem + 16) = (int64_t)len;
+    memcpy((char *)mem + 24, buf, (size_t)len);
+    return mem;
+}
+
+/* Convert bool (0 or non-zero) to "true" or "false" heap string. */
+void *__nudl_bool_to_str(int64_t val) {
+    const char *s = val ? "true" : "false";
+    int64_t len = val ? 4 : 5;
+    uint64_t alloc_size = 24 + (uint64_t)len;
+    void *mem = malloc((size_t)alloc_size);
+    if (!mem) {
+        fprintf(stderr, "nudl: out of memory (bool_to_str)\n");
+        abort();
+    }
+    NudlArcHeader *hdr = (NudlArcHeader *)mem;
+    hdr->strong_count = 1;
+    hdr->weak_count = 0;
+    hdr->type_tag = 0;
+    hdr->_padding = 0;
+    *(int64_t *)((char *)mem + 16) = len;
+    memcpy((char *)mem + 24, s, (size_t)len);
+    return mem;
+}
+
+/* Convert a char (as i64 code point) to a single-character heap string. */
+void *__nudl_char_to_str(int64_t val) {
+    char c = (char)val;
+    uint64_t alloc_size = 24 + 1;
+    void *mem = malloc((size_t)alloc_size);
+    if (!mem) {
+        fprintf(stderr, "nudl: out of memory (char_to_str)\n");
+        abort();
+    }
+    NudlArcHeader *hdr = (NudlArcHeader *)mem;
+    hdr->strong_count = 1;
+    hdr->weak_count = 0;
+    hdr->type_tag = 0;
+    hdr->_padding = 0;
+    *(int64_t *)((char *)mem + 16) = 1;
+    *((char *)mem + 24) = c;
+    return mem;
+}
+
+/* ================================================================
+ * Closure Runtime
+ *
+ * A closure is a 2-word fat value stored in a register pair:
+ *   word 0: function pointer (as int64_t)
+ *   word 1: environment pointer (as int64_t, points to ARC capture struct)
+ *
+ * The capture struct is an ARC object:
+ *   [16-byte header] [captured_var_0: 8 bytes] [captured_var_1: 8 bytes] ...
+ *
+ * Closure thunk functions have signature:
+ *   int64_t thunk(int64_t env_ptr, int64_t arg0, int64_t arg1, ...)
+ * ================================================================ */
+
 /* Allocate a capture environment with N captured values. */
 void *__nudl_closure_env_alloc(int64_t num_captures) {
     uint64_t total_size = 16 + (uint64_t)num_captures * 8;

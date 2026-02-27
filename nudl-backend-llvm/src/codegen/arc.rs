@@ -264,3 +264,45 @@ pub(super) fn emit_arc_intrinsics<'ctx>(
         drop_noop,
     })
 }
+
+/// Declare string builtin runtime functions as external symbols.
+pub(super) fn declare_string_builtins<'ctx>(
+    context: &'ctx Context,
+    module: &Module<'ctx>,
+) -> StringBuiltins<'ctx> {
+    let ptr_ty = context.ptr_type(AddressSpace::default());
+    let i64_ty = context.i64_type();
+    let f64_ty = context.f64_type();
+    let ext = Some(inkwell::module::Linkage::External);
+
+    // __nudl_str_concat(ptr, i64, ptr, i64) -> ptr
+    let concat_ty = ptr_ty.fn_type(
+        &[ptr_ty.into(), i64_ty.into(), ptr_ty.into(), i64_ty.into()],
+        false,
+    );
+    let str_concat = module.add_function("__nudl_str_concat", concat_ty, ext);
+
+    // __nudl_i64_to_str(i64) -> ptr
+    let i64_to_str_ty = ptr_ty.fn_type(&[i64_ty.into()], false);
+    let i64_to_str = module.add_function("__nudl_i64_to_str", i64_to_str_ty, ext);
+
+    // __nudl_f64_to_str(f64) -> ptr
+    let f64_to_str_ty = ptr_ty.fn_type(&[f64_ty.into()], false);
+    let f64_to_str = module.add_function("__nudl_f64_to_str", f64_to_str_ty, ext);
+
+    // __nudl_bool_to_str(i64) -> ptr
+    let bool_to_str_ty = ptr_ty.fn_type(&[i64_ty.into()], false);
+    let bool_to_str = module.add_function("__nudl_bool_to_str", bool_to_str_ty, ext);
+
+    // __nudl_char_to_str(i64) -> ptr
+    let char_to_str_ty = ptr_ty.fn_type(&[i64_ty.into()], false);
+    let char_to_str = module.add_function("__nudl_char_to_str", char_to_str_ty, ext);
+
+    StringBuiltins {
+        str_concat,
+        i64_to_str,
+        f64_to_str,
+        bool_to_str,
+        char_to_str,
+    }
+}

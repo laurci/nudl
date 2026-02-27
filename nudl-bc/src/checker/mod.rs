@@ -66,6 +66,8 @@ pub struct Checker {
     pub(super) type_aliases: HashMap<String, TypeId>,
     pub(super) found_main: bool,
     pub(super) current_return_type: Option<TypeId>,
+    /// Hint for inferring closure parameter types from the expected function type.
+    pub(super) closure_type_hint: Option<TypeId>,
 }
 
 impl Checker {
@@ -81,6 +83,7 @@ impl Checker {
             type_aliases: HashMap::new(),
             found_main: false,
             current_return_type: None,
+            closure_type_hint: None,
         }
     }
 

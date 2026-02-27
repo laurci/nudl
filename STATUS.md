@@ -75,7 +75,8 @@
 - [ ] Optional parameters (`tests/functions/optional_params.nudl`)
 - [x] Closures — `|params| body` and `|params| -> T { body }` syntax; free variable capture analysis; capture environment heap-allocated as ARC object; closure thunks lowered as separate functions with env as first param; indirect call via function pointer; SSA instructions ClosureCreate/ClosureCall; LLVM codegen with ptrtoint/inttoptr for function pointers (`tests/functions/closures.nudl`)
 - [x] Methods — `impl` blocks parsed, methods registered with mangled names (`Type__method`), `self`/`mut self` params, method calls `obj.method()` and static calls `Type::method()` (`tests/functions/methods.nudl`)
-- [x] Trailing lambdas — `func(args) |x| body`, `func(args) || body`, `func(args) { body }` (implicit `it` param); trailing closure appended as last argument at parse time (`tests/functions/trailing_lambda.nudl`)
+- [x] Trailing lambdas — `func(args) |x| body`, `func(args) || body`, `func(args) { body }` (implicit `it` param); trailing closure appended as last argument at parse time; inhibited inside if/while/for conditions to prevent block stealing (`tests/functions/trailing_lambda.nudl`)
+- [x] Function type syntax — `|T1, T2| -> R` and `|| -> R` in type position; parsed as `TypeExpr::FnType`, resolved to `TypeKind::Function` in checker and lowerer
 
 ## 6. User-Defined Types
 - [x] Unit structs — `struct Foo;` parsed, type-checked, constructed via identifier (Alloc + Retain) (`tests/user-defined-types/struct_unit.nudl`)
@@ -90,7 +91,7 @@
 ## 7. Pattern Matching
 - [x] Literal patterns — integer, bool, string literals in match arms (`tests/pattern-matching/literal_patterns.nudl`)
 - [x] Tuple patterns — `(a, b, c)` patterns in match arms; lowered via TupleLoad to extract elements and bind to variables (`tests/pattern-matching/tuple_patterns.nudl`)
-- [x] Struct patterns — `Struct { field, .. }` patterns in both let destructuring and match arms; lowered via Load to extract fields by index (`tests/pattern-matching/struct_patterns.nudl`)
+- [x] Struct patterns — `Struct { field, .. }` patterns in let destructuring and match arms; parse_pattern() now checks for uppercase+LBrace to dispatch to parse_struct_pattern(); lowered via Load to extract fields by index (`tests/pattern-matching/struct_patterns.nudl`)
 - [x] Enum patterns — `Enum::Variant(binding)` with tag comparison and field extraction (`tests/pattern-matching/enum_patterns.nudl`)
 - [ ] Nested patterns (`tests/pattern-matching/nested_patterns.nudl`)
 - [ ] Or patterns (`tests/pattern-matching/or_patterns.nudl`)

@@ -272,6 +272,7 @@ impl Lowerer {
             pending_closures: &mut self.pending_closures,
             next_function_id: &mut self.next_function_id,
             return_type: sig.return_type,
+            closure_type_hint: None,
         };
 
         // Lower body — returns the register holding the result
@@ -386,6 +387,7 @@ impl Lowerer {
             pending_closures: &mut self.pending_closures,
             next_function_id: &mut self.next_function_id,
             return_type: closure.return_type,
+            closure_type_hint: None,
         };
 
         // Load captured variables from the env pointer

@@ -93,6 +93,20 @@ impl<'a> FunctionLowerCtx<'a> {
             TypeExpr::DynInterface { name } => self
                 .types
                 .intern(nudl_core::types::TypeKind::DynInterface { name: name.clone() }),
+            TypeExpr::FnType {
+                params,
+                return_type,
+            } => {
+                let param_types: Vec<nudl_core::types::TypeId> = params
+                    .iter()
+                    .map(|p| self.resolve_type_expr(&p.node))
+                    .collect();
+                let ret = self.resolve_type_expr(&return_type.node);
+                self.types.intern(nudl_core::types::TypeKind::Function {
+                    params: param_types,
+                    ret,
+                })
+            }
         }
     }
 
@@ -217,11 +231,23 @@ impl<'a> FunctionLowerCtx<'a> {
                 return_type,
                 ..
             } => {
+                let hint_params = self.closure_type_hint.as_ref().and_then(|hint_ty| {
+                    if let nudl_core::types::TypeKind::Function { params, .. } =
+                        self.types.resolve(*hint_ty).clone()
+                    {
+                        Some(params)
+                    } else {
+                        None
+                    }
+                });
                 let param_types: Vec<nudl_core::types::TypeId> = params
                     .iter()
-                    .map(|p| {
+                    .enumerate()
+                    .map(|(i, p)| {
                         if let Some(ty_expr) = &p.ty {
                             self.resolve_type_expr(&ty_expr.node)
+                        } else if let Some(ref hint) = hint_params {
+                            hint.get(i).copied().unwrap_or(self.types.i32())
                         } else {
                             self.types.i32()
                         }

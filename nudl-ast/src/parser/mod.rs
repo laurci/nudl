@@ -19,6 +19,7 @@ pub struct Parser {
     pub(super) tokens: Vec<Token>,
     pub(super) pos: usize,
     pub(super) diagnostics: DiagnosticBag,
+    pub(super) inhibit_trailing_lambda: bool,
 }
 
 impl Parser {
@@ -27,6 +28,7 @@ impl Parser {
             tokens,
             pos: 0,
             diagnostics: DiagnosticBag::new(),
+            inhibit_trailing_lambda: false,
         }
     }
 

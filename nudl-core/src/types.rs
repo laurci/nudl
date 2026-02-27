@@ -249,6 +249,7 @@ impl TypeInterner {
                 | TypeKind::DynamicArray { .. }
                 | TypeKind::Map { .. }
                 | TypeKind::DynInterface { .. }
+                | TypeKind::Function { .. }
         )
     }
 

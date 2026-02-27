@@ -6,8 +6,10 @@ pub(super) fn infix_binding_power(kind: TokenKind) -> Option<(u8, u8)> {
     match kind {
         // Range: non-associative (between assignment and pipe)
         TokenKind::DotDot | TokenKind::DotDotEq => Some((2, 3)),
-        // Pipe: left-associative (lowest regular infix precedence)
-        TokenKind::PipeGt => Some((4, 5)),
+        // Pipe: left-associative. Right BP is above bitwise-OR (l_bp=10) so that
+        // `|` after the pipe RHS is available for trailing closure syntax, not
+        // consumed as a binary operator.  `a |> f |x| { ... }` → `f(a, |x| ...)`
+        TokenKind::PipeGt => Some((4, 11)),
         // Logical or: left-associative
         TokenKind::PipePipe => Some((6, 7)),
         // Logical and: left-associative

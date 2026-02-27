@@ -53,6 +53,14 @@ int64_t __nudl_map_contains(void *map_ptr, int64_t key);
 int64_t __nudl_map_len(void *map_ptr);
 int64_t __nudl_map_remove(void *map_ptr, int64_t key);
 
+/* String builtins. */
+void *__nudl_str_concat(const char *a_ptr, int64_t a_len,
+                        const char *b_ptr, int64_t b_len);
+void *__nudl_i64_to_str(int64_t val);
+void *__nudl_f64_to_str(double val);
+void *__nudl_bool_to_str(int64_t val);
+void *__nudl_char_to_str(int64_t val);
+
 /* Closure runtime. */
 void *__nudl_closure_env_alloc(int64_t num_captures);
 

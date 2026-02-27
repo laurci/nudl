@@ -1,4 +1,5 @@
 use nudl_ast::ast::*;
+use nudl_core::types::TypeKind;
 
 use crate::ir::*;
 
@@ -88,15 +89,33 @@ impl<'a> FunctionLowerCtx<'a> {
         is_extern: bool,
     ) -> Register {
         let call_span = self.current_span;
-        // Lower all arguments
-        let arg_regs: Vec<Register> = args.iter().map(|arg| self.lower_expr(&arg.value)).collect();
+        // Lower all arguments, setting closure type hints from the function signature
+        let sig_params = self.function_sigs.get(name).map(|s| s.params.clone());
+        let arg_regs: Vec<Register> = args
+            .iter()
+            .enumerate()
+            .map(|(i, arg)| {
+                if let Some(ref params) = sig_params {
+                    if let Some((_, pty)) = params.get(i) {
+                        if matches!(self.types.resolve(*pty), TypeKind::Function { .. }) {
+                            self.closure_type_hint = Some(*pty);
+                        }
+                    }
+                }
+                self.lower_expr(&arg.value)
+            })
+            .collect();
         self.current_span = call_span;
 
-        // Caller-retain: for struct-typed args, emit Retain so callee's Release doesn't free them
+        // Caller-retain: for reference-typed args (except String which is passed by ptr+len),
+        // emit Retain so callee's Release doesn't free them
         if !is_extern {
             if let Some(sig) = self.function_sigs.get(name).cloned() {
                 for (i, (_pname, pty)) in sig.params.iter().enumerate() {
-                    if self.types.is_struct(*pty) && i < arg_regs.len() {
+                    if self.types.is_reference_type(*pty)
+                        && !matches!(self.types.resolve(*pty), TypeKind::String)
+                        && i < arg_regs.len()
+                    {
                         self.push_inst(Instruction::Retain(arg_regs[i]));
                     }
                 }
@@ -145,6 +164,10 @@ impl<'a> FunctionLowerCtx<'a> {
                 break;
             }
             if positional_idx < callable_params.len() {
+                let (_, pty) = &callable_params[positional_idx];
+                if matches!(self.types.resolve(*pty), TypeKind::Function { .. }) {
+                    self.closure_type_hint = Some(*pty);
+                }
                 let reg = self.lower_expr(&arg.value);
                 resolved[positional_idx] = Some(reg);
                 positional_idx += 1;
@@ -155,12 +178,20 @@ impl<'a> FunctionLowerCtx<'a> {
         for arg in call_args.iter().skip(positional_idx) {
             if let Some(arg_name) = &arg.name {
                 if let Some(pos) = callable_params.iter().position(|(n, _)| n == arg_name) {
+                    let (_, pty) = &callable_params[pos];
+                    if matches!(self.types.resolve(*pty), TypeKind::Function { .. }) {
+                        self.closure_type_hint = Some(*pty);
+                    }
                     let reg = self.lower_expr(&arg.value);
                     resolved[pos] = Some(reg);
                 }
             } else {
                 // Positional arg that came after named
                 if positional_idx < callable_params.len() {
+                    let (_, pty) = &callable_params[positional_idx];
+                    if matches!(self.types.resolve(*pty), TypeKind::Function { .. }) {
+                        self.closure_type_hint = Some(*pty);
+                    }
                     let reg = self.lower_expr(&arg.value);
                     resolved[positional_idx] = Some(reg);
                     positional_idx += 1;

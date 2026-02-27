@@ -19,7 +19,11 @@ impl Checker {
         let body_ty = self.check_block(&body.node, &mut locals);
         self.current_return_type = None;
 
-        if body_ty != ret_ty && body_ty != self.types.error() && ret_ty != self.types.error() {
+        if body_ty != ret_ty
+            && body_ty != self.types.error()
+            && ret_ty != self.types.error()
+            && body_ty != self.types.never()
+        {
             self.diagnostics
                 .add(&CheckerDiagnostic::ReturnTypeMismatch {
                     span: body.span,
@@ -72,11 +76,30 @@ impl Checker {
         }
         let result = if let Some(tail) = &block.tail_expr {
             self.check_expr(tail, locals)
+        } else if block.stmts.last().is_some_and(|s| self.stmt_diverges(s)) {
+            self.types.never()
         } else {
             self.types.unit()
         };
         locals.pop_scope();
         result
+    }
+
+    fn stmt_diverges(&self, stmt: &SpannedStmt) -> bool {
+        match &stmt.node {
+            Stmt::Expr(expr) => self.expr_diverges(expr),
+            _ => false,
+        }
+    }
+
+    fn expr_diverges(&self, expr: &SpannedExpr) -> bool {
+        match &expr.node {
+            Expr::Return(_) => true,
+            Expr::Break { .. } => true,
+            Expr::Continue { .. } => true,
+            Expr::Block(block) => block.stmts.last().is_some_and(|s| self.stmt_diverges(s)),
+            _ => false,
+        }
     }
 
     pub(super) fn check_stmt(&mut self, stmt: &SpannedStmt, locals: &mut ScopedLocals<LocalInfo>) {
@@ -98,10 +121,20 @@ impl Checker {
                     // Allow unsuffixed integer literals to coerce to any integer type
                     let is_coercible = self.is_unsuffixed_int_literal(&value.node)
                         && self.is_integer_type(declared_ty);
+                    // Allow fixed array literals to coerce to dynamic array type
+                    // e.g., let mut x: i32[] = [1, 2, 3];
+                    let is_array_coercible = matches!(
+                        (self.types.resolve(declared_ty), self.types.resolve(val_ty)),
+                        (
+                            TypeKind::DynamicArray { element: dyn_elem },
+                            TypeKind::FixedArray { element: fix_elem, .. }
+                        ) if dyn_elem == fix_elem
+                    );
                     if val_ty != declared_ty
                         && val_ty != self.types.error()
                         && declared_ty != self.types.error()
                         && !is_coercible
+                        && !is_array_coercible
                     {
                         self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
                             span: value.span,
@@ -117,6 +150,15 @@ impl Checker {
                         },
                     );
                 } else {
+                    // Empty array literal without type annotation is ambiguous
+                    if matches!(&value.node, Expr::ArrayLiteral(elems) if elems.is_empty()) {
+                        self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                            span: value.span,
+                            expected: "type annotation".to_string(),
+                            found: "empty array literal `[]` (ambiguous without type annotation)"
+                                .to_string(),
+                        });
+                    }
                     locals.insert(
                         name.clone(),
                         LocalInfo {
@@ -276,8 +318,9 @@ impl Checker {
                     });
                 return sig.return_type;
             }
-            let arg_ty = self.check_expr(&arg.value, locals);
             let param_ty = callable_params[positional_idx].1;
+            self.set_closure_hint_if_fn(param_ty);
+            let arg_ty = self.check_expr(&arg.value, locals);
             let is_coercible =
                 self.is_unsuffixed_int_literal(&arg.value.node) && self.is_integer_type(param_ty);
             if arg_ty != param_ty
@@ -301,8 +344,9 @@ impl Checker {
             if let Some(arg_name) = &arg.name {
                 // Find the parameter by name
                 if let Some(pos) = callable_params.iter().position(|(n, _)| n == arg_name) {
-                    let arg_ty = self.check_expr(&arg.value, locals);
                     let param_ty = callable_params[pos].1;
+                    self.set_closure_hint_if_fn(param_ty);
+                    let arg_ty = self.check_expr(&arg.value, locals);
                     let is_coercible = self.is_unsuffixed_int_literal(&arg.value.node)
                         && self.is_integer_type(param_ty);
                     if arg_ty != param_ty
@@ -328,8 +372,9 @@ impl Checker {
             } else {
                 // Positional arg that came after named — still process by position
                 if positional_idx < callable_params.len() {
-                    let arg_ty = self.check_expr(&arg.value, locals);
                     let param_ty = callable_params[positional_idx].1;
+                    self.set_closure_hint_if_fn(param_ty);
+                    let arg_ty = self.check_expr(&arg.value, locals);
                     let is_coercible = self.is_unsuffixed_int_literal(&arg.value.node)
                         && self.is_integer_type(param_ty);
                     if arg_ty != param_ty

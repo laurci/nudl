@@ -117,6 +117,15 @@ pub(super) struct ArcIntrinsics<'ctx> {
     pub(super) drop_noop: FunctionValue<'ctx>,
 }
 
+/// LLVM function references for string runtime builtins.
+pub(super) struct StringBuiltins<'ctx> {
+    pub(super) str_concat: FunctionValue<'ctx>,
+    pub(super) i64_to_str: FunctionValue<'ctx>,
+    pub(super) f64_to_str: FunctionValue<'ctx>,
+    pub(super) bool_to_str: FunctionValue<'ctx>,
+    pub(super) char_to_str: FunctionValue<'ctx>,
+}
+
 // Safety: these extend lifetimes of LLVM values. Safe because values are valid for
 // the Context's lifetime and we never use them after dropping the Context.
 pub(super) unsafe fn extend_ptr_lifetime<'a>(v: PointerValue<'_>) -> PointerValue<'a> {

@@ -42,6 +42,8 @@ pub struct FunctionLowerCtx<'a> {
     pub(super) next_function_id: &'a mut u32,
     /// Return type of the current function (for ? operator early return)
     pub(super) return_type: nudl_core::types::TypeId,
+    /// Hint for inferring closure parameter types from the expected function type.
+    pub(super) closure_type_hint: Option<nudl_core::types::TypeId>,
 }
 
 impl<'a> FunctionLowerCtx<'a> {

@@ -15,6 +15,7 @@ pub(super) fn emit_instruction<'ctx>(
     function_map: &HashMap<u32, FunctionValue<'ctx>>,
     types: &TypeInterner,
     arc: &ArcIntrinsics<'ctx>,
+    string_builtins: &StringBuiltins<'ctx>,
     drop_fns: &HashMap<nudl_core::types::TypeId, FunctionValue<'ctx>>,
 ) -> Result<(), BackendError> {
     match inst {
@@ -465,6 +466,7 @@ pub(super) fn emit_instruction<'ctx>(
                 string_constants,
                 function_map,
                 types,
+                string_builtins,
                 result_reg,
                 func_ref,
                 args,

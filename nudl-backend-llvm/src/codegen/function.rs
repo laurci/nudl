@@ -11,6 +11,7 @@ pub(super) fn emit_function<'ctx>(
     reg_string_info: &mut HashMap<u32, RegStringInfo>,
     types: &TypeInterner,
     arc: &ArcIntrinsics<'ctx>,
+    string_builtins: &StringBuiltins<'ctx>,
     drop_fns: &HashMap<nudl_core::types::TypeId, FunctionValue<'ctx>>,
     is_entry: bool,
     optimized: bool,
@@ -171,6 +172,7 @@ pub(super) fn emit_function<'ctx>(
                 function_map,
                 types,
                 arc,
+                string_builtins,
                 drop_fns,
             )?;
         }
