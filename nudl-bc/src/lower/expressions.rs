@@ -1795,6 +1795,10 @@ impl<'a> FunctionLowerCtx<'a> {
         let else_block = self.new_block_id();
         let merge_block = self.new_block_id();
 
+        let pre_if_locals = self.locals.flatten();
+        let mut then_block_idx = None;
+        let mut post_then_locals = None;
+
         match &pattern.node {
             Pattern::Enum {
                 variant, fields, ..
@@ -1843,6 +1847,11 @@ impl<'a> FunctionLowerCtx<'a> {
                     self.local_types.pop_scope();
                     self.locals.pop_scope();
                     self.finish_block(Terminator::Jump(merge_block));
+                    then_block_idx = Some(self.blocks.len() - 1);
+                    post_then_locals = Some(self.locals.flatten());
+                    for (name, reg) in &pre_if_locals {
+                        self.locals.update(name, *reg);
+                    }
                 } else {
                     self.finish_block(Terminator::Jump(else_block));
                 }
@@ -1967,6 +1976,11 @@ impl<'a> FunctionLowerCtx<'a> {
                 self.local_types.pop_scope();
                 self.locals.pop_scope();
                 self.finish_block(Terminator::Jump(merge_block));
+                then_block_idx = Some(self.blocks.len() - 1);
+                post_then_locals = Some(self.locals.flatten());
+                for (name, reg) in &pre_if_locals {
+                    self.locals.update(name, *reg);
+                }
             }
             _ => {
                 // Non-enum pattern in if-let - always match
@@ -1975,6 +1989,11 @@ impl<'a> FunctionLowerCtx<'a> {
                 let then_result = self.lower_block_expr(&then_branch.node);
                 self.push_inst(Instruction::Copy(result_reg, then_result));
                 self.finish_block(Terminator::Jump(merge_block));
+                then_block_idx = Some(self.blocks.len() - 1);
+                post_then_locals = Some(self.locals.flatten());
+                for (name, reg) in &pre_if_locals {
+                    self.locals.update(name, *reg);
+                }
             }
         }
 
@@ -1987,6 +2006,32 @@ impl<'a> FunctionLowerCtx<'a> {
             self.push_inst(Instruction::ConstUnit(result_reg));
         }
         self.finish_block(Terminator::Jump(merge_block));
+        let else_block_idx = self.blocks.len() - 1;
+        let post_else_locals = self.locals.flatten();
+
+        // Reconcile locals from both branches (same as regular if-else)
+        if let Some(ref post_then) = post_then_locals {
+            let then_idx = then_block_idx.unwrap();
+            for (name, pre_reg) in &pre_if_locals {
+                let then_reg = post_then.get(name).copied().unwrap_or(*pre_reg);
+                let else_reg = post_else_locals.get(name).copied().unwrap_or(*pre_reg);
+
+                if then_reg != else_reg {
+                    let merge_reg = self.alloc_register();
+                    self.blocks[then_idx]
+                        .instructions
+                        .push(Instruction::Copy(merge_reg, then_reg));
+                    self.blocks[then_idx].spans.push(self.current_span);
+                    self.blocks[else_block_idx]
+                        .instructions
+                        .push(Instruction::Copy(merge_reg, else_reg));
+                    self.blocks[else_block_idx].spans.push(self.current_span);
+                    self.locals.update(name, merge_reg);
+                } else if then_reg != *pre_reg {
+                    self.locals.update(name, then_reg);
+                }
+            }
+        }
 
         self.start_block(merge_block);
         result_reg

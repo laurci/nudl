@@ -1064,6 +1064,8 @@ impl Checker {
                     if then_ty != else_ty
                         && then_ty != self.types.error()
                         && else_ty != self.types.error()
+                        && then_ty != self.types.never()
+                        && else_ty != self.types.never()
                         && !self.typevar_compatible(then_ty, else_ty).unwrap_or(false)
                     {
                         self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
@@ -1072,7 +1074,11 @@ impl Checker {
                             found: self.type_name(else_ty),
                         });
                     }
-                    then_ty
+                    if then_ty == self.types.never() {
+                        else_ty
+                    } else {
+                        then_ty
+                    }
                 } else {
                     self.types.unit()
                 }
@@ -1787,6 +1793,8 @@ impl Checker {
                     if then_ty != else_ty
                         && then_ty != self.types.error()
                         && else_ty != self.types.error()
+                        && then_ty != self.types.never()
+                        && else_ty != self.types.never()
                         && !self.typevar_compatible(then_ty, else_ty).unwrap_or(false)
                     {
                         self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
@@ -1795,7 +1803,11 @@ impl Checker {
                             found: self.type_name(else_ty),
                         });
                     }
-                    then_ty
+                    if then_ty == self.types.never() {
+                        else_ty
+                    } else {
+                        then_ty
+                    }
                 } else {
                     self.types.unit()
                 }
