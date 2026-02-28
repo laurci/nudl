@@ -248,6 +248,14 @@ pub(super) fn emit_arc_intrinsics<'ctx>(
         Some(inkwell::module::Linkage::External),
     );
 
+    // __nudl_arc_release_slow_nodrop(ptr) -> void  (fast path: no drop handler)
+    let release_slow_nodrop_ty = void_ty.fn_type(&[ptr_ty.into()], false);
+    let arc_release_slow_nodrop = module.add_function(
+        "__nudl_arc_release_slow_nodrop",
+        release_slow_nodrop_ty,
+        Some(inkwell::module::Linkage::External),
+    );
+
     // __nudl_arc_overflow_abort() -> void [noreturn]
     let abort_ty = void_ty.fn_type(&[], false);
     let arc_overflow_abort = module.add_function(
@@ -262,21 +270,6 @@ pub(super) fn emit_arc_intrinsics<'ctx>(
             0,
         ),
     );
-
-    // --- Emit __nudl_drop_noop(ptr) -> void ---
-    let noop_ty = void_ty.fn_type(&[ptr_ty.into()], false);
-    let drop_noop = module.add_function(
-        "__nudl_drop_noop",
-        noop_ty,
-        Some(inkwell::module::Linkage::Internal),
-    );
-    {
-        let bb = context.append_basic_block(drop_noop, "entry");
-        let b = context.create_builder();
-        b.position_at_end(bb);
-        b.build_return(None)
-            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-    }
 
     // --- Emit __nudl_arc_retain(ptr) -> void  [alwaysinline] ---
     //
@@ -362,7 +355,9 @@ pub(super) fn emit_arc_intrinsics<'ctx>(
     // strong = load i32 from ptr+0
     // strong--
     // store strong to ptr+0
-    // if strong == 0: call __nudl_arc_release_slow(ptr, drop_fn)
+    // if strong == 0:
+    //   if drop_fn == null: call __nudl_arc_release_slow_nodrop(ptr)
+    //   else: call __nudl_arc_release_slow(ptr, drop_fn)
     // return
     let release_ty = void_ty.fn_type(&[ptr_ty.into(), ptr_ty.into()], false);
     let arc_release = module.add_function(
@@ -382,7 +377,9 @@ pub(super) fn emit_arc_intrinsics<'ctx>(
         let entry = context.append_basic_block(arc_release, "entry");
         let do_release = context.append_basic_block(arc_release, "do_release");
         let check_zero = context.append_basic_block(arc_release, "check_zero");
+        let check_drop = context.append_basic_block(arc_release, "check_drop");
         let call_slow = context.append_basic_block(arc_release, "call_slow");
+        let call_slow_nodrop = context.append_basic_block(arc_release, "call_slow_nodrop");
         let done = context.append_basic_block(arc_release, "done");
 
         // entry: null check
@@ -413,13 +410,28 @@ pub(super) fn emit_arc_intrinsics<'ctx>(
         b.build_unconditional_branch(check_zero)
             .map_err(|e| BackendError::LlvmError(e.to_string()))?;
 
-        // check_zero: if new_strong == 0, call slow path
+        // check_zero: if new_strong == 0, check drop handler
         b.position_at_end(check_zero);
         let zero = i32_ty.const_zero();
         let is_zero = b
             .build_int_compare(inkwell::IntPredicate::EQ, new_strong, zero, "is_zero")
             .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-        b.build_conditional_branch(is_zero, call_slow, done)
+        b.build_conditional_branch(is_zero, check_drop, done)
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+        // check_drop: if drop_fn is null, use fast nodrop path
+        b.position_at_end(check_drop);
+        let drop_is_null = b
+            .build_is_null(drop_fn_val, "drop_is_null")
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        b.build_conditional_branch(drop_is_null, call_slow_nodrop, call_slow)
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+        // call_slow_nodrop: call __nudl_arc_release_slow_nodrop(ptr)
+        b.position_at_end(call_slow_nodrop);
+        b.build_direct_call(arc_release_slow_nodrop, &[obj_ptr.into()], "")
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        b.build_unconditional_branch(done)
             .map_err(|e| BackendError::LlvmError(e.to_string()))?;
 
         // call_slow: call __nudl_arc_release_slow(ptr, drop_fn)
@@ -438,10 +450,10 @@ pub(super) fn emit_arc_intrinsics<'ctx>(
     Ok(ArcIntrinsics {
         arc_alloc,
         arc_release_slow,
+        arc_release_slow_nodrop,
         arc_overflow_abort,
         arc_retain,
         arc_release,
-        drop_noop,
     })
 }
 

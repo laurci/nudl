@@ -108,10 +108,10 @@ impl ParamLayout {
 pub(super) struct ArcIntrinsics<'ctx> {
     pub(super) arc_alloc: FunctionValue<'ctx>,
     pub(super) arc_release_slow: FunctionValue<'ctx>,
+    pub(super) arc_release_slow_nodrop: FunctionValue<'ctx>,
     pub(super) arc_overflow_abort: FunctionValue<'ctx>,
     pub(super) arc_retain: FunctionValue<'ctx>,
     pub(super) arc_release: FunctionValue<'ctx>,
-    pub(super) drop_noop: FunctionValue<'ctx>,
 }
 
 /// LLVM function references for string runtime builtins.

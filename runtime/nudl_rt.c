@@ -44,13 +44,21 @@ void *__nudl_arc_alloc(uint64_t total_size, uint32_t type_tag) {
     return mem;
 }
 
+/* Fast path: strong_count already 0, no drop handler to call.
+ * Just free memory if no weak refs remain. */
+void __nudl_arc_release_slow_nodrop(void *ptr) {
+    if (!ptr) return;
+    NudlArcHeader *hdr = (NudlArcHeader *)ptr;
+    if (hdr->weak_count == 0) {
+        free(ptr);
+    }
+}
+
 /* Called when strong_count has already been decremented to 0.
- * Calls drop_fn (if non-null) to release fields, then frees if no weak refs. */
+ * Calls drop_fn to release fields, then frees if no weak refs. */
 void __nudl_arc_release_slow(void *ptr, void (*drop_fn)(void *)) {
     if (!ptr) return;
-    if (drop_fn) {
-        drop_fn(ptr);
-    }
+    drop_fn(ptr);
     NudlArcHeader *hdr = (NudlArcHeader *)ptr;
     if (hdr->weak_count == 0) {
         free(ptr);
@@ -201,23 +209,39 @@ void __nudl_array_set(void *arr_ptr, int64_t index, int64_t value) {
     buf[index] = value;
 }
 
-/* Destroy a dynamic array: optionally release reference-typed elements,
+/* Destroy a dynamic array: release reference-typed elements if is_ref_elem,
  * then free the data buffer.
  * Called as part of a drop function when a DynArray's ARC refcount reaches 0.
- * elem_drop: drop function for reference-typed elements (NULL for value types). */
-void __nudl_array_destroy(void *arr_ptr, void (*elem_drop)(void *)) {
+ * is_ref_elem: 1 if elements are reference types that need ARC release, 0 otherwise.
+ * elem_drop: drop function for reference-typed elements (NULL if no custom Drop). */
+void __nudl_array_destroy(void *arr_ptr, int64_t is_ref_elem, void (*elem_drop)(void *)) {
     NudlDynArray *arr = (NudlDynArray *)arr_ptr;
     int64_t *buf = (int64_t *)(uintptr_t)arr->data_ptr;
     if (buf) {
-        if (elem_drop) {
-            for (int64_t i = 0; i < arr->length; i++) {
-                void *elem = (void *)(uintptr_t)buf[i];
-                if (elem) {
-                    NudlArcHeader *hdr = (NudlArcHeader *)elem;
-                    if (hdr->strong_count > 0) {
-                        hdr->strong_count--;
-                        if (hdr->strong_count == 0) {
-                            __nudl_arc_release_slow(elem, elem_drop);
+        if (is_ref_elem) {
+            if (elem_drop) {
+                for (int64_t i = 0; i < arr->length; i++) {
+                    void *elem = (void *)(uintptr_t)buf[i];
+                    if (elem) {
+                        NudlArcHeader *hdr = (NudlArcHeader *)elem;
+                        if (hdr->strong_count > 0) {
+                            hdr->strong_count--;
+                            if (hdr->strong_count == 0) {
+                                __nudl_arc_release_slow(elem, elem_drop);
+                            }
+                        }
+                    }
+                }
+            } else {
+                for (int64_t i = 0; i < arr->length; i++) {
+                    void *elem = (void *)(uintptr_t)buf[i];
+                    if (elem) {
+                        NudlArcHeader *hdr = (NudlArcHeader *)elem;
+                        if (hdr->strong_count > 0) {
+                            hdr->strong_count--;
+                            if (hdr->strong_count == 0) {
+                                __nudl_arc_release_slow_nodrop(elem);
+                            }
                         }
                     }
                 }

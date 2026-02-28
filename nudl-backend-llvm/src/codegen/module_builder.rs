@@ -136,75 +136,38 @@ pub(super) fn build_module<'ctx>(
         }
     }
 
-    // Generate per-struct drop functions.
-    // In debug builds, they log "dropping <Name>\n" via write(1, ...).
-    // In release builds, they are empty stubs (no I/O overhead).
+    // Generate per-struct drop functions only for structs that implement Drop
+    // (i.e., have a `drop(self)` method — mangled as `{StructName}__drop` in the IR).
+    // Structs without a drop method get nullptr as their drop handler, which the
+    // runtime uses to dispatch to a fast path (no indirect call overhead).
     let mut drop_fns: HashMap<nudl_core::types::TypeId, FunctionValue<'ctx>> = HashMap::new();
     {
-        let ptr_ty = context.ptr_type(AddressSpace::default());
-        let void_ty = context.void_type();
-        let drop_fn_ty = void_ty.fn_type(&[ptr_ty.into()], false);
-
-        // Find the extern write function in the module (only needed for debug drops)
-        let write_fn = if !optimized {
-            module.get_function("write")
-        } else {
-            None
-        };
+        // Build a map from struct name → IR function for drop methods.
+        let mut drop_methods: HashMap<String, &Function> = HashMap::new();
+        for func in &program.functions {
+            let name_str = program.interner.resolve(func.name);
+            if let Some(struct_name) = name_str.strip_suffix("__drop") {
+                // Verify it's a method with exactly one param (self)
+                if func.params.len() == 1 {
+                    drop_methods.insert(struct_name.to_string(), func);
+                }
+            }
+        }
 
         for (type_id, kind) in types.iter_types() {
             if let TypeKind::Struct {
                 name, is_extern, ..
             } = kind
             {
-                // Skip drop function for extern structs (no ARC management)
                 if *is_extern {
                     continue;
                 }
-                let drop_fn = module.add_function(
-                    &format!("__nudl_drop_{}", name),
-                    drop_fn_ty,
-                    Some(inkwell::module::Linkage::Internal),
-                );
-                let bb = context.append_basic_block(drop_fn, "entry");
-                let b = context.create_builder();
-                b.position_at_end(bb);
-
-                // Only emit drop logging in debug builds
-                if let Some(write_fn) = write_fn {
-                    let msg = format!("dropping {}\n", name);
-                    let msg_bytes = msg.as_bytes();
-
-                    let global = context.const_string(msg_bytes, false);
-                    let global_val = module.add_global(
-                        context.i8_type().array_type(msg_bytes.len() as u32),
-                        Some(AddressSpace::default()),
-                        &format!(".drop_msg.{}", name),
-                    );
-                    global_val.set_initializer(&global);
-                    global_val.set_constant(true);
-                    global_val.set_unnamed_addr(true);
-                    global_val.set_linkage(inkwell::module::Linkage::Private);
-
-                    // Note: extern write has LLVM signature (i64, i64, i64) -> i64
-                    let i64_ty = context.i64_type();
-                    let fd = i64_ty.const_int(1, false);
-                    let msg_ptr_raw = b
-                        .build_ptr_to_int(global_val.as_pointer_value(), i64_ty, "msg_ptr_int")
-                        .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-                    let msg_len = i64_ty.const_int(msg_bytes.len() as u64, false);
-                    b.build_direct_call(
-                        write_fn,
-                        &[fd.into(), msg_ptr_raw.into(), msg_len.into()],
-                        "",
-                    )
-                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                // Only register a drop function if the struct has a drop(self) method
+                if let Some(ir_func) = drop_methods.get(name) {
+                    if let Some(fn_val) = function_map.get(&ir_func.id.0) {
+                        drop_fns.insert(type_id, *fn_val);
+                    }
                 }
-
-                b.build_return(None)
-                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-
-                drop_fns.insert(type_id, drop_fn);
             }
         }
     }
@@ -213,11 +176,16 @@ pub(super) fn build_module<'ctx>(
     // and release reference-typed elements via __nudl_array_destroy.
     {
         let ptr_ty = context.ptr_type(AddressSpace::default());
+        let i64_ty = context.i64_type();
         let void_ty = context.void_type();
         let drop_fn_ty = void_ty.fn_type(&[ptr_ty.into()], false);
 
-        // Declare __nudl_array_destroy(ptr, ptr) -> void
-        let array_destroy_ty = void_ty.fn_type(&[ptr_ty.into(), ptr_ty.into()], false);
+        // Declare __nudl_array_destroy(ptr, i64, ptr) -> void
+        //   arg0: array ARC object pointer
+        //   arg1: is_ref_elem (1 if elements are reference types, 0 otherwise)
+        //   arg2: elem_drop function pointer (NULL if no custom Drop)
+        let array_destroy_ty =
+            void_ty.fn_type(&[ptr_ty.into(), i64_ty.into(), ptr_ty.into()], false);
         let array_destroy = module
             .get_function("__nudl_array_destroy")
             .unwrap_or_else(|| {
@@ -252,22 +220,25 @@ pub(super) fn build_module<'ctx>(
 
             let arr_ptr = drop_fn.get_nth_param(0).unwrap().into_pointer_value();
 
-            // Determine element drop function:
-            // - Reference-typed element with existing drop_fn → use that
-            // - Reference-typed element without specific drop → use drop_noop
-            // - Value-typed element → NULL (skip element release)
-            let elem_drop: inkwell::values::PointerValue = if types.is_reference_type(*element) {
+            // Determine is_ref_elem flag and element drop function
+            let is_ref = types.is_reference_type(*element);
+            let is_ref_val = i64_ty.const_int(if is_ref { 1 } else { 0 }, false);
+            let elem_drop: inkwell::values::PointerValue = if is_ref {
                 if let Some(dfn) = drop_fns.get(element) {
                     dfn.as_global_value().as_pointer_value()
                 } else {
-                    arc.drop_noop.as_global_value().as_pointer_value()
+                    ptr_ty.const_null()
                 }
             } else {
                 ptr_ty.const_null()
             };
 
-            b.build_direct_call(array_destroy, &[arr_ptr.into(), elem_drop.into()], "")
-                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            b.build_direct_call(
+                array_destroy,
+                &[arr_ptr.into(), is_ref_val.into(), elem_drop.into()],
+                "",
+            )
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
 
             b.build_return(None)
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?;

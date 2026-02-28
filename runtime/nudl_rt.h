@@ -25,8 +25,11 @@ typedef struct {
 /* Allocate a new ARC object. total_size includes the 16-byte header. */
 void *__nudl_arc_alloc(uint64_t total_size, uint32_t type_tag);
 
+/* Fast path: strong_count already 0, no drop handler. Free if no weak refs. */
+void __nudl_arc_release_slow_nodrop(void *ptr);
+
 /* Called when strong_count has already been decremented to 0.
- * Calls drop_fn (if non-null), then frees if weak_count is also 0. */
+ * Calls drop_fn, then frees if weak_count is also 0. */
 void __nudl_arc_release_slow(void *ptr, void (*drop_fn)(void *));
 
 /* Abort on reference count overflow (> UINT32_MAX). */

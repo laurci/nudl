@@ -641,14 +641,15 @@ pub(super) fn emit_instruction<'ctx>(
         }
         Instruction::Release(reg, type_id) => {
             let obj_ptr = load_ptr(context, builder, register_allocas, reg.0)?;
+            let ptr_ty = context.ptr_type(AddressSpace::default());
             let drop_fn_ptr = if let Some(tid) = type_id {
                 if let Some(dfn) = drop_fns.get(tid) {
                     dfn.as_global_value().as_pointer_value()
                 } else {
-                    arc.drop_noop.as_global_value().as_pointer_value()
+                    ptr_ty.const_null()
                 }
             } else {
-                arc.drop_noop.as_global_value().as_pointer_value()
+                ptr_ty.const_null()
             };
             builder
                 .build_direct_call(arc.arc_release, &[obj_ptr.into(), drop_fn_ptr.into()], "")

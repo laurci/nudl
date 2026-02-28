@@ -27,4 +27,8 @@ impl Vec2 {
     fn div(self, scalar: i32) -> Vec2 {
         Vec2 { x: self.x / scalar, y: self.y / scalar }
     }
+
+    fn drop(self) {
+        println("custom drop Vec2");
+    }
 }
