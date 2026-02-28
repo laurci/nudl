@@ -38,42 +38,42 @@ evaluation from Zig to enable powerful metaprogramming without procedural macros
 
 | Feature | Description | Status |
 |---|---|---|
-| Static typing | Hindley-Milner-style bidirectional type inference | Planned |
-| Generics | Monomorphized, bounded by interfaces: `fn f<T: Bound>(x: T)` | Planned |
-| Interfaces | Bounded polymorphism (no associated types) | Planned |
-| ARC | Compiler-inserted retain/release for reference types | Planned |
+| Static typing | Hindley-Milner-style bidirectional type inference | Working |
+| Generics | Monomorphized, bounded by interfaces: `fn f<T: Bound>(x: T)` | Working |
+| Interfaces | Bounded polymorphism (no associated types) | Partial |
+| ARC | Compiler-inserted retain/release for reference types | Working |
 | Weak references | `let weak r = x;` modifier syntax (internal `WeakRef<T>` never user-written) | Planned |
-| Pattern matching | Exhaustive `match` with guards, nested patterns, or-patterns | Planned |
-| Result/Option | Built-in enums with `?` operator | Planned |
-| Closures | `\|params\| expr` with ARC-captured environment | Planned |
-| Trailing lambdas | `f(args) { body }` with implicit `it` for single-param | Planned |
-| Named arguments | First non-self param positional, rest named | Planned |
-| Default params | `fn connect(host: string, port: u16 = 8080)` | Planned |
+| Pattern matching | `match` with guards, literal/tuple/struct/enum/binding/wildcard patterns | Working |
+| Result/Option | Built-in enums with `?` operator | Working |
+| Closures | `\|params\| expr` with ARC-captured environment | Working |
+| Trailing lambdas | `f(args) { body }` with implicit `it` for single-param | Working |
+| Named arguments | First non-self param positional, rest named | Working |
+| Default params | `fn connect(host: string, port: u16 = 8080)` | Working |
 | Optional params | `fn test(arg1?: Type)` desugars to `Option<Type>` | Planned |
-| Defer | `defer { cleanup(); }` -- LIFO, always runs on scope exit | Planned |
+| Defer | `defer { cleanup(); }` -- LIFO, always runs on scope exit | Working |
 | Spread operator | `[1, ...other, 2]` for arrays, `Point { ...base, x: 10.0 }` for structs | Planned |
 | Comptime | `comptime { }` blocks and `comptime fn` executed in VM | Planned |
 | Quote | `quote { ... ${interp} ... }` for comptime code generation | Planned |
 | Attributes | `#[key = value]` metadata readable at comptime | Planned |
 | AST inspection | `ast_of(item)` for read-only AST access at comptime | Planned |
 | Module introspection | `module_types()`, `module_functions()` to iterate current module | Planned |
-| String interpolation | `` `Hello, {name}!` `` | Planned |
-| Modules | File = module, `import` with aliasing and grouping | Planned |
-| Dynamic dispatch | `dyn Interface` for runtime polymorphism | Planned |
-| Enums as ADTs | Variants with data, struct fields, or unit | Planned |
-| Operator overload | Via generic interfaces like `Add<Rhs, Output>` | Planned |
-| If let / while let | `if let Some(x) = opt { ... }` for single-pattern convenience | Planned |
-| Labeled loops | `'label: for ...` with `break 'label` and `continue 'label` | Planned |
-| Type aliases | `type Name = ExistingType;` | Planned |
+| String interpolation | `` `Hello, {name}!` `` | Working |
+| Modules | File = module, `import` with aliasing and grouping | Working |
+| Dynamic dispatch | `dyn Interface` for runtime polymorphism | Partial |
+| Enums as ADTs | Variants with data, struct fields, or unit | Working |
+| Operator overload | Via generic interfaces like `Add<Rhs, Output>` | Working |
+| If let / while let | `if let Some(x) = opt { ... }` for single-pattern convenience | Working |
+| Labeled loops | `'label: for ...` with `break 'label` and `continue 'label` | Working |
+| Type aliases | `type Name = ExistingType;` | Working |
 | Async/await | `async fn`, `.await`, prefix `await`, `Future<T>` | Planned |
 | Structured concurrency | `Task.spawn`, `Task.group`, cooperative cancellation | Planned |
 | Actors | `actor` type with isolated mutable state, implicit async methods | Planned |
-| Pipe operator | `x \|> f(y)` desugars to `f(x, y)` for pipeline-style composition | Planned |
+| Pipe operator | `x \|> f(y)` desugars to `f(x, y)` for pipeline-style composition | Working |
 | Package manifest | `nudl.toml` with Go-style source dependencies | Planned |
 | Build scripts | `build.nudl` for pre-compilation code generation and configuration | Planned |
-| Native codegen | ARM64 backend with Mach-O and ELF output | Planned |
-| Comptime VM | SSA bytecode interpreter for compile-time evaluation | Planned |
-| LSP | Language Server Protocol for editor integration | Planned |
+| Native codegen | LLVM backend via Inkwell — multi-arch (ARM64, x86-64) native executables | Working |
+| Comptime VM | SSA bytecode interpreter for compile-time evaluation | Working |
+| LSP | Language Server Protocol for editor integration (diagnostics on document change) | Working |
 
 ---
 

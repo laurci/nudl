@@ -1,78 +1,41 @@
-## 8. Binary Packers
+## 8. ARC Runtime (`runtime/nudl_rt.c`)
 
-### 8.1 Mach-O Packer (`nudl-packer-macho`)
+The ARC runtime is a small C library compiled at build time and linked into
+every nudl executable. It provides the core memory management and collection
+primitives that the compiler's generated code calls into.
 
-The Mach-O packer produces executables for macOS (Darwin) on ARM64. It writes
-the binary format directly, without depending on a system linker.
+### 8.1 ARC Operations
 
-**Section layout:**
+- `__nudl_arc_alloc(size)` — allocate a heap object with ARC header (refcount = 1)
+- `__nudl_arc_release_slow(ptr)` — slow path for release when refcount reaches 0 (frees memory)
+- `__nudl_arc_overflow_abort()` — aborts on refcount overflow
 
-```
-Mach-O Header (magic, cputype, filetype)
-Load Commands
-  LC_SEGMENT_64 "__TEXT"
-    __text          (executable code)
-    __stubs         (lazy symbol stubs)
-    __stub_helper   (stub helper routines)
-    __cstring       (C string constants)
-    __const         (read-only constants)
-  LC_SEGMENT_64 "__DATA"
-    __data          (initialized mutable data)
-    __bss           (zero-initialized data)
-    __la_symbol_ptr (lazy symbol pointers)
-    __got           (global offset table)
-  LC_SEGMENT_64 "__LINKEDIT"
-    symbol table
-    string table
-    relocation entries
-  LC_SYMTAB
-  LC_DYSYMTAB
-  LC_LOAD_DYLINKER
-  LC_MAIN (entry point offset)
-  LC_LOAD_DYLIB (libSystem.B.dylib -- for syscalls)
-```
+The compiler inlines fast paths for retain (increment refcount) and release
+(decrement + check) directly in LLVM IR. Only the slow path (deallocation)
+calls into the C runtime.
 
-The packer resolves internal relocations (function-to-function calls within the
-nudl program) at pack time. External relocations (calls to the ARC runtime or
-system libraries) go through the GOT and lazy binding stubs.
+### 8.2 Dynamic Arrays
 
-### 8.2 ELF Packer (`nudl-packer-elf`)
+- `__nudl_dynarray_alloc()` — allocate a dynamic array with initial capacity
+- `__nudl_dynarray_push(arr, elem)` — append element, auto-growing capacity
+- `__nudl_dynarray_pop(arr)` — remove and return last element
+- `__nudl_dynarray_get(arr, idx)` / `__nudl_dynarray_set(arr, idx, elem)` — indexed access
+- `__nudl_dynarray_len(arr)` — current length
 
-The ELF packer produces executables for Linux on ARM64 (aarch64).
+### 8.3 Maps
 
-**Section layout:**
+Hash table with open-addressing and linear probing, auto-growing at 70% load:
 
-```
-ELF Header (e_ident, e_type = ET_EXEC, e_machine = EM_AARCH64)
-Program Headers
-  PT_LOAD (R+X): .text, .rodata
-  PT_LOAD (R+W): .data, .bss, .got, .got.plt
-  PT_DYNAMIC: dynamic linking information
-  PT_INTERP: /lib/ld-linux-aarch64.so.1
-Section Headers
-  .text         (executable code)
-  .rodata       (read-only data, string constants)
-  .data         (initialized mutable data)
-  .bss          (zero-initialized data)
-  .got          (global offset table)
-  .got.plt      (PLT GOT entries)
-  .plt          (procedure linkage table)
-  .rela.dyn     (dynamic relocations)
-  .rela.plt     (PLT relocations)
-  .dynsym       (dynamic symbol table)
-  .dynstr       (dynamic string table)
-  .symtab       (full symbol table)
-  .strtab       (string table)
-  .shstrtab     (section name strings)
-```
+- `__nudl_map_alloc()` — allocate an empty hash map
+- `__nudl_map_insert(map, key, value)` — insert or update a key-value pair
+- `__nudl_map_get(map, key)` — look up a value by key
+- `__nudl_map_contains(map, key)` — check if a key exists
+- `__nudl_map_remove(map, key)` — remove a key-value pair
+- `__nudl_map_len(map)` — number of entries
 
-Both packers share the same interface: they accept a list of code sections,
-data sections, and symbol/relocation records from the backend, and produce a
-self-contained executable binary.
+### 8.4 Closures
 
-> **v2 Note:** Debug symbol emission (DWARF) is deferred to v2. In v1, stack
-> traces display instruction addresses only. The `--debug` flag is reserved for
-> future use.
+- `__nudl_closure_env_alloc(size)` — allocate a capture environment for a closure
 
 ---
 
@@ -179,7 +142,7 @@ types are constructed and compared millions of times in large programs.
 ### 10.1 Architecture
 
 The LSP server reuses the compilation pipeline up through type checking. It
-does not run the native backend or packers. The LSP crate owns a persistent
+does not run the native backend. The LSP crate owns a persistent
 `CompilationState` that caches:
 
 - Parsed ASTs for all open files.
@@ -228,9 +191,11 @@ project. The LSP handles this conservatively:
 ### 11.1 Command Structure
 
 ```
-nudl build [--target <target>] [--output <path>] [<source>]
+nudl build [--target <target>] [--output <path>] [--dump-ast] [--dump-ir]
+           [--dump-llvm-ir] [--dump-asm] [<source>]
     Compile a nudl program to a native executable.
-    Targets: aarch64-apple-darwin (default on macOS), aarch64-linux-gnu.
+    Supports any LLVM target triple (e.g., aarch64-apple-darwin,
+    x86_64-unknown-linux-gnu).
     If no <source> is given, looks for nudl.toml in the current directory
     and uses the configured entry point (default: main.nudl).
 
@@ -247,17 +212,15 @@ nudl fmt [<source>]
 
 ### 11.5 Target Platform Support
 
-| Version | Target | Status |
-|---------|--------|--------|
-| v1 | `aarch64-apple-darwin` | Planned |
-| v1 | `aarch64-linux-gnu` | Planned |
-| v2 | `x86_64-apple-darwin` | Future |
-| v2 | `x86_64-linux-gnu` | Future |
+The LLVM backend supports any target that LLVM 18 can generate code for.
+Currently tested:
 
-The x86-64 backend (`nudl-backend-x86_64`) is planned for v2. It will consume
-the same SSA bytecode IR as the ARM64 backend, requiring only a new instruction
-selector and register allocator targeting the x86-64 ISA and System V / macOS
-x86-64 calling conventions.
+| Target | Status |
+|--------|--------|
+| `aarch64-apple-darwin` | Working |
+| `x86_64-apple-darwin` | Working |
+| `aarch64-linux-gnu` | Working |
+| `x86_64-linux-gnu` | Working |
 
 ### 11.2 Pipeline Orchestration
 
@@ -294,16 +257,15 @@ fn build(source_path, target, output_path):
     report_diagnostics(bc_program.diagnostics)
     if has_errors: exit(1)
 
-    // Phase 3: Native backend
-    machine_code = match target:
-        AArch64 => arm64_codegen(bc_program)
-    report_diagnostics(machine_code.diagnostics)
+    // Phase 3: LLVM backend
+    llvm_module = llvm_codegen(bc_program, target)
+    report_diagnostics(llvm_module.diagnostics)
     if has_errors: exit(1)
 
-    // Phase 4: Pack
-    match target:
-        AArch64_Apple_Darwin => pack_macho(machine_code, output_path)
-        AArch64_Linux_Gnu    => pack_elf(machine_code, output_path)
+    // Phase 4: Compile and link
+    object_file = llvm_emit_object(llvm_module, target)
+    runtime_obj = compile_c_runtime("runtime/nudl_rt.c", target)
+    link(object_file, runtime_obj, output_path)
 ```
 
 If `build.nudl` execution fails — either by panic or by `main()` returning an
@@ -448,46 +410,38 @@ function main() -> ():
     Return(r6)
 ```
 
-### 12.5 ARM64 Assembly (simplified)
+### 12.5 LLVM IR (simplified)
 
-```asm
-_factorial:
-    STP  X29, X30, [SP, #-16]!
-    MOV  X29, SP
-    CMP  X0, #1                 ; n <= 1?
-    B.HI .recurse
-    MOV  X0, #1                 ; return 1
-    LDP  X29, X30, [SP], #16
-    RET
+```llvm
+define i64 @factorial(i64 %n) {
+entry:
+  %cmp = icmp ule i64 %n, 1
+  br i1 %cmp, label %base, label %recurse
 
-.recurse:
-    STR  X0, [SP, #-16]!       ; save n
-    SUB  X0, X0, #1            ; n - 1
-    BL   _factorial             ; factorial(n - 1)
-    LDR  X1, [SP], #16         ; restore n
-    MUL  X0, X1, X0            ; n * factorial(n - 1)
-    LDP  X29, X30, [SP], #16
-    RET
+base:
+  ret i64 1
+
+recurse:
+  %n_minus_1 = sub i64 %n, 1
+  %result = call i64 @factorial(i64 %n_minus_1)
+  %product = mul i64 %n, %result
+  ret i64 %product
+}
 ```
 
-### 12.6 Binary Output
+### 12.6 Native Executable
 
-The packer wraps the machine code into a Mach-O (or ELF) executable with:
-
-- `__TEXT/__text` containing `_factorial` and `_main`.
-- `__DATA/__const` containing the string literal `"10! = "`.
-- Symbol table entries for `_factorial`, `_main`, `_println`, etc.
-- An `LC_MAIN` load command pointing to `_main` as the entry point.
-- An `LC_LOAD_DYLIB` for `libSystem.B.dylib` to resolve `_println` (which
-  ultimately calls `write(2)` via the system library).
-
-The result is a standalone executable:
+The LLVM backend compiles the IR to an object file, then the system linker
+combines it with the ARC runtime to produce a standalone executable:
 
 ```
 $ nudl build factorial.nudl -o factorial
 $ ./factorial
 10! = 3628800
 ```
+
+Use `--dump-llvm-ir` to inspect the generated LLVM IR, or `--dump-asm` to see
+the native assembly for the target platform.
 
 ---
 
@@ -520,14 +474,14 @@ operations. The register-based design also produces fewer instructions per
 operation (no dup/swap) and maps more directly to the native backend's register
 allocation.
 
-### 13.4 Direct Binary Generation
+### 13.4 LLVM as the Native Backend
 
-nudl generates Mach-O and ELF binaries directly rather than emitting assembly
-or object files for an external assembler/linker. This eliminates external
-toolchain dependencies and gives the compiler full control over the binary
-layout. The trade-off is the complexity of implementing the binary format
-writers, but both Mach-O and ELF are well-documented and the required subset
-(static executables with minimal dynamic linking) is manageable.
+nudl uses LLVM (via Inkwell) for native code generation rather than a custom
+backend. This provides mature optimization passes, multi-architecture support
+(ARM64, x86-64, and more), debug symbol generation, and ABI compliance without
+reimplementing these concerns. The trade-off is a dependency on LLVM 18 at
+build time and slightly less control over the generated code, but the benefits
+in code quality and platform coverage far outweigh the costs.
 
 ### 13.5 ARC vs Tracing GC vs Borrow Checker
 

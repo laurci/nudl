@@ -1,17 +1,70 @@
 // nudl standard library: io module
-// Input/Output functions
+// Input/Output functions and file operations.
 //
 // println! is a builtin macro that doesn't need importing.
 // This module provides additional I/O utilities.
-
-// Currently, I/O beyond println! requires extern FFI.
-// These will be implemented as the runtime grows.
+//
+// File open modes (pass as i64):
+//   0 = read
+//   1 = write (create/truncate)
+//   2 = append (create)
 
 extern "C" {
     fn putchar(c: i32) -> i32;
+    fn close(fd: i32) -> i32;
+}
+
+extern {
+    fn __nudl_file_open(path: string, mode: i64) -> i64;
+    fn __nudl_file_read(fd: i64, count: i64) -> string;
+    fn __nudl_file_read_all(path: string) -> string;
 }
 
 /// Print a newline character
 fn newline() {
     putchar(10);
+}
+
+/// Open a file. mode: 0=read, 1=write(create/truncate), 2=append(create).
+/// Returns fd or -1.
+fn open(path: string, mode: i64) -> i64 {
+    __nudl_file_open(path, mode)
+}
+
+/// Close a file descriptor.
+fn close_fd(fd: i64) -> i32 {
+    close(fd as i32)
+}
+
+/// Read up to count bytes from fd.
+fn read(fd: i64, count: i64) -> string {
+    __nudl_file_read(fd, count)
+}
+
+/// Write string to fd. Returns bytes written or -1.
+fn file_write(fd: i64, data: string) -> i64 {
+    write(fd as i32, __str_ptr(data), __str_len(data))
+}
+
+/// Read entire file to string.
+fn read_file(path: string) -> string {
+    __nudl_file_read_all(path)
+}
+
+/// Write string to file (create/truncate). Returns 0/-1.
+fn write_file(path: string, data: string) -> i64 {
+    let fd = open(path, 1i64);
+    if fd < 0i64 { return -1i64; }
+    let n = write(fd as i32, __str_ptr(data), __str_len(data));
+    close(fd as i32);
+    if n < 0i64 { -1i64 } else { 0i64 }
+}
+
+/// Append string to file. Returns 0/-1.
+fn append_file(path: string, data: string) -> i64 {
+    let fd = open(path, 2i64);
+    if fd < 0i64 { return -1i64; }
+    let n = write(fd as i32, __str_ptr(data), __str_len(data));
+    close(fd as i32);
+    if n < 0i64 { -1i64 } else { 0i64 }
 }

@@ -1,0 +1,44 @@
+fn main() {
+    // Exact match with if-let
+    let arr: i32[] = [1, 2, 3];
+    if let [a, b, c] = arr {
+        println(`exact: {a}, {b}, {c}`);
+    }
+
+    // Length mismatch — else branch
+    if let [x, y] = arr {
+        println("should not print");
+    } else {
+        println("mismatch: expected 2, got 3");
+    }
+
+    // Prefix match
+    if let [first, ..] = arr {
+        println(`first: {first}`);
+    }
+
+    // Suffix match
+    if let [.., last] = arr {
+        println(`last: {last}`);
+    }
+
+    // Prefix + suffix
+    if let [head, .., tail] = arr {
+        println(`head: {head}, tail: {tail}`);
+    }
+
+    // Match expression
+    let data: i32[] = [10, 20];
+    let result = match data {
+        [] => 0,
+        [x] => x,
+        [x, y] => x + y,
+        _ => -1,
+    };
+    println(`match result: {result}`);
+
+    // Let destructuring
+    let fixed: [i32; 3] = [10, 20, 30];
+    let [a, b, c] = fixed;
+    println(`let: {a}, {b}, {c}`);
+}

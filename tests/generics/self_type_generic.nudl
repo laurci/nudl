@@ -1,0 +1,20 @@
+// Test: Self type in generic impl block
+
+struct Wrapper<T> {
+    value: T,
+}
+
+impl Wrapper<T> {
+    fn new(val: T) -> Self {
+        Wrapper { value: val }
+    }
+
+    fn get(self) -> T {
+        self.value
+    }
+}
+
+fn main() {
+    let w = Wrapper::new(42);
+    let v = w.get();
+}

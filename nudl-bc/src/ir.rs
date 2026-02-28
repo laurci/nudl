@@ -94,7 +94,8 @@ pub enum Instruction {
     /// captures contains the registers to store into the capture environment
     ClosureCreate(Register, FunctionId, Vec<Register>), // dst, thunk_fn, captures
     /// Call a closure value: dst = closure(args...)
-    ClosureCall(Register, Register, Vec<Register>), // dst, closure_reg, args
+    /// Fields: dst, closure_reg, args, param_types, return_type
+    ClosureCall(Register, Register, Vec<Register>, Vec<TypeId>, TypeId),
 
     // Dynamic array operations (calls into C runtime)
     DynArrayAlloc(Register, TypeId), // dst = new empty dynamic array of element type
@@ -103,6 +104,9 @@ pub enum Instruction {
     DynArrayLen(Register, Register), // dst, array — get length
     DynArrayGet(Register, Register, Register), // dst, array, index — get element at index
     DynArraySet(Register, Register, Register), // array, index, value — set element at index
+
+    // String indexing
+    StringCharAt(Register, Register, Register), // dst, string_reg, index_reg — get char at index
 
     // Map operations (calls into C runtime)
     MapAlloc(Register, TypeId),                // dst = new empty map

@@ -1,0 +1,12 @@
+// Test: generic struct with type inference from field values
+
+struct Pair<A, B> {
+    first: A,
+    second: B,
+}
+
+fn main() {
+    let p = Pair { first: 42, second: "hello" };
+    let x = p.first;
+    let y = p.second;
+}

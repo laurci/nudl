@@ -544,44 +544,45 @@ impl Parser {
             ));
         }
 
-        if self.peek_kind() == TokenKind::LParen {
+        let base_type = if self.peek_kind() == TokenKind::LParen {
             let start = self.advance().span;
             // Unit type: ()
             if self.peek_kind() == TokenKind::RParen {
                 let end = self.advance().span;
-                return Some(Spanned::new(TypeExpr::Unit, start.merge(end)));
-            }
-            // Tuple type: (T1, T2, ...)
-            let mut elements = Vec::new();
-            elements.push(self.parse_type()?);
-            while self.eat(TokenKind::Comma) {
-                if self.peek_kind() == TokenKind::RParen {
-                    break; // trailing comma
-                }
+                Some(Spanned::new(TypeExpr::Unit, start.merge(end)))
+            } else {
+                // Tuple type: (T1, T2, ...)
+                let mut elements = Vec::new();
                 elements.push(self.parse_type()?);
+                while self.eat(TokenKind::Comma) {
+                    if self.peek_kind() == TokenKind::RParen {
+                        break; // trailing comma
+                    }
+                    elements.push(self.parse_type()?);
+                }
+                let end = self.expect(TokenKind::RParen)?.span;
+                Some(Spanned::new(TypeExpr::Tuple(elements), start.merge(end)))
             }
-            let end = self.expect(TokenKind::RParen)?.span;
-            return Some(Spanned::new(TypeExpr::Tuple(elements), start.merge(end)));
-        }
-
-        // Fixed array type: [T; N]
-        if self.peek_kind() == TokenKind::LBracket {
+        } else if self.peek_kind() == TokenKind::LBracket {
+            // Fixed array type: [T; N]
             let start = self.advance().span;
             let element = self.parse_type()?;
             self.expect(TokenKind::Semi)?;
             let len_tok = self.expect(TokenKind::IntLiteral)?;
             let length: usize = len_tok.text.parse().unwrap_or(0);
             let end = self.expect(TokenKind::RBracket)?.span;
-            return Some(Spanned::new(
+            Some(Spanned::new(
                 TypeExpr::FixedArray {
                     element: Box::new(element),
                     length,
                 },
                 start.merge(end),
-            ));
-        }
-
-        if self.peek_kind() == TokenKind::Ident {
+            ))
+        } else if self.peek_kind() == TokenKind::SelfType {
+            // Self type keyword
+            let tok = self.advance();
+            Some(Spanned::new(TypeExpr::Named("Self".into()), tok.span))
+        } else if self.peek_kind() == TokenKind::Ident {
             let tok = self.advance().clone();
             let name = tok.text.clone();
 
@@ -611,41 +612,46 @@ impl Parser {
 
                 if success && self.peek_kind() == TokenKind::Gt {
                     let end = self.advance().span; // consume '>'
-                    return Some(Spanned::new(
+                    Some(Spanned::new(
                         TypeExpr::Generic { name, args },
                         tok.span.merge(end),
-                    ));
+                    ))
                 } else {
                     // Backtrack - this wasn't a generic type
                     self.pos = saved_pos;
+                    Some(Spanned::new(TypeExpr::Named(name), tok.span))
                 }
+            } else {
+                Some(Spanned::new(TypeExpr::Named(name), tok.span))
             }
+        } else {
+            self.diagnostics.add(&ParserDiagnostic::ExpectedType {
+                span: self.peek().span,
+            });
+            None
+        };
 
-            // Check for dynamic array: T[]
-            if self.peek_kind() == TokenKind::LBracket {
-                let saved_pos = self.pos;
-                self.advance(); // consume '['
-                if self.peek_kind() == TokenKind::RBracket {
-                    let end = self.advance().span; // consume ']'
-                    return Some(Spanned::new(
-                        TypeExpr::DynamicArray {
-                            element: Box::new(Spanned::new(TypeExpr::Named(name), tok.span)),
-                        },
-                        tok.span.merge(end),
-                    ));
-                } else {
-                    // Backtrack
-                    self.pos = saved_pos;
-                }
+        // Check for dynamic array suffix: T[]
+        let base = base_type?;
+        if self.peek_kind() == TokenKind::LBracket {
+            let saved_pos = self.pos;
+            self.advance(); // consume '['
+            if self.peek_kind() == TokenKind::RBracket {
+                let end = self.advance().span; // consume ']'
+                let span = base.span.merge(end);
+                return Some(Spanned::new(
+                    TypeExpr::DynamicArray {
+                        element: Box::new(base),
+                    },
+                    span,
+                ));
+            } else {
+                // Backtrack
+                self.pos = saved_pos;
             }
-
-            return Some(Spanned::new(TypeExpr::Named(name), tok.span));
         }
 
-        self.diagnostics.add(&ParserDiagnostic::ExpectedType {
-            span: self.peek().span,
-        });
-        None
+        Some(base)
     }
 
     /// Parse a pattern for match arms and if-let
@@ -680,6 +686,62 @@ impl Parser {
                 ));
             }
             _ => {}
+        }
+
+        // Array pattern: [a, b], [a, b, ..], [.., a, b], [a, .., b]
+        if self.peek_kind() == TokenKind::LBracket {
+            self.advance(); // consume '['
+            let mut prefix = Vec::new();
+            let mut suffix = Vec::new();
+            let mut has_rest = false;
+
+            // Check for leading `..`
+            if self.peek_kind() == TokenKind::DotDot {
+                self.advance();
+                has_rest = true;
+                self.eat(TokenKind::Comma);
+                // Parse suffix elements
+                while self.peek_kind() != TokenKind::RBracket && !self.at_eof() {
+                    suffix.push(self.parse_pattern()?);
+                    if !self.eat(TokenKind::Comma) {
+                        break;
+                    }
+                }
+            } else {
+                // Parse prefix elements until ], .., or EOF
+                while self.peek_kind() != TokenKind::RBracket
+                    && self.peek_kind() != TokenKind::DotDot
+                    && !self.at_eof()
+                {
+                    prefix.push(self.parse_pattern()?);
+                    if !self.eat(TokenKind::Comma) {
+                        break;
+                    }
+                }
+                // Check for `..`
+                if self.peek_kind() == TokenKind::DotDot {
+                    self.advance();
+                    has_rest = true;
+                    self.eat(TokenKind::Comma);
+                    // Parse suffix elements after ..
+                    while self.peek_kind() != TokenKind::RBracket && !self.at_eof() {
+                        suffix.push(self.parse_pattern()?);
+                        if !self.eat(TokenKind::Comma) {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            let end = self.expect(TokenKind::RBracket)?.span;
+            return Some(Spanned::new(
+                Pattern::Array {
+                    prefix,
+                    suffix,
+                    has_rest,
+                },
+                start.merge(end),
+            ));
         }
 
         // Tuple pattern: (p1, p2)
@@ -740,6 +802,32 @@ impl Parser {
                     },
                     start.merge(end),
                 ));
+            }
+
+            // Check for unqualified enum variant pattern: Variant(p1, p2)
+            // (uppercase first char followed by '(' indicates enum variant)
+            if self.peek_kind() == TokenKind::LParen {
+                let first_char = name.chars().next().unwrap_or('a');
+                if first_char.is_uppercase() {
+                    self.advance(); // consume '('
+                    let mut pats = Vec::new();
+                    while self.peek_kind() != TokenKind::RParen && !self.at_eof() {
+                        pats.push(self.parse_pattern()?);
+                        if !self.eat(TokenKind::Comma) {
+                            break;
+                        }
+                    }
+                    self.expect(TokenKind::RParen)?;
+                    let end = self.prev_span();
+                    return Some(Spanned::new(
+                        Pattern::Enum {
+                            enum_name: None,
+                            variant: name,
+                            fields: pats,
+                        },
+                        start.merge(end),
+                    ));
+                }
             }
 
             // Simple binding pattern

@@ -3,7 +3,7 @@ use nudl_core::intern::Symbol;
 use super::*;
 
 /// Load a string argument's (ptr, len) pair from a register.
-fn load_string_arg<'ctx>(
+pub(super) fn load_string_arg<'ctx>(
     context: &'ctx Context,
     builder: &Builder<'ctx>,
     reg_string_info: &HashMap<u32, RegStringInfo>,
@@ -64,7 +64,7 @@ fn load_string_arg<'ctx>(
 /// Extract (data_ptr, length) from a heap string object returned by a runtime function.
 ///
 /// Heap string layout: [16-byte ARC header][i64 length @ offset 16][char data @ offset 24]
-fn extract_heap_string<'ctx>(
+pub(super) fn extract_heap_string<'ctx>(
     context: &'ctx Context,
     builder: &Builder<'ctx>,
     heap_ptr: PointerValue<'ctx>,
@@ -105,11 +105,12 @@ fn extract_heap_string<'ctx>(
 
 /// Store a (ptr, len) string result into the destination register's companion allocas
 /// and update reg_string_info.
-fn store_string_result<'ctx>(
+pub(super) fn store_string_result<'ctx>(
     context: &'ctx Context,
     builder: &Builder<'ctx>,
     str_ptr_allocas: &HashMap<u32, PointerValue<'ctx>>,
     str_len_allocas: &HashMap<u32, PointerValue<'ctx>>,
+    register_allocas: &HashMap<u32, PointerValue<'ctx>>,
     reg_string_info: &mut HashMap<u32, RegStringInfo>,
     dst_reg: u32,
     data_ptr: PointerValue<'ctx>,
@@ -132,13 +133,23 @@ fn store_string_result<'ctx>(
         }),
     );
 
-    // Also store the raw heap pointer into the register alloca (for ARC, if needed later)
-    // We store the data_ptr as an i64 so the register has a valid value.
-    let ptr_as_i64 = builder
-        .build_ptr_to_int(data_ptr, context.i64_type(), "str_ptr_i64")
+    // Compute the ARC heap object pointer (data_ptr - 24) and store in the
+    // register alloca. This is needed by DynArrayPush, ARC retain/release,
+    // and any code that reads the register as an i64.
+    let i8_ty = context.i8_type();
+    let neg_24 = context.i64_type().const_int((-24i64) as u64, true);
+    let heap_ptr = unsafe {
+        builder
+            .build_gep(i8_ty, data_ptr, &[neg_24], "str_arc_ptr")
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?
+    };
+    let heap_as_i64 = builder
+        .build_ptr_to_int(heap_ptr, context.i64_type(), "str_heap_i64")
         .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-    // (not strictly needed for string semantics but keeps register consistent)
-    let _ = ptr_as_i64;
+    let reg_alloca = register_allocas[&dst_reg];
+    builder
+        .build_store(reg_alloca, heap_as_i64)
+        .map_err(|e| BackendError::LlvmError(e.to_string()))?;
 
     Ok(())
 }
@@ -202,6 +213,7 @@ fn emit_builtin_call<'ctx>(
                 builder,
                 str_ptr_allocas,
                 str_len_allocas,
+                register_allocas,
                 reg_string_info,
                 result_reg.0,
                 data_ptr,
@@ -237,6 +249,7 @@ fn emit_builtin_call<'ctx>(
                 builder,
                 str_ptr_allocas,
                 str_len_allocas,
+                register_allocas,
                 reg_string_info,
                 result_reg.0,
                 data_ptr,
@@ -266,11 +279,405 @@ fn emit_builtin_call<'ctx>(
                 builder,
                 str_ptr_allocas,
                 str_len_allocas,
+                register_allocas,
                 reg_string_info,
                 result_reg.0,
                 data_ptr,
                 len_val,
             )?;
+        }
+
+        // String operations returning string (heap ptr -> extract ptr/len)
+        "__str_substr" => {
+            // args: [string, i64_start, i64_end]
+            let (s_ptr, s_len) = load_string_arg(
+                context,
+                builder,
+                reg_string_info,
+                string_constants,
+                str_ptr_allocas,
+                str_len_allocas,
+                args[0].0,
+            )?;
+            let start_val = load_i64(context, builder, register_allocas, args[1].0)?;
+            let end_val = load_i64(context, builder, register_allocas, args[2].0)?;
+
+            let call_args: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> =
+                vec![s_ptr.into(), s_len.into(), start_val.into(), end_val.into()];
+            let call_result = builder
+                .build_direct_call(string_builtins.str_substr, &call_args, "substr_result")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let heap_ptr = call_result
+                .try_as_basic_value()
+                .basic()
+                .expect("substr should return a pointer")
+                .into_pointer_value();
+            let (data_ptr, len_val) = extract_heap_string(context, builder, heap_ptr)?;
+            store_string_result(
+                context,
+                builder,
+                str_ptr_allocas,
+                str_len_allocas,
+                register_allocas,
+                reg_string_info,
+                result_reg.0,
+                data_ptr,
+                len_val,
+            )?;
+        }
+
+        "__str_trim" => {
+            let (s_ptr, s_len) = load_string_arg(
+                context,
+                builder,
+                reg_string_info,
+                string_constants,
+                str_ptr_allocas,
+                str_len_allocas,
+                args[0].0,
+            )?;
+            let call_args: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> =
+                vec![s_ptr.into(), s_len.into()];
+            let call_result = builder
+                .build_direct_call(string_builtins.str_trim, &call_args, "trim_result")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let heap_ptr = call_result
+                .try_as_basic_value()
+                .basic()
+                .expect("trim should return a pointer")
+                .into_pointer_value();
+            let (data_ptr, len_val) = extract_heap_string(context, builder, heap_ptr)?;
+            store_string_result(
+                context,
+                builder,
+                str_ptr_allocas,
+                str_len_allocas,
+                register_allocas,
+                reg_string_info,
+                result_reg.0,
+                data_ptr,
+                len_val,
+            )?;
+        }
+
+        "__str_to_upper" => {
+            let (s_ptr, s_len) = load_string_arg(
+                context,
+                builder,
+                reg_string_info,
+                string_constants,
+                str_ptr_allocas,
+                str_len_allocas,
+                args[0].0,
+            )?;
+            let call_args: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> =
+                vec![s_ptr.into(), s_len.into()];
+            let call_result = builder
+                .build_direct_call(string_builtins.str_to_upper, &call_args, "to_upper_result")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let heap_ptr = call_result
+                .try_as_basic_value()
+                .basic()
+                .expect("to_upper should return a pointer")
+                .into_pointer_value();
+            let (data_ptr, len_val) = extract_heap_string(context, builder, heap_ptr)?;
+            store_string_result(
+                context,
+                builder,
+                str_ptr_allocas,
+                str_len_allocas,
+                register_allocas,
+                reg_string_info,
+                result_reg.0,
+                data_ptr,
+                len_val,
+            )?;
+        }
+
+        "__str_to_lower" => {
+            let (s_ptr, s_len) = load_string_arg(
+                context,
+                builder,
+                reg_string_info,
+                string_constants,
+                str_ptr_allocas,
+                str_len_allocas,
+                args[0].0,
+            )?;
+            let call_args: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> =
+                vec![s_ptr.into(), s_len.into()];
+            let call_result = builder
+                .build_direct_call(string_builtins.str_to_lower, &call_args, "to_lower_result")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let heap_ptr = call_result
+                .try_as_basic_value()
+                .basic()
+                .expect("to_lower should return a pointer")
+                .into_pointer_value();
+            let (data_ptr, len_val) = extract_heap_string(context, builder, heap_ptr)?;
+            store_string_result(
+                context,
+                builder,
+                str_ptr_allocas,
+                str_len_allocas,
+                register_allocas,
+                reg_string_info,
+                result_reg.0,
+                data_ptr,
+                len_val,
+            )?;
+        }
+
+        "__str_replace" => {
+            // args: [string, old_string, new_string]
+            let (s_ptr, s_len) = load_string_arg(
+                context,
+                builder,
+                reg_string_info,
+                string_constants,
+                str_ptr_allocas,
+                str_len_allocas,
+                args[0].0,
+            )?;
+            let (old_ptr, old_len) = load_string_arg(
+                context,
+                builder,
+                reg_string_info,
+                string_constants,
+                str_ptr_allocas,
+                str_len_allocas,
+                args[1].0,
+            )?;
+            let (new_ptr, new_len) = load_string_arg(
+                context,
+                builder,
+                reg_string_info,
+                string_constants,
+                str_ptr_allocas,
+                str_len_allocas,
+                args[2].0,
+            )?;
+            let call_args: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> = vec![
+                s_ptr.into(),
+                s_len.into(),
+                old_ptr.into(),
+                old_len.into(),
+                new_ptr.into(),
+                new_len.into(),
+            ];
+            let call_result = builder
+                .build_direct_call(string_builtins.str_replace, &call_args, "replace_result")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let heap_ptr = call_result
+                .try_as_basic_value()
+                .basic()
+                .expect("replace should return a pointer")
+                .into_pointer_value();
+            let (data_ptr, len_val) = extract_heap_string(context, builder, heap_ptr)?;
+            store_string_result(
+                context,
+                builder,
+                str_ptr_allocas,
+                str_len_allocas,
+                register_allocas,
+                reg_string_info,
+                result_reg.0,
+                data_ptr,
+                len_val,
+            )?;
+        }
+
+        "__str_repeat" => {
+            // args: [string, i64_count]
+            let (s_ptr, s_len) = load_string_arg(
+                context,
+                builder,
+                reg_string_info,
+                string_constants,
+                str_ptr_allocas,
+                str_len_allocas,
+                args[0].0,
+            )?;
+            let count_val = load_i64(context, builder, register_allocas, args[1].0)?;
+            let call_args: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> =
+                vec![s_ptr.into(), s_len.into(), count_val.into()];
+            let call_result = builder
+                .build_direct_call(string_builtins.str_repeat, &call_args, "repeat_result")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let heap_ptr = call_result
+                .try_as_basic_value()
+                .basic()
+                .expect("repeat should return a pointer")
+                .into_pointer_value();
+            let (data_ptr, len_val) = extract_heap_string(context, builder, heap_ptr)?;
+            store_string_result(
+                context,
+                builder,
+                str_ptr_allocas,
+                str_len_allocas,
+                register_allocas,
+                reg_string_info,
+                result_reg.0,
+                data_ptr,
+                len_val,
+            )?;
+        }
+
+        // String operations returning i64
+        "__str_indexof" => {
+            let (h_ptr, h_len) = load_string_arg(
+                context,
+                builder,
+                reg_string_info,
+                string_constants,
+                str_ptr_allocas,
+                str_len_allocas,
+                args[0].0,
+            )?;
+            let (n_ptr, n_len) = load_string_arg(
+                context,
+                builder,
+                reg_string_info,
+                string_constants,
+                str_ptr_allocas,
+                str_len_allocas,
+                args[1].0,
+            )?;
+            let call_args: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> =
+                vec![h_ptr.into(), h_len.into(), n_ptr.into(), n_len.into()];
+            let call_result = builder
+                .build_direct_call(string_builtins.str_indexof, &call_args, "indexof_result")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let result_val = call_result
+                .try_as_basic_value()
+                .basic()
+                .expect("indexof should return i64")
+                .into_int_value();
+            let alloca = register_allocas.get(&result_reg.0).ok_or_else(|| {
+                BackendError::LlvmError(format!("no alloca for r{}", result_reg.0))
+            })?;
+            builder
+                .build_store(*alloca, result_val)
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        }
+
+        "__str_contains" => {
+            let (h_ptr, h_len) = load_string_arg(
+                context,
+                builder,
+                reg_string_info,
+                string_constants,
+                str_ptr_allocas,
+                str_len_allocas,
+                args[0].0,
+            )?;
+            let (n_ptr, n_len) = load_string_arg(
+                context,
+                builder,
+                reg_string_info,
+                string_constants,
+                str_ptr_allocas,
+                str_len_allocas,
+                args[1].0,
+            )?;
+            let call_args: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> =
+                vec![h_ptr.into(), h_len.into(), n_ptr.into(), n_len.into()];
+            let call_result = builder
+                .build_direct_call(string_builtins.str_contains, &call_args, "contains_result")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let result_val = call_result
+                .try_as_basic_value()
+                .basic()
+                .expect("contains should return i64")
+                .into_int_value();
+            let alloca = register_allocas.get(&result_reg.0).ok_or_else(|| {
+                BackendError::LlvmError(format!("no alloca for r{}", result_reg.0))
+            })?;
+            builder
+                .build_store(*alloca, result_val)
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        }
+
+        "__str_starts_with" => {
+            let (s_ptr, s_len) = load_string_arg(
+                context,
+                builder,
+                reg_string_info,
+                string_constants,
+                str_ptr_allocas,
+                str_len_allocas,
+                args[0].0,
+            )?;
+            let (p_ptr, p_len) = load_string_arg(
+                context,
+                builder,
+                reg_string_info,
+                string_constants,
+                str_ptr_allocas,
+                str_len_allocas,
+                args[1].0,
+            )?;
+            let call_args: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> =
+                vec![s_ptr.into(), s_len.into(), p_ptr.into(), p_len.into()];
+            let call_result = builder
+                .build_direct_call(
+                    string_builtins.str_starts_with,
+                    &call_args,
+                    "starts_with_result",
+                )
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let result_val = call_result
+                .try_as_basic_value()
+                .basic()
+                .expect("starts_with should return i64")
+                .into_int_value();
+            let alloca = register_allocas.get(&result_reg.0).ok_or_else(|| {
+                BackendError::LlvmError(format!("no alloca for r{}", result_reg.0))
+            })?;
+            builder
+                .build_store(*alloca, result_val)
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        }
+
+        "__str_ends_with" => {
+            let (s_ptr, s_len) = load_string_arg(
+                context,
+                builder,
+                reg_string_info,
+                string_constants,
+                str_ptr_allocas,
+                str_len_allocas,
+                args[0].0,
+            )?;
+            let (sf_ptr, sf_len) = load_string_arg(
+                context,
+                builder,
+                reg_string_info,
+                string_constants,
+                str_ptr_allocas,
+                str_len_allocas,
+                args[1].0,
+            )?;
+            let call_args: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> =
+                vec![s_ptr.into(), s_len.into(), sf_ptr.into(), sf_len.into()];
+            let call_result = builder
+                .build_direct_call(
+                    string_builtins.str_ends_with,
+                    &call_args,
+                    "ends_with_result",
+                )
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let result_val = call_result
+                .try_as_basic_value()
+                .basic()
+                .expect("ends_with should return i64")
+                .into_int_value();
+            let alloca = register_allocas.get(&result_reg.0).ok_or_else(|| {
+                BackendError::LlvmError(format!("no alloca for r{}", result_reg.0))
+            })?;
+            builder
+                .build_store(*alloca, result_val)
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
         }
 
         // Unknown builtins — silently skip (panic/assert not yet wired)
@@ -398,8 +805,55 @@ pub(super) fn emit_call<'ctx>(
         .build_direct_call(callee_fn, &llvm_args_meta, "call")
         .map_err(|e| BackendError::LlvmError(e.to_string()))?;
 
+    // Check if callee returns a string (returns {ptr, i64} struct)
+    let callee_returns_string = callee_func
+        .map(|f| matches!(types.resolve(f.return_type), TypeKind::String))
+        .unwrap_or(false);
+
     // Store result
-    if let Some(ret_val) = call_result.try_as_basic_value().basic() {
+    let is_extern = callee_func.map(|f| f.is_extern).unwrap_or(false);
+    if callee_returns_string {
+        if let Some(ret_val) = call_result.try_as_basic_value().basic() {
+            if is_extern {
+                // Extern returns raw ptr → extract_heap_string
+                let heap_ptr = ret_val.into_pointer_value();
+                let (data_ptr, len_val) = extract_heap_string(context, builder, heap_ptr)?;
+                store_string_result(
+                    context,
+                    builder,
+                    str_ptr_allocas,
+                    str_len_allocas,
+                    register_allocas,
+                    reg_string_info,
+                    result_reg.0,
+                    data_ptr,
+                    len_val,
+                )?;
+            } else {
+                // Named function returns {ptr, i64} struct → unpack
+                let struct_val = ret_val.into_struct_value();
+                let data_ptr = builder
+                    .build_extract_value(struct_val, 0, "call_str_ptr")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                    .into_pointer_value();
+                let len_val = builder
+                    .build_extract_value(struct_val, 1, "call_str_len")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                    .into_int_value();
+                store_string_result(
+                    context,
+                    builder,
+                    str_ptr_allocas,
+                    str_len_allocas,
+                    register_allocas,
+                    reg_string_info,
+                    result_reg.0,
+                    data_ptr,
+                    len_val,
+                )?;
+            }
+        }
+    } else if let Some(ret_val) = call_result.try_as_basic_value().basic() {
         match ret_val {
             BasicValueEnum::IntValue(iv) => {
                 if iv.get_type().get_bit_width() == 32 {

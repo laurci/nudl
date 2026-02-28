@@ -6,11 +6,13 @@
 //   std::prelude  - Automatically imported types (Option, Result, min, max, clamp)
 //   std::math     - Mathematical constants and functions (PI, E, abs, pow, gcd, lcm)
 //   std::string   - String utilities (is_empty, repeat, join)
-//   std::io       - Input/Output functions (newline)
-//   std::collections - Collection utilities (sum_array, contains, array_min, array_max)
+//   std::ffi      - Foreign Function Interface utilities (cstr, cstr_len)
+//   std::io       - Input/Output and file operations (open, read, write_file, etc.)
+//   std::collections - Collection utilities (contains, array_min, array_max)
 //
 // Usage:
 //   import std::math;
 //   import std::string;
+//   import std::ffi;
 //   import std::io;
 //   import std::collections;

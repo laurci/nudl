@@ -184,122 +184,95 @@ warning[W0301]: potential reference cycle detected
 
 ---
 
-## 7. Native Backend (`nudl-backend-arm64`)
+## 7. Native Backend (`nudl-backend-llvm`)
 
 ### 7.1 Pipeline
 
-The ARM64 backend takes typed SSA bytecode and produces machine code:
+The LLVM backend takes typed SSA bytecode and produces native executables
+through LLVM:
 
 ```
 SSA Bytecode
      |
      v
-Instruction Selection    (SSA instruction -> ARM64 instruction sequence)
+LLVM IR Generation       (SSA instruction -> LLVM IR via Inkwell)
      |
      v
-Register Allocation      (virtual registers -> physical ARM64 registers)
+LLVM Optimization        (LLVM's optimization passes)
      |
      v
-Prologue/Epilogue        (stack frame setup, callee-saved register saves)
+Object File Emission     (LLVM TargetMachine -> .o file)
      |
      v
-Encoding                 (ARM64 instructions -> bytes)
-     |
-     v
-Machine Code Buffer      (raw bytes + relocation records)
+Linking                  (system linker + ARC runtime -> executable)
 ```
 
-### 7.2 Instruction Selection
+The backend uses the **Inkwell** library, which provides safe Rust bindings to
+the LLVM 18 C API. This approach delegates instruction selection, register
+allocation, and platform-specific codegen to LLVM, supporting multiple
+architectures (ARM64, x86-64) and platforms (macOS, Linux) from a single
+backend crate.
 
-Each SSA instruction is lowered to one or more ARM64 instructions. The selector
-handles type-specific lowering:
+### 7.2 SSA to LLVM IR Translation
 
-| SSA Instruction | ARM64 Lowering |
+Each SSA instruction is lowered to LLVM IR instructions:
+
+| SSA Instruction | LLVM IR Lowering |
 |---|---|
-| `Add(dst, lhs, rhs)` [i32/i64] | `ADD Xd, Xn, Xm` |
-| `Add(dst, lhs, rhs)` [f64] | `FADD Dd, Dn, Dm` |
-| `Lt(dst, lhs, rhs)` [i32] | `CMP Wn, Wm` + `CSET Wd, LT` |
-| `Call(dst, func, args)` | argument setup + `BL func` + result move |
-| `Retain(src)` | `BL __nudl_arc_retain` |
-| `Release(src)` | `BL __nudl_arc_release` |
-| `Load(dst, ptr, field)` | `LDR Xd, [Xn, #offset]` |
-| `Store(ptr, field, src)` | `STR Xm, [Xn, #offset]` |
-| `Branch(cond, t, f)` | `CBNZ/CBZ` or `B.cond` |
+| `Const(value)` | `LLVMConstInt` / `LLVMConstReal` / global string constant |
+| `Add(dst, lhs, rhs)` [integer] | `build_int_add` |
+| `Add(dst, lhs, rhs)` [float] | `build_float_add` |
+| `Lt(dst, lhs, rhs)` [integer] | `build_int_compare(SLT)` |
+| `Call(dst, func, args)` | `build_call` with ABI-conformant argument setup |
+| `Retain(src)` | `build_call(__nudl_arc_retain)` with inline fast path |
+| `Release(src)` | `build_call(__nudl_arc_release)` with inline fast path |
+| `Load(dst, ptr, field)` | `build_struct_gep` + `build_load` |
+| `Store(ptr, field, src)` | `build_struct_gep` + `build_store` |
+| `Alloc(type)` | `build_call(malloc)` + header initialization |
+| `Branch(cond, t, f)` | `build_conditional_branch` |
 
-### 7.3 Register Allocation
+### 7.3 String Parameter Expansion
 
-The backend uses **linear scan register allocation** over live intervals
-computed from the SSA form:
+String values in nudl are reference-counted `(ptr, len)` pairs. In the LLVM
+function signatures, string parameters are expanded to two parameters:
+a pointer (`i8*`) and a length (`i64`). This avoids the need for struct passing
+and matches common C string conventions for FFI interoperability.
 
-1. Compute live intervals for each virtual register using a reverse pass over
-   the basic blocks.
-2. Sort intervals by start position.
-3. Walk intervals in order, assigning physical registers from the free pool.
-4. When no registers are free, spill the interval with the furthest next use
-   to the stack.
+### 7.4 ARC Runtime Integration
 
-ARM64 provides 31 general-purpose registers (X0-X30) and 32 SIMD/FP registers
-(V0-V31). The allocator reserves:
+The backend compiles the C runtime (`runtime/nudl_rt.c`) at build time and links
+it into the output binary. The runtime provides:
 
-- **X0-X7:** argument/return registers (per Apple ARM64 ABI)
-- **X8:** indirect result register
-- **X16-X17:** intra-procedure-call scratch (linker veneers)
-- **X18:** platform reserved (macOS)
-- **X29:** frame pointer
-- **X30:** link register
-- **SP:** stack pointer
+- **ARC operations:** `__nudl_arc_alloc`, `__nudl_arc_release_slow`,
+  `__nudl_arc_overflow_abort`, weak reference operations
+- **Dynamic arrays:** `__nudl_dynarray_alloc`, `push`, `pop`, `get`, `set`, `len`
+- **Maps:** hash table with open-addressing and linear probing —
+  `__nudl_map_alloc`, `insert`, `get`, `contains`, `remove`, `len`
+- **Closures:** `__nudl_closure_env_alloc` for capture environment allocation
 
-Registers X9-X15 and X19-X28 are available for allocation, with X19-X28 being
-callee-saved.
+The backend also inlines fast paths for retain/release directly in LLVM IR:
+the common case (non-null pointer, refcount > 1) avoids a function call.
 
-### 7.4 Calling Convention
+### 7.5 Debug Symbols
 
-nudl follows the **Apple ARM64 ABI** for interoperability:
+The backend generates DWARF debug information via LLVM's debug info builder,
+allowing source-level debugging with standard tools like `lldb`.
 
-- First 8 integer/pointer arguments in X0-X7.
-- First 8 floating-point arguments in V0-V7 (D0-D7 for f64).
-- Additional arguments spilled to the stack.
-- Return value in X0 (integer/pointer) or V0 (float).
-- Callee saves X19-X28, V8-V15.
+### 7.6 Target Platform Support
 
-Function prologue/epilogue:
+Because LLVM handles the platform-specific codegen, nudl supports any target
+that LLVM supports. Current tested targets:
 
-```asm
-; Prologue
-STP X29, X30, [SP, #-frame_size]!    ; save frame pointer and link register
-MOV X29, SP                           ; establish frame pointer
-STP X19, X20, [SP, #16]              ; save callee-saved registers (as needed)
-; ... function body ...
+| Target | Status |
+|--------|--------|
+| `aarch64-apple-darwin` | Working |
+| `x86_64-apple-darwin` | Working |
+| `aarch64-linux-gnu` | Working |
+| `x86_64-linux-gnu` | Working |
 
-; Epilogue
-LDP X19, X20, [SP, #16]              ; restore callee-saved registers
-LDP X29, X30, [SP], #frame_size      ; restore frame pointer and link register
-RET                                    ; return via X30
-```
+### 7.7 Diagnostic Flags
 
-### 7.5 ARC Runtime Functions
-
-The backend emits calls to a small runtime library for ARC operations:
-
-```
-__nudl_arc_retain(ptr):
-    if ptr != null:
-        ptr->strong_count += 1
-
-__nudl_arc_release(ptr):
-    if ptr != null:
-        ptr->strong_count -= 1
-        if ptr->strong_count == 0:
-            call ptr->drop_fn(ptr)      // destroy fields
-            if ptr->weak_count == 0:
-                free(ptr)               // deallocate
-            // else: header stays for weak refs
-
-__nudl_arc_weak_upgrade(ptr) -> Option<ptr>:
-    if ptr->strong_count == 0:
-        return None
-    ptr->strong_count += 1
-    return Some(ptr)
-```
+The CLI supports `--dump-llvm-ir` to print the generated LLVM IR and
+`--dump-asm` to print the native assembly (via LLVM's target machine).
 
 ---

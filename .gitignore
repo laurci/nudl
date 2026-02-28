@@ -6,6 +6,7 @@ target/
 dist/
 *.vsix
 tmp/
+.nudl/
 
 
 # AI tools caches and settings

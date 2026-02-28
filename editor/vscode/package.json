@@ -44,6 +44,18 @@
         "title": "nudl: Restart Language Server"
       }
     ],
+    "tomlValidation": [
+      {
+        "fileMatch": "nudl.toml",
+        "url": "./schemas/nudl-toml.schema.json"
+      }
+    ],
+    "jsonValidation": [
+      {
+        "fileMatch": "nudl.toml",
+        "url": "./schemas/nudl-toml.schema.json"
+      }
+    ],
     "configuration": {
       "title": "nudl",
       "properties": {
@@ -51,6 +63,11 @@
           "type": "string",
           "default": "",
           "description": "Path to the nudl-lsp binary. If empty, searches PATH."
+        },
+        "nudl.lsp.stdPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the nudl-std directory. If empty, uses the default bundled with nudl-lsp."
         }
       }
     }

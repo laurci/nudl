@@ -361,6 +361,11 @@ pub enum Pattern {
         fields: Vec<(String, Spanned<Pattern>)>, // (field_name, pattern)
         has_rest: bool,                          // true if `..` is present
     },
+    Array {
+        prefix: Vec<Spanned<Pattern>>, // elements before ..
+        suffix: Vec<Spanned<Pattern>>, // elements after .. (empty if no ..)
+        has_rest: bool,                // whether .. is present
+    },
 }
 
 #[derive(Debug, Clone)]

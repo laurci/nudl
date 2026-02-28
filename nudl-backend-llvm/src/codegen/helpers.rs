@@ -142,7 +142,7 @@ pub(super) fn gep_string_ptr<'ctx>(
     let ptr = unsafe {
         builder
             .build_gep(
-                context.i8_type().array_type(len as u32),
+                context.i8_type().array_type(len as u32 + 1), // +1 for null terminator
                 global.as_pointer_value(),
                 &[zero, zero],
                 "str_ptr",

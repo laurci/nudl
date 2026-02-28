@@ -1,0 +1,29 @@
+// Test: combined generics - generic fn calling generic fn, generic struct with methods
+
+struct Box<T> {
+    inner: T,
+}
+
+impl Box<T> {
+    fn unwrap(self) -> T {
+        self.inner
+    }
+}
+
+fn identity<T>(x: T) -> T {
+    x
+}
+
+fn wrap<T>(val: T) -> Box<T> {
+    Box { inner: val }
+}
+
+fn main() {
+    // Generic fn calling generic fn
+    let a = identity(42);
+    let b = identity(identity(99));
+
+    // Generic struct with impl
+    let boxed = wrap(10);
+    let unboxed = boxed.unwrap();
+}

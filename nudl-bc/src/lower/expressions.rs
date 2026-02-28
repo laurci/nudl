@@ -11,34 +11,64 @@ impl<'a> FunctionLowerCtx<'a> {
         match &expr.node {
             Expr::Call { callee, args } => {
                 if let Expr::Ident(name) = &callee.node {
-                    if let Some(sig) = self.function_sigs.get(name).cloned() {
+                    // Check if this call was resolved to a monomorphized function
+                    let resolved_name = self
+                        .call_resolutions
+                        .get(&expr.span)
+                        .cloned()
+                        .unwrap_or_else(|| name.clone());
+
+                    if let Some(sig) = self.function_sigs.get(&resolved_name).cloned() {
+                        // Skip generic function templates (they have generic_def)
+                        if sig.generic_def.is_some() {
+                            // This shouldn't happen if the checker did its job, but fallback
+                            let unit_reg = self.alloc_register();
+                            self.push_inst(Instruction::ConstUnit(unit_reg));
+                            return unit_reg;
+                        }
                         return match sig.kind {
                             crate::checker::FunctionKind::Builtin => {
-                                self.lower_builtin_call(name, args)
+                                self.lower_builtin_call(&resolved_name, args)
                             }
                             crate::checker::FunctionKind::Extern => {
-                                self.lower_resolved_call(name, &sig, args, true, 0)
+                                self.lower_resolved_call(&resolved_name, &sig, args, true, 0)
                             }
                             crate::checker::FunctionKind::UserDefined => {
-                                self.lower_resolved_call(name, &sig, args, false, 0)
+                                self.lower_resolved_call(&resolved_name, &sig, args, false, 0)
                             }
                         };
                     }
                     // Check if it's a closure variable
                     if let Some(closure_reg) = self.locals.get(name).copied() {
                         if let Some(ty) = self.local_types.get(name).copied() {
-                            if let nudl_core::types::TypeKind::Function { ret, .. } =
-                                self.types.resolve(ty).clone()
+                            if let nudl_core::types::TypeKind::Function {
+                                ret,
+                                params: param_types,
+                            } = self.types.resolve(ty).clone()
                             {
                                 let call_span = self.current_span;
                                 let arg_regs: Vec<Register> =
                                     args.iter().map(|a| self.lower_expr(&a.value)).collect();
                                 self.current_span = call_span;
+                                // Caller-retain for reference-typed args (except String)
+                                for (i, pty) in param_types.iter().enumerate() {
+                                    if self.types.is_reference_type(*pty)
+                                        && !matches!(
+                                            self.types.resolve(*pty),
+                                            nudl_core::types::TypeKind::String
+                                        )
+                                        && i < arg_regs.len()
+                                    {
+                                        self.push_inst(Instruction::Retain(arg_regs[i]));
+                                    }
+                                }
                                 let dst = self.alloc_typed_register(ret);
                                 self.push_inst(Instruction::ClosureCall(
                                     dst,
                                     closure_reg,
                                     arg_regs,
+                                    param_types.clone(),
+                                    ret,
                                 ));
                                 return dst;
                             }
@@ -127,9 +157,93 @@ impl<'a> FunctionLowerCtx<'a> {
                                 }
                                 "get" => {
                                     let key_reg = self.lower_expr(&args[0].value);
-                                    let dst = self.alloc_typed_register(val_ty);
-                                    self.push_inst(Instruction::MapGet(dst, obj_reg, key_reg));
-                                    return dst;
+
+                                    // map.get() returns Option<V>
+                                    // Find the monomorphized Option<V> type
+                                    let option_ty = self.find_option_type(val_ty);
+                                    if let Some(option_ty) = option_ty {
+                                        // Get tag indices for Some and None
+                                        let (some_tag, none_tag) =
+                                            if let nudl_core::types::TypeKind::Enum {
+                                                variants,
+                                                ..
+                                            } = self.types.resolve(option_ty).clone()
+                                            {
+                                                let some_t = variants
+                                                    .iter()
+                                                    .position(|v| v.name == "Some")
+                                                    .unwrap_or(0);
+                                                let none_t = variants
+                                                    .iter()
+                                                    .position(|v| v.name == "None")
+                                                    .unwrap_or(1);
+                                                (some_t, none_t)
+                                            } else {
+                                                (0, 1)
+                                            };
+
+                                        let result_reg = self.alloc_typed_register(option_ty);
+
+                                        // Check if key exists
+                                        let contains_reg = self.alloc_register();
+                                        self.push_inst(Instruction::MapContains(
+                                            contains_reg,
+                                            obj_reg,
+                                            key_reg,
+                                        ));
+
+                                        let some_block = self.new_block_id();
+                                        let none_block = self.new_block_id();
+                                        let merge_block = self.new_block_id();
+                                        self.finish_block(Terminator::Branch(
+                                            contains_reg,
+                                            some_block,
+                                            none_block,
+                                        ));
+
+                                        // Some block: get value and wrap in Some
+                                        self.start_block(some_block);
+                                        let val_reg = self.alloc_typed_register(val_ty);
+                                        self.push_inst(Instruction::MapGet(
+                                            val_reg, obj_reg, key_reg,
+                                        ));
+                                        let some_enum = self.alloc_typed_register(option_ty);
+                                        self.push_inst(Instruction::Alloc(some_enum, option_ty));
+                                        let tag_reg = self.alloc_register();
+                                        self.push_inst(Instruction::Const(
+                                            tag_reg,
+                                            ConstValue::I32(some_tag as i32),
+                                        ));
+                                        self.push_inst(Instruction::Store(some_enum, 0, tag_reg));
+                                        self.push_inst(Instruction::Store(some_enum, 1, val_reg));
+                                        self.push_inst(Instruction::Copy(result_reg, some_enum));
+                                        self.finish_block(Terminator::Jump(merge_block));
+
+                                        // None block: construct None
+                                        self.start_block(none_block);
+                                        let none_enum = self.alloc_typed_register(option_ty);
+                                        self.push_inst(Instruction::Alloc(none_enum, option_ty));
+                                        let none_tag_reg = self.alloc_register();
+                                        self.push_inst(Instruction::Const(
+                                            none_tag_reg,
+                                            ConstValue::I32(none_tag as i32),
+                                        ));
+                                        self.push_inst(Instruction::Store(
+                                            none_enum,
+                                            0,
+                                            none_tag_reg,
+                                        ));
+                                        self.push_inst(Instruction::Copy(result_reg, none_enum));
+                                        self.finish_block(Terminator::Jump(merge_block));
+
+                                        self.start_block(merge_block);
+                                        return result_reg;
+                                    } else {
+                                        // Fallback: return raw value if Option type not found
+                                        let dst = self.alloc_typed_register(val_ty);
+                                        self.push_inst(Instruction::MapGet(dst, obj_reg, key_reg));
+                                        return dst;
+                                    }
                                 }
                                 "contains_key" => {
                                     let key_reg = self.lower_expr(&args[0].value);
@@ -176,8 +290,14 @@ impl<'a> FunctionLowerCtx<'a> {
                 method,
                 args,
             } => {
+                // Check if this call was resolved to a monomorphized enum
+                let resolved_enum_name = self.enum_resolutions.get(&expr.span).cloned();
+
+                // Try the resolved name first, then the original
+                let enum_lookup_name = resolved_enum_name.as_deref().unwrap_or(type_name.as_str());
+
                 // Check if this is an enum tuple variant constructor: Enum::Variant(args)
-                if let Some(&enum_ty) = self.enum_defs.get(type_name.as_str()) {
+                if let Some(&enum_ty) = self.enum_defs.get(enum_lookup_name) {
                     if let nudl_core::types::TypeKind::Enum { variants, .. } =
                         self.types.resolve(enum_ty).clone()
                     {
@@ -212,7 +332,12 @@ impl<'a> FunctionLowerCtx<'a> {
                     return dst;
                 }
 
-                let mangled_name = format!("{}__{}", type_name, method);
+                // Check if this was resolved to a monomorphized static method
+                let mangled_name = self
+                    .call_resolutions
+                    .get(&expr.span)
+                    .cloned()
+                    .unwrap_or_else(|| format!("{}__{}", type_name, method));
                 if let Some(sig) = self.function_sigs.get(&mangled_name).cloned() {
                     return self.lower_resolved_call(&mangled_name, &sig, args, false, 0);
                 }
@@ -446,7 +571,13 @@ impl<'a> FunctionLowerCtx<'a> {
                     }
                 }
 
-                let type_id = self.struct_defs.get(name.as_str()).copied().unwrap();
+                // Check if this is a monomorphized generic struct
+                let resolved_name = self
+                    .struct_resolutions
+                    .get(&expr.span)
+                    .map(|s| s.as_str())
+                    .unwrap_or(name.as_str());
+                let type_id = self.struct_defs.get(resolved_name).copied().unwrap();
                 let dst = self.alloc_register();
                 self.push_inst(Instruction::Alloc(dst, type_id));
 
@@ -475,7 +606,19 @@ impl<'a> FunctionLowerCtx<'a> {
                     let obj_type = self.infer_expr_type(object);
                     if let Some(tid) = obj_type {
                         if self.types.is_tuple(tid) {
-                            let dst = self.alloc_register();
+                            // Get the field type from the tuple definition
+                            let field_type = if let nudl_core::types::TypeKind::Tuple(elems) =
+                                self.types.resolve(tid)
+                            {
+                                elems.get(idx as usize).copied()
+                            } else {
+                                None
+                            };
+                            let dst = if let Some(ft) = field_type {
+                                self.alloc_typed_register(ft)
+                            } else {
+                                self.alloc_register()
+                            };
                             self.push_inst(Instruction::TupleLoad(dst, obj_reg, idx));
                             return dst;
                         }
@@ -765,6 +908,12 @@ impl<'a> FunctionLowerCtx<'a> {
                     .iter()
                     .map(|e| self.infer_expr_type(e).unwrap_or(self.types.i32()))
                     .collect();
+                // Retain ref-typed elements so they survive scope release
+                for (reg, ty) in elem_regs.iter().zip(elem_types.iter()) {
+                    if self.types.is_reference_type(*ty) {
+                        self.push_inst(Instruction::Retain(*reg));
+                    }
+                }
                 let type_id = self
                     .types
                     .intern(nudl_core::types::TypeKind::Tuple(elem_types));
@@ -805,7 +954,7 @@ impl<'a> FunctionLowerCtx<'a> {
             }
 
             Expr::IndexAccess { object, index } => {
-                // Check if this is a dynamic array or map index access
+                // Check if this is a dynamic array, map, or string index access
                 let obj_type = self.infer_expr_type(object);
                 let is_dynamic = obj_type.map_or(false, |tid| {
                     matches!(
@@ -819,14 +968,29 @@ impl<'a> FunctionLowerCtx<'a> {
                         nudl_core::types::TypeKind::Map { .. }
                     )
                 });
+                let is_string = obj_type.map_or(false, |tid| {
+                    matches!(self.types.resolve(tid), nudl_core::types::TypeKind::String)
+                });
 
                 let obj_reg = self.lower_expr(object);
                 let idx_reg = self.lower_expr(index);
 
-                if is_dynamic {
+                if is_string {
+                    let char_type = self.types.char_type();
+                    let dst = self.alloc_typed_register(char_type);
+                    self.push_inst(Instruction::StringCharAt(dst, obj_reg, idx_reg));
+                    dst
+                } else if is_dynamic {
                     let elem_type = self.infer_index_element_type(object);
                     let dst = self.alloc_typed_register(elem_type);
                     self.push_inst(Instruction::DynArrayGet(dst, obj_reg, idx_reg));
+                    // Retain extracted element — the array owns one reference,
+                    // and we need a second one for this register. Without this,
+                    // releasing the array could free the element while we still
+                    // hold a pointer to it.
+                    if self.types.is_reference_type(elem_type) {
+                        self.push_inst(Instruction::Retain(dst));
+                    }
                     dst
                 } else if is_map {
                     let val_type = if let Some(tid) = obj_type {
@@ -880,7 +1044,13 @@ impl<'a> FunctionLowerCtx<'a> {
                 variant,
                 args,
             } => {
-                if let Some(&enum_ty) = self.enum_defs.get(enum_name.as_str()) {
+                // Check if resolved to a monomorphized enum
+                let resolved_name = self
+                    .enum_resolutions
+                    .get(&expr.span)
+                    .map(|s| s.as_str())
+                    .unwrap_or(enum_name.as_str());
+                if let Some(&enum_ty) = self.enum_defs.get(resolved_name) {
                     if let nudl_core::types::TypeKind::Enum { variants, .. } =
                         self.types.resolve(enum_ty).clone()
                     {
@@ -1328,20 +1498,16 @@ impl<'a> FunctionLowerCtx<'a> {
                     self.locals.push_scope();
                     self.local_types.push_scope();
 
-                    // Bind pattern fields
+                    // Bind pattern fields (supports nested patterns like tuples)
                     for (i, pat) in fields.iter().enumerate() {
-                        if let Pattern::Binding(name) = &pat.node {
-                            let field_reg = self.alloc_register();
-                            self.push_inst(Instruction::Load(
-                                field_reg,
-                                scrutinee_reg,
-                                (i + 1) as u32,
-                            ));
-                            self.locals.insert(name.clone(), field_reg);
-                            if let Some((_, field_ty)) = variant_fields.get(i) {
-                                self.local_types.insert(name.clone(), *field_ty);
-                            }
-                        }
+                        let field_ty = variant_fields.get(i).map(|(_, ty)| *ty);
+                        let field_reg = if let Some(fty) = field_ty {
+                            self.alloc_typed_register(fty)
+                        } else {
+                            self.alloc_register()
+                        };
+                        self.push_inst(Instruction::Load(field_reg, scrutinee_reg, (i + 1) as u32));
+                        self.lower_pattern_binding(&pat.node, field_reg, field_ty);
                     }
 
                     // Guard clause on enum match
@@ -1442,6 +1608,145 @@ impl<'a> FunctionLowerCtx<'a> {
                 self.locals.pop_scope();
                 self.finish_block(Terminator::Jump(merge_block));
             }
+            Pattern::Array {
+                prefix,
+                suffix,
+                has_rest,
+            } => {
+                let arr_ty = scrutinee_ty.unwrap_or(self.types.i64());
+                let resolved = self.types.resolve(arr_ty).clone();
+                let (elem_ty, is_dynamic) = match &resolved {
+                    nudl_core::types::TypeKind::DynamicArray { element } => (Some(*element), true),
+                    nudl_core::types::TypeKind::FixedArray { element, .. } => {
+                        (Some(*element), false)
+                    }
+                    _ => (None, false),
+                };
+
+                // Get array length
+                let len_reg = if is_dynamic {
+                    let r = self.alloc_register();
+                    self.push_inst(Instruction::DynArrayLen(r, scrutinee_reg));
+                    r
+                } else {
+                    let fixed_len =
+                        if let nudl_core::types::TypeKind::FixedArray { length, .. } = &resolved {
+                            *length
+                        } else {
+                            0
+                        };
+                    let r = self.alloc_register();
+                    self.push_inst(Instruction::Const(r, ConstValue::I64(fixed_len as i64)));
+                    r
+                };
+
+                // Length check
+                let required_len = (prefix.len() + suffix.len()) as i64;
+                let expected_reg = self.alloc_register();
+                self.push_inst(Instruction::Const(
+                    expected_reg,
+                    ConstValue::I64(required_len),
+                ));
+                let cmp_reg = self.alloc_register();
+                if *has_rest {
+                    self.push_inst(Instruction::Ge(cmp_reg, len_reg, expected_reg));
+                } else {
+                    self.push_inst(Instruction::Eq(cmp_reg, len_reg, expected_reg));
+                }
+
+                let match_block = self.new_block_id();
+                let next_block = self.new_block_id();
+                self.finish_block(Terminator::Branch(cmp_reg, match_block, next_block));
+
+                self.start_block(match_block);
+                self.locals.push_scope();
+                self.local_types.push_scope();
+
+                // Extract prefix elements
+                for (i, pat) in prefix.iter().enumerate() {
+                    let idx_reg = self.alloc_register();
+                    self.push_inst(Instruction::Const(idx_reg, ConstValue::I64(i as i64)));
+                    let elem_reg = if let Some(ety) = elem_ty {
+                        self.alloc_typed_register(ety)
+                    } else {
+                        self.alloc_register()
+                    };
+                    if is_dynamic {
+                        self.push_inst(Instruction::DynArrayGet(elem_reg, scrutinee_reg, idx_reg));
+                    } else {
+                        let ety = elem_ty.unwrap_or(self.types.i64());
+                        self.push_inst(Instruction::IndexLoad(
+                            elem_reg,
+                            scrutinee_reg,
+                            idx_reg,
+                            ety,
+                        ));
+                    }
+                    self.lower_pattern_binding(&pat.node, elem_reg, elem_ty);
+                }
+
+                // Extract suffix elements
+                if !suffix.is_empty() {
+                    let suffix_len_reg = self.alloc_register();
+                    self.push_inst(Instruction::Const(
+                        suffix_len_reg,
+                        ConstValue::I64(suffix.len() as i64),
+                    ));
+                    let suffix_start_reg = self.alloc_register();
+                    self.push_inst(Instruction::Sub(suffix_start_reg, len_reg, suffix_len_reg));
+                    for (j, pat) in suffix.iter().enumerate() {
+                        let j_reg = self.alloc_register();
+                        self.push_inst(Instruction::Const(j_reg, ConstValue::I64(j as i64)));
+                        let idx_reg = self.alloc_register();
+                        self.push_inst(Instruction::Add(idx_reg, suffix_start_reg, j_reg));
+                        let elem_reg = if let Some(ety) = elem_ty {
+                            self.alloc_typed_register(ety)
+                        } else {
+                            self.alloc_register()
+                        };
+                        if is_dynamic {
+                            self.push_inst(Instruction::DynArrayGet(
+                                elem_reg,
+                                scrutinee_reg,
+                                idx_reg,
+                            ));
+                        } else {
+                            let ety = elem_ty.unwrap_or(self.types.i64());
+                            self.push_inst(Instruction::IndexLoad(
+                                elem_reg,
+                                scrutinee_reg,
+                                idx_reg,
+                                ety,
+                            ));
+                        }
+                        self.lower_pattern_binding(&pat.node, elem_reg, elem_ty);
+                    }
+                }
+
+                // Guard clause
+                if let Some(guard_expr) = &arm.guard {
+                    let guard_reg = self.lower_expr(guard_expr);
+                    let body_block = self.new_block_id();
+                    self.finish_block(Terminator::Branch(guard_reg, body_block, next_block));
+                    self.start_block(body_block);
+                }
+
+                let body_result = self.lower_expr(&arm.body);
+                self.push_inst(Instruction::Copy(result_reg, body_result));
+                self.local_types.pop_scope();
+                self.locals.pop_scope();
+                self.finish_block(Terminator::Jump(merge_block));
+
+                self.start_block(next_block);
+                self.lower_match_arms(
+                    rest,
+                    scrutinee_reg,
+                    scrutinee_ty,
+                    tag_reg,
+                    result_reg,
+                    merge_block,
+                );
+            }
         }
     }
 
@@ -1524,18 +1829,14 @@ impl<'a> FunctionLowerCtx<'a> {
                     self.locals.push_scope();
                     self.local_types.push_scope();
                     for (i, pat) in fields.iter().enumerate() {
-                        if let Pattern::Binding(name) = &pat.node {
-                            let field_reg = self.alloc_register();
-                            self.push_inst(Instruction::Load(
-                                field_reg,
-                                scrutinee_reg,
-                                (i + 1) as u32,
-                            ));
-                            self.locals.insert(name.clone(), field_reg);
-                            if let Some((_, field_ty)) = variant_fields.get(i) {
-                                self.local_types.insert(name.clone(), *field_ty);
-                            }
-                        }
+                        let field_ty = variant_fields.get(i).map(|(_, ty)| *ty);
+                        let field_reg = if let Some(fty) = field_ty {
+                            self.alloc_typed_register(fty)
+                        } else {
+                            self.alloc_register()
+                        };
+                        self.push_inst(Instruction::Load(field_reg, scrutinee_reg, (i + 1) as u32));
+                        self.lower_pattern_binding(&pat.node, field_reg, field_ty);
                     }
                     let then_result = self.lower_block_expr(&then_branch.node);
                     self.push_inst(Instruction::Copy(result_reg, then_result));
@@ -1545,6 +1846,127 @@ impl<'a> FunctionLowerCtx<'a> {
                 } else {
                     self.finish_block(Terminator::Jump(else_block));
                 }
+            }
+            Pattern::Array {
+                prefix,
+                suffix,
+                has_rest,
+            } => {
+                let arr_ty = scrutinee_ty.unwrap_or(self.types.i64());
+                let resolved = self.types.resolve(arr_ty).clone();
+                let (elem_ty, is_dynamic) = match &resolved {
+                    nudl_core::types::TypeKind::DynamicArray { element } => (Some(*element), true),
+                    nudl_core::types::TypeKind::FixedArray { element, .. } => {
+                        (Some(*element), false)
+                    }
+                    _ => (None, false),
+                };
+
+                // Get array length
+                let len_reg = if is_dynamic {
+                    let r = self.alloc_register();
+                    self.push_inst(Instruction::DynArrayLen(r, scrutinee_reg));
+                    r
+                } else {
+                    let fixed_len =
+                        if let nudl_core::types::TypeKind::FixedArray { length, .. } = &resolved {
+                            *length
+                        } else {
+                            0
+                        };
+                    let r = self.alloc_register();
+                    self.push_inst(Instruction::Const(r, ConstValue::I64(fixed_len as i64)));
+                    r
+                };
+
+                // Length check
+                let required_len = (prefix.len() + suffix.len()) as i64;
+                let expected_reg = self.alloc_register();
+                self.push_inst(Instruction::Const(
+                    expected_reg,
+                    ConstValue::I64(required_len),
+                ));
+                let cmp_reg = self.alloc_register();
+                if *has_rest {
+                    // length >= required
+                    self.push_inst(Instruction::Ge(cmp_reg, len_reg, expected_reg));
+                } else {
+                    // length == required
+                    self.push_inst(Instruction::Eq(cmp_reg, len_reg, expected_reg));
+                }
+                self.finish_block(Terminator::Branch(cmp_reg, then_block, else_block));
+
+                // Then block: extract elements and lower body
+                self.start_block(then_block);
+                self.locals.push_scope();
+                self.local_types.push_scope();
+
+                // Extract prefix elements
+                for (i, pat) in prefix.iter().enumerate() {
+                    let idx_reg = self.alloc_register();
+                    self.push_inst(Instruction::Const(idx_reg, ConstValue::I64(i as i64)));
+                    let elem_reg = if let Some(ety) = elem_ty {
+                        self.alloc_typed_register(ety)
+                    } else {
+                        self.alloc_register()
+                    };
+                    if is_dynamic {
+                        self.push_inst(Instruction::DynArrayGet(elem_reg, scrutinee_reg, idx_reg));
+                    } else {
+                        let ety = elem_ty.unwrap_or(self.types.i64());
+                        self.push_inst(Instruction::IndexLoad(
+                            elem_reg,
+                            scrutinee_reg,
+                            idx_reg,
+                            ety,
+                        ));
+                    }
+                    self.lower_pattern_binding(&pat.node, elem_reg, elem_ty);
+                }
+
+                // Extract suffix elements (index = len - suffix.len() + j)
+                if !suffix.is_empty() {
+                    let suffix_len_reg = self.alloc_register();
+                    self.push_inst(Instruction::Const(
+                        suffix_len_reg,
+                        ConstValue::I64(suffix.len() as i64),
+                    ));
+                    let suffix_start_reg = self.alloc_register();
+                    self.push_inst(Instruction::Sub(suffix_start_reg, len_reg, suffix_len_reg));
+                    for (j, pat) in suffix.iter().enumerate() {
+                        let j_reg = self.alloc_register();
+                        self.push_inst(Instruction::Const(j_reg, ConstValue::I64(j as i64)));
+                        let idx_reg = self.alloc_register();
+                        self.push_inst(Instruction::Add(idx_reg, suffix_start_reg, j_reg));
+                        let elem_reg = if let Some(ety) = elem_ty {
+                            self.alloc_typed_register(ety)
+                        } else {
+                            self.alloc_register()
+                        };
+                        if is_dynamic {
+                            self.push_inst(Instruction::DynArrayGet(
+                                elem_reg,
+                                scrutinee_reg,
+                                idx_reg,
+                            ));
+                        } else {
+                            let ety = elem_ty.unwrap_or(self.types.i64());
+                            self.push_inst(Instruction::IndexLoad(
+                                elem_reg,
+                                scrutinee_reg,
+                                idx_reg,
+                                ety,
+                            ));
+                        }
+                        self.lower_pattern_binding(&pat.node, elem_reg, elem_ty);
+                    }
+                }
+
+                let then_result = self.lower_block_expr(&then_branch.node);
+                self.push_inst(Instruction::Copy(result_reg, then_result));
+                self.local_types.pop_scope();
+                self.locals.pop_scope();
+                self.finish_block(Terminator::Jump(merge_block));
             }
             _ => {
                 // Non-enum pattern in if-let - always match
@@ -1635,7 +2057,7 @@ impl<'a> FunctionLowerCtx<'a> {
         let error_block = self.new_block_id();
         let merge_block = self.new_block_id();
 
-        if name == "Option" {
+        if name == "Option" || name.starts_with("Option$") {
             // Option: Some = tag 0, None = tag 1
             let some_tag = variants
                 .iter()
@@ -1676,7 +2098,7 @@ impl<'a> FunctionLowerCtx<'a> {
             ));
             self.push_inst(Instruction::Store(none_reg, 0, none_tag_val));
             self.finish_block(Terminator::Return(none_reg));
-        } else if name == "Result" {
+        } else if name == "Result" || name.starts_with("Result$") {
             // Result: Ok = tag 0, Err = tag 1
             let ok_tag = variants
                 .iter()

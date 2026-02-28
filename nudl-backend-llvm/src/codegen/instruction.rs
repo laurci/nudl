@@ -120,7 +120,17 @@ pub(super) fn emit_instruction<'ctx>(
                         .map_err(|e| BackendError::LlvmError(e.to_string()))?
                         .into_int_value()
                 }
-                _ => context.i64_type().const_zero(),
+                _ => {
+                    // Fallback: load from companion alloca (e.g., after Copy)
+                    if let Some(&len_al) = str_len_allocas.get(&src.0) {
+                        builder
+                            .build_load(context.i64_type(), len_al, "str_alloca_len")
+                            .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                            .into_int_value()
+                    } else {
+                        context.i64_type().const_zero()
+                    }
+                }
             };
             store(builder, register_allocas, dst.0, len_val)?;
         }
@@ -136,6 +146,102 @@ pub(super) fn emit_instruction<'ctx>(
             let (_, len) = &string_constants[*str_idx as usize];
             let v = context.i64_type().const_int(*len, false);
             store(builder, register_allocas, dst.0, v)?;
+        }
+
+        Instruction::StringCharAt(dst, str_reg, idx_reg) => {
+            let i8_ty = context.i8_type();
+            let i64_ty = context.i64_type();
+            let ptr_ty = context.ptr_type(AddressSpace::default());
+
+            // Load string (ptr, len)
+            let (str_ptr_val, str_len_val) = match reg_string_info.get(&str_reg.0) {
+                Some(RegStringInfo::StringLiteral(idx)) => {
+                    let (global, len) = &string_constants[*idx as usize];
+                    let ptr = gep_string_ptr(context, builder, global, *len)?;
+                    let len_val = i64_ty.const_int(*len, false);
+                    (ptr, len_val)
+                }
+                Some(RegStringInfo::StringParam(ptr_alloca, len_alloca)) => {
+                    let ptr = builder
+                        .build_load(ptr_ty, *ptr_alloca, "str_ptr")
+                        .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                        .into_pointer_value();
+                    let len = builder
+                        .build_load(i64_ty, *len_alloca, "str_len")
+                        .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                        .into_int_value();
+                    (ptr, len)
+                }
+                _ => {
+                    if let (Some(&ptr_al), Some(&len_al)) = (
+                        str_ptr_allocas.get(&str_reg.0),
+                        str_len_allocas.get(&str_reg.0),
+                    ) {
+                        let ptr = builder
+                            .build_load(ptr_ty, ptr_al, "str_ptr")
+                            .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                            .into_pointer_value();
+                        let len = builder
+                            .build_load(i64_ty, len_al, "str_len")
+                            .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                            .into_int_value();
+                        (ptr, len)
+                    } else {
+                        (ptr_ty.const_null(), i64_ty.const_zero())
+                    }
+                }
+            };
+
+            let idx_val = load_i64(context, builder, register_allocas, idx_reg.0)?;
+
+            // Bounds check: if idx < 0 || idx >= len, abort
+            let current_fn = builder.get_insert_block().unwrap().get_parent().unwrap();
+            let ok_block = context.append_basic_block(current_fn, "str_idx_ok");
+            let abort_block = context.append_basic_block(current_fn, "str_idx_oob");
+
+            // Check idx >= 0 && idx < len
+            let zero = i64_ty.const_zero();
+            let ge_zero = builder
+                .build_int_compare(inkwell::IntPredicate::SGE, idx_val, zero, "ge_zero")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let lt_len = builder
+                .build_int_compare(inkwell::IntPredicate::SLT, idx_val, str_len_val, "lt_len")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let in_bounds = builder
+                .build_and(ge_zero, lt_len, "in_bounds")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            builder
+                .build_conditional_branch(in_bounds, ok_block, abort_block)
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+            // OOB: call abort
+            builder.position_at_end(abort_block);
+            let abort_fn = module.get_function("abort").unwrap_or_else(|| {
+                let fn_ty = context.void_type().fn_type(&[], false);
+                module.add_function("abort", fn_ty, Some(inkwell::module::Linkage::External))
+            });
+            builder
+                .build_direct_call(abort_fn, &[], "")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            builder
+                .build_unreachable()
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+            // OK: GEP + load byte, zero-extend to i64
+            builder.position_at_end(ok_block);
+            let char_ptr = unsafe {
+                builder
+                    .build_gep(i8_ty, str_ptr_val, &[idx_val], "char_ptr")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            };
+            let byte_val = builder
+                .build_load(i8_ty, char_ptr, "char_byte")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                .into_int_value();
+            let char_val = builder
+                .build_int_z_extend(byte_val, i64_ty, "char_i64")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            store(builder, register_allocas, dst.0, char_val)?;
         }
 
         // Arithmetic
@@ -655,7 +761,47 @@ pub(super) fn emit_instruction<'ctx>(
                         )
                         .map_err(|e| BackendError::LlvmError(e.to_string()))?
                 };
-                let val = load_i64(context, builder, register_allocas, elem_reg.0)?;
+                // String elements need heap copies (same as DynArrayPush)
+                let val_is_string = reg_string_info.contains_key(&elem_reg.0);
+                let val = if val_is_string {
+                    let (s_ptr, s_len) = load_string_arg(
+                        context,
+                        builder,
+                        reg_string_info,
+                        string_constants,
+                        str_ptr_allocas,
+                        str_len_allocas,
+                        elem_reg.0,
+                    )?;
+                    let i64_ty = context.i64_type();
+                    let ptr_ty = context.ptr_type(AddressSpace::default());
+                    let str_alloc_fn =
+                        module.get_function("__nudl_str_alloc").unwrap_or_else(|| {
+                            let fn_ty = ptr_ty.fn_type(&[ptr_ty.into(), i64_ty.into()], false);
+                            module.add_function(
+                                "__nudl_str_alloc",
+                                fn_ty,
+                                Some(inkwell::module::Linkage::External),
+                            )
+                        });
+                    let call_result = builder
+                        .build_direct_call(
+                            str_alloc_fn,
+                            &[s_ptr.into(), s_len.into()],
+                            "str_heap_copy",
+                        )
+                        .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                    let heap_ptr = call_result
+                        .try_as_basic_value()
+                        .basic()
+                        .expect("str_alloc returns ptr")
+                        .into_pointer_value();
+                    builder
+                        .build_ptr_to_int(heap_ptr, context.i64_type(), "str_heap_i64")
+                        .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                } else {
+                    load_i64(context, builder, register_allocas, elem_reg.0)?
+                };
                 builder
                     .build_store(field_ptr, val)
                     .map_err(|e| BackendError::LlvmError(e.to_string()))?;
@@ -684,6 +830,28 @@ pub(super) fn emit_instruction<'ctx>(
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?
                 .into_int_value();
             store(builder, register_allocas, dst.0, val)?;
+
+            // If the field type is string, extract (data_ptr, len) from the heap string pointer
+            let dst_ty = func.register_types.get(dst.0 as usize).copied();
+            let is_string = dst_ty.is_some_and(|ty| matches!(types.resolve(ty), TypeKind::String));
+            if is_string {
+                let ptr_ty = context.ptr_type(AddressSpace::default());
+                let heap_ptr = builder
+                    .build_int_to_ptr(val, ptr_ty, "str_heap_ptr")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                let (data_ptr, len_val) = extract_heap_string(context, builder, heap_ptr)?;
+                store_string_result(
+                    context,
+                    builder,
+                    str_ptr_allocas,
+                    str_len_allocas,
+                    register_allocas,
+                    reg_string_info,
+                    dst.0,
+                    data_ptr,
+                    len_val,
+                )?;
+            }
         }
         Instruction::TupleStore(ptr_reg, offset, src) => {
             let obj_ptr = load_ptr(context, builder, register_allocas, ptr_reg.0)?;
@@ -698,12 +866,47 @@ pub(super) fn emit_instruction<'ctx>(
                     )
                     .map_err(|e| BackendError::LlvmError(e.to_string()))?
             };
-            let val = load_i64(context, builder, register_allocas, src.0)?;
+            // String values need heap copies (same as DynArrayPush)
+            let val_is_string = reg_string_info.contains_key(&src.0);
+            let val = if val_is_string {
+                let (s_ptr, s_len) = load_string_arg(
+                    context,
+                    builder,
+                    reg_string_info,
+                    string_constants,
+                    str_ptr_allocas,
+                    str_len_allocas,
+                    src.0,
+                )?;
+                let i64_ty = context.i64_type();
+                let ptr_ty = context.ptr_type(AddressSpace::default());
+                let str_alloc_fn = module.get_function("__nudl_str_alloc").unwrap_or_else(|| {
+                    let fn_ty = ptr_ty.fn_type(&[ptr_ty.into(), i64_ty.into()], false);
+                    module.add_function(
+                        "__nudl_str_alloc",
+                        fn_ty,
+                        Some(inkwell::module::Linkage::External),
+                    )
+                });
+                let call_result = builder
+                    .build_direct_call(str_alloc_fn, &[s_ptr.into(), s_len.into()], "str_heap_copy")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                let heap_ptr = call_result
+                    .try_as_basic_value()
+                    .basic()
+                    .expect("str_alloc returns ptr")
+                    .into_pointer_value();
+                builder
+                    .build_ptr_to_int(heap_ptr, context.i64_type(), "str_heap_i64")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            } else {
+                load_i64(context, builder, register_allocas, src.0)?
+            };
             builder
                 .build_store(field_ptr, val)
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?;
         }
-        Instruction::IndexLoad(dst, ptr_reg, idx_reg, _elem_type) => {
+        Instruction::IndexLoad(dst, ptr_reg, idx_reg, elem_type) => {
             let obj_ptr = load_ptr(context, builder, register_allocas, ptr_reg.0)?;
             let idx_val = load_i64(context, builder, register_allocas, idx_reg.0)?;
             // Compute byte offset: 16 (header) + idx * 8
@@ -725,6 +928,26 @@ pub(super) fn emit_instruction<'ctx>(
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?
                 .into_int_value();
             store(builder, register_allocas, dst.0, val)?;
+
+            // If element is a string, extract (ptr, len) from the heap string object.
+            if matches!(types.resolve(*elem_type), TypeKind::String) {
+                let ptr_ty = context.ptr_type(AddressSpace::default());
+                let heap_ptr = builder
+                    .build_int_to_ptr(val, ptr_ty, "str_heap_ptr")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                let (data_ptr, len_val) = extract_heap_string(context, builder, heap_ptr)?;
+                store_string_result(
+                    context,
+                    builder,
+                    str_ptr_allocas,
+                    str_len_allocas,
+                    register_allocas,
+                    reg_string_info,
+                    dst.0,
+                    data_ptr,
+                    len_val,
+                )?;
+            }
         }
         Instruction::IndexStore(ptr_reg, idx_reg, src) => {
             let obj_ptr = load_ptr(context, builder, register_allocas, ptr_reg.0)?;
@@ -876,7 +1099,7 @@ pub(super) fn emit_instruction<'ctx>(
             store(builder, register_allocas, dst.0, ptr_as_i64)?;
         }
 
-        Instruction::ClosureCall(dst, closure_reg, args) => {
+        Instruction::ClosureCall(dst, closure_reg, args, cl_param_types, cl_ret_type) => {
             let i64_ty = context.i64_type();
             let ptr_ty = context.ptr_type(AddressSpace::default());
 
@@ -918,23 +1141,80 @@ pub(super) fn emit_instruction<'ctx>(
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?;
 
             // Build call arguments: env_ptr first, then the closure's args
+            // String args must be expanded to (ptr, len) pairs.
             let mut call_args: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> =
                 vec![env_ptr.into()];
-            for arg_reg in args {
-                let val = load_i64(context, builder, register_allocas, arg_reg.0)?;
-                call_args.push(val.into());
+            let mut llvm_param_types: Vec<BasicMetadataTypeEnum<'ctx>> = vec![i64_ty.into()];
+
+            for (i, arg_reg) in args.iter().enumerate() {
+                let is_string = i < cl_param_types.len()
+                    && matches!(
+                        types.resolve(cl_param_types[i]),
+                        nudl_core::types::TypeKind::String
+                    );
+                if is_string {
+                    let (s_ptr, s_len) = load_string_arg(
+                        context,
+                        builder,
+                        reg_string_info,
+                        string_constants,
+                        str_ptr_allocas,
+                        str_len_allocas,
+                        arg_reg.0,
+                    )?;
+                    call_args.push(s_ptr.into());
+                    call_args.push(s_len.into());
+                    llvm_param_types.push(ptr_ty.into());
+                    llvm_param_types.push(i64_ty.into());
+                } else {
+                    let val = load_i64(context, builder, register_allocas, arg_reg.0)?;
+                    call_args.push(val.into());
+                    llvm_param_types.push(i64_ty.into());
+                }
             }
 
-            // Build function type for indirect call: all i64 params, i64 return
-            let param_types: Vec<BasicMetadataTypeEnum<'ctx>> =
-                (0..call_args.len()).map(|_| i64_ty.into()).collect();
-            let fn_type = i64_ty.fn_type(&param_types, false);
+            // Check if closure returns a string
+            let returns_string = matches!(
+                types.resolve(*cl_ret_type),
+                nudl_core::types::TypeKind::String
+            );
+
+            let fn_type = if returns_string {
+                let str_ret_ty = context.struct_type(&[ptr_ty.into(), i64_ty.into()], false);
+                str_ret_ty.fn_type(&llvm_param_types, false)
+            } else {
+                i64_ty.fn_type(&llvm_param_types, false)
+            };
 
             // Indirect call through function pointer
             let call_result = builder
                 .build_indirect_call(fn_type, fn_ptr, &call_args, "closure_call")
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-            if let Some(ret_val) = call_result.try_as_basic_value().basic() {
+
+            if returns_string {
+                if let Some(ret_val) = call_result.try_as_basic_value().basic() {
+                    let struct_val = ret_val.into_struct_value();
+                    let data_ptr = builder
+                        .build_extract_value(struct_val, 0, "cl_str_ptr")
+                        .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                        .into_pointer_value();
+                    let len_val = builder
+                        .build_extract_value(struct_val, 1, "cl_str_len")
+                        .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                        .into_int_value();
+                    store_string_result(
+                        context,
+                        builder,
+                        str_ptr_allocas,
+                        str_len_allocas,
+                        register_allocas,
+                        reg_string_info,
+                        dst.0,
+                        data_ptr,
+                        len_val,
+                    )?;
+                }
+            } else if let Some(ret_val) = call_result.try_as_basic_value().basic() {
                 if let BasicValueEnum::IntValue(iv) = ret_val {
                     store(builder, register_allocas, dst.0, iv)?;
                 }
@@ -975,7 +1255,6 @@ pub(super) fn emit_instruction<'ctx>(
         Instruction::DynArrayPush(arr_reg, val_reg) => {
             let i64_ty = context.i64_type();
             let ptr_ty = context.ptr_type(AddressSpace::default());
-            // module is passed as parameter
             let array_push = module.get_function("__nudl_array_push").unwrap_or_else(|| {
                 let fn_ty = context
                     .void_type()
@@ -987,7 +1266,43 @@ pub(super) fn emit_instruction<'ctx>(
                 )
             });
             let arr_ptr = load_ptr(context, builder, register_allocas, arr_reg.0)?;
-            let val = load_i64(context, builder, register_allocas, val_reg.0)?;
+
+            // Check if the value being pushed is a string.
+            // String literals don't have a heap pointer in register_allocas,
+            // so we need to create a heap copy via __nudl_str_alloc.
+            let val_is_string = reg_string_info.contains_key(&val_reg.0);
+            let val = if val_is_string {
+                let (s_ptr, s_len) = load_string_arg(
+                    context,
+                    builder,
+                    reg_string_info,
+                    string_constants,
+                    str_ptr_allocas,
+                    str_len_allocas,
+                    val_reg.0,
+                )?;
+                let str_alloc = module.get_function("__nudl_str_alloc").unwrap_or_else(|| {
+                    let fn_ty = ptr_ty.fn_type(&[ptr_ty.into(), i64_ty.into()], false);
+                    module.add_function(
+                        "__nudl_str_alloc",
+                        fn_ty,
+                        Some(inkwell::module::Linkage::External),
+                    )
+                });
+                let call_result = builder
+                    .build_direct_call(str_alloc, &[s_ptr.into(), s_len.into()], "str_heap_copy")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                let heap_ptr = call_result
+                    .try_as_basic_value()
+                    .basic()
+                    .expect("str_alloc returns ptr")
+                    .into_pointer_value();
+                builder
+                    .build_ptr_to_int(heap_ptr, i64_ty, "str_heap_i64")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            } else {
+                load_i64(context, builder, register_allocas, val_reg.0)?
+            };
             builder
                 .build_direct_call(array_push, &[arr_ptr.into(), val.into()], "")
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?;
@@ -996,7 +1311,6 @@ pub(super) fn emit_instruction<'ctx>(
         Instruction::DynArrayPop(dst, arr_reg) => {
             let i64_ty = context.i64_type();
             let ptr_ty = context.ptr_type(AddressSpace::default());
-            // module is passed as parameter
             let array_pop = module.get_function("__nudl_array_pop").unwrap_or_else(|| {
                 let fn_ty = i64_ty.fn_type(&[ptr_ty.into()], false);
                 module.add_function(
@@ -1015,6 +1329,27 @@ pub(super) fn emit_instruction<'ctx>(
                 .expect("pop returns i64")
                 .into_int_value();
             store(builder, register_allocas, dst.0, val)?;
+
+            // If element is a string, extract (ptr, len) from the heap string object.
+            let dst_ty = func.register_types.get(dst.0 as usize).copied();
+            let is_string = dst_ty.is_some_and(|ty| matches!(types.resolve(ty), TypeKind::String));
+            if is_string {
+                let heap_ptr = builder
+                    .build_int_to_ptr(val, ptr_ty, "str_heap_ptr")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                let (data_ptr, len_val) = extract_heap_string(context, builder, heap_ptr)?;
+                store_string_result(
+                    context,
+                    builder,
+                    str_ptr_allocas,
+                    str_len_allocas,
+                    register_allocas,
+                    reg_string_info,
+                    dst.0,
+                    data_ptr,
+                    len_val,
+                )?;
+            }
         }
 
         Instruction::DynArrayLen(dst, arr_reg) => {
@@ -1063,6 +1398,28 @@ pub(super) fn emit_instruction<'ctx>(
                 .expect("array_get returns i64")
                 .into_int_value();
             store(builder, register_allocas, dst.0, val)?;
+
+            // If the element type is string, the i64 value is a heap string pointer.
+            // Extract (data_ptr, len) so string operations work correctly.
+            let dst_ty = func.register_types.get(dst.0 as usize).copied();
+            let is_string = dst_ty.is_some_and(|ty| matches!(types.resolve(ty), TypeKind::String));
+            if is_string {
+                let heap_ptr = builder
+                    .build_int_to_ptr(val, ptr_ty, "str_heap_ptr")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                let (data_ptr, len_val) = extract_heap_string(context, builder, heap_ptr)?;
+                store_string_result(
+                    context,
+                    builder,
+                    str_ptr_allocas,
+                    str_len_allocas,
+                    register_allocas,
+                    reg_string_info,
+                    dst.0,
+                    data_ptr,
+                    len_val,
+                )?;
+            }
         }
 
         Instruction::DynArraySet(arr_reg, idx_reg, val_reg) => {

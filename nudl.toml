@@ -1,0 +1,6 @@
+[package]
+name = "nudl"
+
+[[bin]]
+name = "playground"
+path = "playground/main.nudl"

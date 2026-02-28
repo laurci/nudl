@@ -2,6 +2,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
 
 /*
  * nudl ARC runtime — slow paths for reference counting.
@@ -196,6 +199,32 @@ void __nudl_array_set(void *arr_ptr, int64_t index, int64_t value) {
     }
     int64_t *buf = (int64_t *)(uintptr_t)arr->data_ptr;
     buf[index] = value;
+}
+
+/* Destroy a dynamic array: optionally release reference-typed elements,
+ * then free the data buffer.
+ * Called as part of a drop function when a DynArray's ARC refcount reaches 0.
+ * elem_drop: drop function for reference-typed elements (NULL for value types). */
+void __nudl_array_destroy(void *arr_ptr, void (*elem_drop)(void *)) {
+    NudlDynArray *arr = (NudlDynArray *)arr_ptr;
+    int64_t *buf = (int64_t *)(uintptr_t)arr->data_ptr;
+    if (buf) {
+        if (elem_drop) {
+            for (int64_t i = 0; i < arr->length; i++) {
+                void *elem = (void *)(uintptr_t)buf[i];
+                if (elem) {
+                    NudlArcHeader *hdr = (NudlArcHeader *)elem;
+                    if (hdr->strong_count > 0) {
+                        hdr->strong_count--;
+                        if (hdr->strong_count == 0) {
+                            __nudl_arc_release_slow(elem, elem_drop);
+                        }
+                    }
+                }
+            }
+        }
+        free(buf);
+    }
 }
 
 /* ================================================================
@@ -417,7 +446,7 @@ static void nudl_map_grow(NudlMap *map) {
 void *__nudl_str_concat(const char *a_ptr, int64_t a_len,
                         const char *b_ptr, int64_t b_len) {
     int64_t total_len = a_len + b_len;
-    uint64_t alloc_size = 24 + (uint64_t)total_len;
+    uint64_t alloc_size = 24 + (uint64_t)total_len + 1;
     void *mem = malloc((size_t)alloc_size);
     if (!mem) {
         fprintf(stderr, "nudl: out of memory (str_concat)\n");
@@ -433,6 +462,7 @@ void *__nudl_str_concat(const char *a_ptr, int64_t a_len,
     char *data = (char *)mem + 24;
     if (a_ptr && a_len > 0) memcpy(data, a_ptr, (size_t)a_len);
     if (b_ptr && b_len > 0) memcpy(data + a_len, b_ptr, (size_t)b_len);
+    data[total_len] = '\0';
     return mem;
 }
 
@@ -440,7 +470,7 @@ void *__nudl_str_concat(const char *a_ptr, int64_t a_len,
 void *__nudl_i64_to_str(int64_t val) {
     char buf[32];
     int len = snprintf(buf, sizeof(buf), "%lld", (long long)val);
-    uint64_t alloc_size = 24 + (uint64_t)len;
+    uint64_t alloc_size = 24 + (uint64_t)len + 1;
     void *mem = malloc((size_t)alloc_size);
     if (!mem) {
         fprintf(stderr, "nudl: out of memory (i64_to_str)\n");
@@ -453,6 +483,7 @@ void *__nudl_i64_to_str(int64_t val) {
     hdr->_padding = 0;
     *(int64_t *)((char *)mem + 16) = (int64_t)len;
     memcpy((char *)mem + 24, buf, (size_t)len);
+    *((char *)mem + 24 + len) = '\0';
     return mem;
 }
 
@@ -460,7 +491,7 @@ void *__nudl_i64_to_str(int64_t val) {
 void *__nudl_f64_to_str(double val) {
     char buf[64];
     int len = snprintf(buf, sizeof(buf), "%g", val);
-    uint64_t alloc_size = 24 + (uint64_t)len;
+    uint64_t alloc_size = 24 + (uint64_t)len + 1;
     void *mem = malloc((size_t)alloc_size);
     if (!mem) {
         fprintf(stderr, "nudl: out of memory (f64_to_str)\n");
@@ -473,6 +504,7 @@ void *__nudl_f64_to_str(double val) {
     hdr->_padding = 0;
     *(int64_t *)((char *)mem + 16) = (int64_t)len;
     memcpy((char *)mem + 24, buf, (size_t)len);
+    *((char *)mem + 24 + len) = '\0';
     return mem;
 }
 
@@ -480,7 +512,7 @@ void *__nudl_f64_to_str(double val) {
 void *__nudl_bool_to_str(int64_t val) {
     const char *s = val ? "true" : "false";
     int64_t len = val ? 4 : 5;
-    uint64_t alloc_size = 24 + (uint64_t)len;
+    uint64_t alloc_size = 24 + (uint64_t)len + 1;
     void *mem = malloc((size_t)alloc_size);
     if (!mem) {
         fprintf(stderr, "nudl: out of memory (bool_to_str)\n");
@@ -493,13 +525,14 @@ void *__nudl_bool_to_str(int64_t val) {
     hdr->_padding = 0;
     *(int64_t *)((char *)mem + 16) = len;
     memcpy((char *)mem + 24, s, (size_t)len);
+    *((char *)mem + 24 + len) = '\0';
     return mem;
 }
 
 /* Convert a char (as i64 code point) to a single-character heap string. */
 void *__nudl_char_to_str(int64_t val) {
     char c = (char)val;
-    uint64_t alloc_size = 24 + 1;
+    uint64_t alloc_size = 24 + 1 + 1;
     void *mem = malloc((size_t)alloc_size);
     if (!mem) {
         fprintf(stderr, "nudl: out of memory (char_to_str)\n");
@@ -512,6 +545,172 @@ void *__nudl_char_to_str(int64_t val) {
     hdr->_padding = 0;
     *(int64_t *)((char *)mem + 16) = 1;
     *((char *)mem + 24) = c;
+    *((char *)mem + 25) = '\0';
+    return mem;
+}
+
+/* Get byte at index from a string (ptr, len pair). Returns as i64. Panics on OOB. */
+int64_t __nudl_str_char_at(const char *ptr, int64_t len, int64_t index) {
+    if (index < 0 || index >= len) {
+        fprintf(stderr, "nudl: string index out of bounds: index %lld, length %lld\n",
+                (long long)index, (long long)len);
+        abort();
+    }
+    return (int64_t)(unsigned char)ptr[index];
+}
+
+/* Allocate a new heap string from (ptr, len). Used by string operations and
+ * by the compiler when pushing strings to dynamic arrays. */
+void *__nudl_str_alloc(const char *data, int64_t len) {
+    uint64_t alloc_size = 24 + (uint64_t)len + 1;
+    void *mem = malloc((size_t)alloc_size);
+    if (!mem) {
+        fprintf(stderr, "nudl: out of memory (str_alloc)\n");
+        abort();
+    }
+    NudlArcHeader *hdr = (NudlArcHeader *)mem;
+    hdr->strong_count = 1;
+    hdr->weak_count = 0;
+    hdr->type_tag = 0;
+    hdr->_padding = 0;
+    *((int64_t *)((char *)mem + 16)) = len;
+    if (len > 0) {
+        memcpy((char *)mem + 24, data, (size_t)len);
+    }
+    *((char *)mem + 24 + len) = '\0';
+    return mem;
+}
+
+/* Substring extraction: returns heap string for s[start..end]. */
+void *__nudl_str_substr(const char *ptr, int64_t len, int64_t start, int64_t end) {
+    if (start < 0) start = 0;
+    if (end > len) end = len;
+    if (start >= end) return __nudl_str_alloc("", 0);
+    int64_t new_len = end - start;
+    return __nudl_str_alloc(ptr + start, new_len);
+}
+
+/* Find index of needle in haystack. Returns -1 if not found. */
+int64_t __nudl_str_indexof(const char *h_ptr, int64_t h_len,
+                           const char *n_ptr, int64_t n_len) {
+    if (n_len == 0) return 0;
+    if (n_len > h_len) return -1;
+    for (int64_t i = 0; i <= h_len - n_len; i++) {
+        if (memcmp(h_ptr + i, n_ptr, (size_t)n_len) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* Trim leading and trailing ASCII whitespace. Returns heap string. */
+void *__nudl_str_trim(const char *ptr, int64_t len) {
+    int64_t start = 0;
+    int64_t end = len;
+    while (start < end && (ptr[start] == ' ' || ptr[start] == '\t' ||
+           ptr[start] == '\n' || ptr[start] == '\r')) {
+        start++;
+    }
+    while (end > start && (ptr[end - 1] == ' ' || ptr[end - 1] == '\t' ||
+           ptr[end - 1] == '\n' || ptr[end - 1] == '\r')) {
+        end--;
+    }
+    return __nudl_str_alloc(ptr + start, end - start);
+}
+
+/* Check if haystack contains needle. Returns 1 or 0. */
+int64_t __nudl_str_contains(const char *h_ptr, int64_t h_len,
+                            const char *n_ptr, int64_t n_len) {
+    return __nudl_str_indexof(h_ptr, h_len, n_ptr, n_len) >= 0 ? 1 : 0;
+}
+
+/* Check if string starts with prefix. Returns 1 or 0. */
+int64_t __nudl_str_starts_with(const char *ptr, int64_t len,
+                               const char *p_ptr, int64_t p_len) {
+    if (p_len > len) return 0;
+    return memcmp(ptr, p_ptr, (size_t)p_len) == 0 ? 1 : 0;
+}
+
+/* Check if string ends with suffix. Returns 1 or 0. */
+int64_t __nudl_str_ends_with(const char *ptr, int64_t len,
+                             const char *s_ptr, int64_t s_len) {
+    if (s_len > len) return 0;
+    return memcmp(ptr + len - s_len, s_ptr, (size_t)s_len) == 0 ? 1 : 0;
+}
+
+/* Convert ASCII string to uppercase. Returns heap string. */
+void *__nudl_str_to_upper(const char *ptr, int64_t len) {
+    void *result = __nudl_str_alloc(ptr, len);
+    char *data = (char *)result + 24;
+    for (int64_t i = 0; i < len; i++) {
+        if (data[i] >= 'a' && data[i] <= 'z') {
+            data[i] -= 32;
+        }
+    }
+    return result;
+}
+
+/* Convert ASCII string to lowercase. Returns heap string. */
+void *__nudl_str_to_lower(const char *ptr, int64_t len) {
+    void *result = __nudl_str_alloc(ptr, len);
+    char *data = (char *)result + 24;
+    for (int64_t i = 0; i < len; i++) {
+        if (data[i] >= 'A' && data[i] <= 'Z') {
+            data[i] += 32;
+        }
+    }
+    return result;
+}
+
+/* Replace all occurrences of old with new in string. Returns heap string. */
+void *__nudl_str_replace(const char *ptr, int64_t len,
+                         const char *old_ptr, int64_t old_len,
+                         const char *new_ptr, int64_t new_len) {
+    if (old_len == 0) return __nudl_str_alloc(ptr, len);
+
+    /* First pass: count occurrences */
+    int64_t count = 0;
+    for (int64_t i = 0; i <= len - old_len; i++) {
+        if (memcmp(ptr + i, old_ptr, (size_t)old_len) == 0) {
+            count++;
+            i += old_len - 1;
+        }
+    }
+    if (count == 0) return __nudl_str_alloc(ptr, len);
+
+    /* Second pass: build result */
+    int64_t result_len = len + count * (new_len - old_len);
+    uint64_t alloc_size = 24 + (uint64_t)result_len + 1;
+    void *mem = malloc((size_t)alloc_size);
+    if (!mem) { fprintf(stderr, "nudl: out of memory (str_replace)\n"); abort(); }
+    NudlArcHeader *hdr = (NudlArcHeader *)mem;
+    hdr->strong_count = 1; hdr->weak_count = 0; hdr->type_tag = 0; hdr->_padding = 0;
+    *((int64_t *)((char *)mem + 16)) = result_len;
+    char *dst = (char *)mem + 24;
+    int64_t di = 0;
+    for (int64_t i = 0; i < len; ) {
+        if (i <= len - old_len && memcmp(ptr + i, old_ptr, (size_t)old_len) == 0) {
+            memcpy(dst + di, new_ptr, (size_t)new_len);
+            di += new_len;
+            i += old_len;
+        } else {
+            dst[di++] = ptr[i++];
+        }
+    }
+    dst[result_len] = '\0';
+    return mem;
+}
+
+/* Repeat string count times. Returns heap string. */
+void *__nudl_str_repeat(const char *ptr, int64_t len, int64_t count) {
+    if (count <= 0 || len == 0) return __nudl_str_alloc("", 0);
+    int64_t result_len = len * count;
+    void *mem = __nudl_str_alloc(ptr, result_len);
+    char *data = (char *)mem + 24;
+    /* First copy is already done by __nudl_str_alloc, copy the rest */
+    for (int64_t i = 1; i < count; i++) {
+        memcpy(data + i * len, ptr, (size_t)len);
+    }
     return mem;
 }
 
@@ -528,6 +727,83 @@ void *__nudl_char_to_str(int64_t val) {
  * Closure thunk functions have signature:
  *   int64_t thunk(int64_t env_ptr, int64_t arg0, int64_t arg1, ...)
  * ================================================================ */
+
+/* ================================================================
+ * File I/O Runtime Helpers
+ *
+ * These provide portable file operations that can't be done via
+ * pure libc FFI (platform-specific O_* flags, buffer allocation).
+ * ================================================================ */
+
+/* Portable file open.
+ * mode: 0=read, 1=write(create/truncate), 2=append(create).
+ * String params are (ptr, len) pairs. Returns fd or -1. */
+int64_t __nudl_file_open(const char *path_ptr, int64_t path_len, int64_t mode) {
+    /* Null-terminate the path (it may already be, but be safe) */
+    char *path = (char *)malloc((size_t)path_len + 1);
+    if (!path) return -1;
+    memcpy(path, path_ptr, (size_t)path_len);
+    path[path_len] = '\0';
+
+    int fd;
+    if (mode == 0) {
+        fd = open(path, O_RDONLY);
+    } else if (mode == 1) {
+        fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    } else {
+        fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    }
+    free(path);
+    return (int64_t)fd;
+}
+
+/* Read up to count bytes from fd. Returns ARC heap string (empty on EOF/error). */
+void *__nudl_file_read(int64_t fd, int64_t count) {
+    if (count <= 0) return __nudl_str_alloc("", 0);
+    char *buf = (char *)malloc((size_t)count);
+    if (!buf) return __nudl_str_alloc("", 0);
+    ssize_t n = read((int)fd, buf, (size_t)count);
+    if (n <= 0) {
+        free(buf);
+        return __nudl_str_alloc("", 0);
+    }
+    void *result = __nudl_str_alloc(buf, (int64_t)n);
+    free(buf);
+    return result;
+}
+
+/* Read entire file by path. Returns ARC heap string (empty on error). */
+void *__nudl_file_read_all(const char *path_ptr, int64_t path_len) {
+    char *path = (char *)malloc((size_t)path_len + 1);
+    if (!path) return __nudl_str_alloc("", 0);
+    memcpy(path, path_ptr, (size_t)path_len);
+    path[path_len] = '\0';
+
+    int fd = open(path, O_RDONLY);
+    free(path);
+    if (fd < 0) return __nudl_str_alloc("", 0);
+
+    struct stat st;
+    if (fstat(fd, &st) < 0 || st.st_size <= 0) {
+        close(fd);
+        return __nudl_str_alloc("", 0);
+    }
+
+    char *buf = (char *)malloc((size_t)st.st_size);
+    if (!buf) { close(fd); return __nudl_str_alloc("", 0); }
+
+    ssize_t total = 0;
+    while (total < st.st_size) {
+        ssize_t n = read(fd, buf + total, (size_t)(st.st_size - total));
+        if (n <= 0) break;
+        total += n;
+    }
+    close(fd);
+
+    void *result = __nudl_str_alloc(buf, (int64_t)total);
+    free(buf);
+    return result;
+}
 
 /* Allocate a capture environment with N captured values. */
 void *__nudl_closure_env_alloc(int64_t num_captures) {

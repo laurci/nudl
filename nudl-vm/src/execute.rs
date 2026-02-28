@@ -71,6 +71,25 @@ impl Vm {
                 registers[dst.0 as usize] = Value::U64(len);
             }
 
+            Instruction::StringCharAt(dst, str_reg, idx_reg) => {
+                let idx = match &registers[idx_reg.0 as usize] {
+                    Value::I32(v) => *v as usize,
+                    Value::I64(v) => *v as usize,
+                    Value::U64(v) => *v as usize,
+                    _ => 0,
+                };
+                let ch = match &registers[str_reg.0 as usize] {
+                    Value::String(str_idx) => program
+                        .string_constants
+                        .get(*str_idx as usize)
+                        .and_then(|s| s.as_bytes().get(idx))
+                        .map(|&b| b as char)
+                        .unwrap_or('\0'),
+                    _ => '\0',
+                };
+                registers[dst.0 as usize] = Value::Char(ch);
+            }
+
             Instruction::Call(dst, func_ref, args) => {
                 let arg_values: Vec<Value> = args
                     .iter()
@@ -534,7 +553,7 @@ impl Vm {
                 );
                 registers[dst.0 as usize] = Value::HeapRef(id);
             }
-            Instruction::ClosureCall(dst, closure_reg, args) => {
+            Instruction::ClosureCall(dst, closure_reg, args, _param_types, _ret_type) => {
                 let closure_id = match &registers[closure_reg.0 as usize] {
                     Value::HeapRef(id) => *id,
                     _ => {

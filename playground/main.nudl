@@ -1,60 +1,51 @@
-
-extern {
-    fn write(fd: i32, buf: RawPtr, count: u64) -> i64;
+struct Point {
+    x: i32,
+    y: i32,
 }
 
-fn print(s: string) {
-    write(1, __str_ptr(s), __str_len(s));
-}
-
-fn each(a: i32[], f: |(i32, i32)| -> ()) {
-    let len = a.len() as i32;
-    for i in 0..len {
-        f((a[i], i));
-    }
-}
-
-
-fn map(input: i32[], f: |i32| -> i32) -> i32[] {
-    let mut result: i32[] = [];
-    
-    for x in input {
-        result.push(f(x));
+impl Point {
+    fn zero() -> Point {
+        Point { x: 0, y: 0 }
     }
 
-    result
-}
-enum Option {
-    None,
-    Some(i32)
-}
+    fn to_string(self) -> string {
+        `Point({self.x}, {self.y})`
+    }
 
-fn test_option(x: Option) -> i32 {
-    let mut z = x?;
-    z + 1
+    fn mul(self, scalar: i32) -> Point {
+        Point {
+            x: self.x * scalar,
+            y: self.y * scalar,
+        }
+    }
+
+    fn add(self, other: Point) -> Point {
+        Point {
+            x: self.x + other.x,
+            y: self.y + other.y,
+        }
+    }
 }
 
 fn main() {
-    let a: i32[] = [1, 2, 3, 4, 5];
+    let drop_me: [Point; 3] = [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }, Point { x: 5, y: 6 }];
 
-    a |> each |a: (i32, i32)| {
-        print(`a[{a.1}] = {a.0}\n`);
-    };
-    print("\n\n");
-    
+    let a: Point[] = [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }, Point { x: 5, y: 6 }];
+
     a |> each {
-        print(`a[{it.1}] = {it.0}\n`);    
-    }
+        print(`{it.to_string()}\n`);
+    };
     print("\n\n");
 
-
-    a |> map {
-        it  * 2    
-    } |> each {
-        print(`a[{it.1}] * 2 = {it.0}\n`);    
+    let sum = a |> map {
+        it * 2
+    } |> filter {
+        it.x > 5
+    } |> fold(initial: Point::zero()) |item, acc| {
+        acc.add(item)
     };
-}
+    print(`{sum.to_string()}\n`);
+    print("\n\n");
 
-// fn identity<T>(x: T) -> T {
-    
-// }
+    println("Hello from nudl!");
+}

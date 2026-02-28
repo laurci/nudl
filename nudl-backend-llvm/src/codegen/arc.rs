@@ -298,11 +298,88 @@ pub(super) fn declare_string_builtins<'ctx>(
     let char_to_str_ty = ptr_ty.fn_type(&[i64_ty.into()], false);
     let char_to_str = module.add_function("__nudl_char_to_str", char_to_str_ty, ext);
 
+    // String operation builtins
+
+    // __nudl_str_substr(ptr, i64, i64, i64) -> ptr  (str_ptr, str_len, start, end)
+    let substr_ty = ptr_ty.fn_type(
+        &[ptr_ty.into(), i64_ty.into(), i64_ty.into(), i64_ty.into()],
+        false,
+    );
+    let str_substr = module.add_function("__nudl_str_substr", substr_ty, ext);
+
+    // __nudl_str_indexof(ptr, i64, ptr, i64) -> i64  (h_ptr, h_len, n_ptr, n_len)
+    let indexof_ty = i64_ty.fn_type(
+        &[ptr_ty.into(), i64_ty.into(), ptr_ty.into(), i64_ty.into()],
+        false,
+    );
+    let str_indexof = module.add_function("__nudl_str_indexof", indexof_ty, ext);
+
+    // __nudl_str_trim(ptr, i64) -> ptr
+    let trim_ty = ptr_ty.fn_type(&[ptr_ty.into(), i64_ty.into()], false);
+    let str_trim = module.add_function("__nudl_str_trim", trim_ty, ext);
+
+    // __nudl_str_contains(ptr, i64, ptr, i64) -> i64
+    let contains_ty = i64_ty.fn_type(
+        &[ptr_ty.into(), i64_ty.into(), ptr_ty.into(), i64_ty.into()],
+        false,
+    );
+    let str_contains = module.add_function("__nudl_str_contains", contains_ty, ext);
+
+    // __nudl_str_starts_with(ptr, i64, ptr, i64) -> i64
+    let starts_with_ty = i64_ty.fn_type(
+        &[ptr_ty.into(), i64_ty.into(), ptr_ty.into(), i64_ty.into()],
+        false,
+    );
+    let str_starts_with = module.add_function("__nudl_str_starts_with", starts_with_ty, ext);
+
+    // __nudl_str_ends_with(ptr, i64, ptr, i64) -> i64
+    let ends_with_ty = i64_ty.fn_type(
+        &[ptr_ty.into(), i64_ty.into(), ptr_ty.into(), i64_ty.into()],
+        false,
+    );
+    let str_ends_with = module.add_function("__nudl_str_ends_with", ends_with_ty, ext);
+
+    // __nudl_str_to_upper(ptr, i64) -> ptr
+    let to_upper_ty = ptr_ty.fn_type(&[ptr_ty.into(), i64_ty.into()], false);
+    let str_to_upper = module.add_function("__nudl_str_to_upper", to_upper_ty, ext);
+
+    // __nudl_str_to_lower(ptr, i64) -> ptr
+    let to_lower_ty = ptr_ty.fn_type(&[ptr_ty.into(), i64_ty.into()], false);
+    let str_to_lower = module.add_function("__nudl_str_to_lower", to_lower_ty, ext);
+
+    // __nudl_str_replace(ptr, i64, ptr, i64, ptr, i64) -> ptr
+    let replace_ty = ptr_ty.fn_type(
+        &[
+            ptr_ty.into(),
+            i64_ty.into(),
+            ptr_ty.into(),
+            i64_ty.into(),
+            ptr_ty.into(),
+            i64_ty.into(),
+        ],
+        false,
+    );
+    let str_replace = module.add_function("__nudl_str_replace", replace_ty, ext);
+
+    // __nudl_str_repeat(ptr, i64, i64) -> ptr
+    let repeat_ty = ptr_ty.fn_type(&[ptr_ty.into(), i64_ty.into(), i64_ty.into()], false);
+    let str_repeat = module.add_function("__nudl_str_repeat", repeat_ty, ext);
+
     StringBuiltins {
         str_concat,
         i64_to_str,
         f64_to_str,
         bool_to_str,
         char_to_str,
+        str_substr,
+        str_indexof,
+        str_trim,
+        str_contains,
+        str_starts_with,
+        str_ends_with,
+        str_to_upper,
+        str_to_lower,
+        str_replace,
+        str_repeat,
     }
 }

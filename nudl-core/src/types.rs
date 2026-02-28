@@ -106,6 +106,11 @@ pub enum TypeKind {
         key: TypeId,
         value: TypeId,
     },
+    /// Transient type variable used during generic bound-checking. Never in final output.
+    TypeVar {
+        name: String,
+        bounds: Vec<String>,
+    },
     Error,
 }
 
@@ -237,6 +242,10 @@ impl TypeInterner {
 
     pub fn is_map(&self, id: TypeId) -> bool {
         matches!(self.resolve(id), TypeKind::Map { .. })
+    }
+
+    pub fn is_type_var(&self, id: TypeId) -> bool {
+        matches!(self.resolve(id), TypeKind::TypeVar { .. })
     }
 
     /// Returns true if this type is a reference type (heap-allocated, ARC-managed)

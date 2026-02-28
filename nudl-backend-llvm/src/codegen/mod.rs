@@ -19,8 +19,8 @@ use inkwell::OptimizationLevel;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::debug_info::{
-    AsDIScope, DICompileUnit, DIFlags, DIFlagsConstants, DWARFEmissionKind, DWARFSourceLanguage,
-    DebugInfoBuilder,
+    AsDIScope, DICompileUnit, DIFile, DIFlags, DIFlagsConstants, DWARFEmissionKind,
+    DWARFSourceLanguage, DebugInfoBuilder,
 };
 use inkwell::module::Module;
 use inkwell::targets::{
@@ -124,6 +124,17 @@ pub(super) struct StringBuiltins<'ctx> {
     pub(super) f64_to_str: FunctionValue<'ctx>,
     pub(super) bool_to_str: FunctionValue<'ctx>,
     pub(super) char_to_str: FunctionValue<'ctx>,
+    // String operations
+    pub(super) str_substr: FunctionValue<'ctx>,
+    pub(super) str_indexof: FunctionValue<'ctx>,
+    pub(super) str_trim: FunctionValue<'ctx>,
+    pub(super) str_contains: FunctionValue<'ctx>,
+    pub(super) str_starts_with: FunctionValue<'ctx>,
+    pub(super) str_ends_with: FunctionValue<'ctx>,
+    pub(super) str_to_upper: FunctionValue<'ctx>,
+    pub(super) str_to_lower: FunctionValue<'ctx>,
+    pub(super) str_replace: FunctionValue<'ctx>,
+    pub(super) str_repeat: FunctionValue<'ctx>,
 }
 
 // Safety: these extend lifetimes of LLVM values. Safe because values are valid for

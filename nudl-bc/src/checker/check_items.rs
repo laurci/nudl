@@ -39,13 +39,30 @@ impl Checker {
             Item::EnumDef { .. } => {}      // Already handled in pass 1
             Item::InterfaceDef { .. } => {} // Already handled in pass 1
             Item::FnDef {
-                name, params, body, ..
+                name,
+                type_params,
+                params,
+                return_type,
+                body,
+                ..
             } => {
+                // Shallow-check generic functions for obvious errors (symbol resolution, etc.)
+                if !type_params.is_empty() {
+                    self.check_generic_fn_body(type_params, params, return_type.as_ref(), body);
+                    return;
+                }
                 self.check_fn_body(name, params, body);
             }
             Item::ImplBlock {
                 type_name, methods, ..
             } => {
+                // Shallow-check impl blocks for generic types
+                if self.generic_structs.contains_key(type_name)
+                    || self.generic_enums.contains_key(type_name)
+                {
+                    self.check_generic_impl_block(type_name, methods);
+                    return;
+                }
                 for method_item in methods {
                     if let Item::FnDef {
                         name: method_name,
@@ -130,11 +147,24 @@ impl Checker {
                             TypeKind::FixedArray { element: fix_elem, .. }
                         ) if dyn_elem == fix_elem
                     );
+                    // Allow Map::new() (returns Map<i64, i64> placeholder) to coerce
+                    // to any declared Map<K, V> type
+                    let is_map_coercible = matches!(
+                        (self.types.resolve(declared_ty), self.types.resolve(val_ty)),
+                        (
+                            TypeKind::Map { .. },
+                            TypeKind::Map { key, value }
+                        ) if *key == self.types.i64() && *value == self.types.i64()
+                    );
                     if val_ty != declared_ty
                         && val_ty != self.types.error()
                         && declared_ty != self.types.error()
                         && !is_coercible
                         && !is_array_coercible
+                        && !is_map_coercible
+                        && !self
+                            .typevar_compatible(val_ty, declared_ty)
+                            .unwrap_or(false)
                     {
                         self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
                             span: value.span,
@@ -187,6 +217,9 @@ impl Checker {
                         && val_ty != self.types.error()
                         && declared_ty != self.types.error()
                         && !is_coercible
+                        && !self
+                            .typevar_compatible(val_ty, declared_ty)
+                            .unwrap_or(false)
                     {
                         self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
                             span: value.span,
@@ -283,6 +316,17 @@ impl Checker {
                 }
             }
             Pattern::Literal(_) => {} // nothing to bind
+            Pattern::Array { prefix, suffix, .. } => {
+                // Extract element type from the array type
+                let elem_ty = match self.types.resolve(val_ty).clone() {
+                    TypeKind::DynamicArray { element } => element,
+                    TypeKind::FixedArray { element, .. } => element,
+                    _ => self.types.error(),
+                };
+                for pat in prefix.iter().chain(suffix.iter()) {
+                    self.check_pattern_bindings(&pat.node, elem_ty, is_mut, locals);
+                }
+            }
         }
     }
 
@@ -327,6 +371,7 @@ impl Checker {
                 && arg_ty != self.types.error()
                 && param_ty != self.types.error()
                 && !is_coercible
+                && !self.typevar_compatible(arg_ty, param_ty).unwrap_or(false)
             {
                 self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
                     span: arg.value.span,
@@ -370,7 +415,10 @@ impl Checker {
                         });
                 }
             } else {
-                // Positional arg that came after named — still process by position
+                // Positional arg that came after named — skip already-filled slots
+                while positional_idx < callable_params.len() && filled[positional_idx] {
+                    positional_idx += 1;
+                }
                 if positional_idx < callable_params.len() {
                     let param_ty = callable_params[positional_idx].1;
                     self.set_closure_hint_if_fn(param_ty);
@@ -414,5 +462,159 @@ impl Checker {
         }
 
         sig.return_type
+    }
+
+    /// Shallow-check a generic function body using TypeVar placeholders.
+    /// Catches obvious errors (undefined variables/functions, return type mismatches)
+    /// without requiring concrete type arguments.
+    fn check_generic_fn_body(
+        &mut self,
+        type_params: &[TypeParam],
+        params: &[Param],
+        return_type: Option<&Spanned<TypeExpr>>,
+        body: &Spanned<Block>,
+    ) {
+        let old_scope = std::mem::take(&mut self.type_param_scope);
+
+        // Create TypeVar TypeIds for each type parameter
+        for tp in type_params {
+            let type_var = self.types.intern(TypeKind::TypeVar {
+                name: tp.name.clone(),
+                bounds: tp.bounds.clone(),
+            });
+            self.type_param_scope.insert(tp.name.clone(), type_var);
+        }
+
+        // Resolve params using type_param_scope (TypeVars for generic params)
+        let mut locals = ScopedLocals::<LocalInfo>::new();
+        for p in params {
+            let ty = self.resolve_type(&p.ty);
+            locals.insert(
+                p.name.clone(),
+                LocalInfo {
+                    ty,
+                    is_mut: p.is_mut,
+                },
+            );
+        }
+
+        // Resolve return type
+        let ret_ty = return_type
+            .map(|t| self.resolve_type(t))
+            .unwrap_or_else(|| self.types.unit());
+
+        self.current_return_type = Some(ret_ty);
+        let body_ty = self.check_block(&body.node, &mut locals);
+        self.current_return_type = None;
+
+        // Check return type fitting, allowing TypeVar == TypeVar
+        if body_ty != ret_ty
+            && body_ty != self.types.error()
+            && ret_ty != self.types.error()
+            && body_ty != self.types.never()
+        {
+            self.diagnostics
+                .add(&CheckerDiagnostic::ReturnTypeMismatch {
+                    span: body.span,
+                    expected: self.type_name(ret_ty),
+                    found: self.type_name(body_ty),
+                });
+        }
+
+        self.type_param_scope = old_scope;
+    }
+
+    /// Shallow-check methods in a generic impl block.
+    fn check_generic_impl_block(&mut self, type_name: &str, methods: &[SpannedItem]) {
+        let old_scope = std::mem::take(&mut self.type_param_scope);
+
+        // Get type params from the generic struct/enum definition
+        let type_params = if let Some(def) = self.generic_structs.get(type_name) {
+            def.type_params.clone()
+        } else if let Some(def) = self.generic_enums.get(type_name) {
+            def.type_params.clone()
+        } else {
+            self.type_param_scope = old_scope;
+            return;
+        };
+
+        // Create TypeVar TypeIds for each type parameter
+        for tp in &type_params {
+            let type_var = self.types.intern(TypeKind::TypeVar {
+                name: tp.name.clone(),
+                bounds: tp.bounds.clone(),
+            });
+            self.type_param_scope.insert(tp.name.clone(), type_var);
+        }
+
+        // Set Self to error type (can't know the concrete Self type)
+        let self_ty = self.types.error();
+        self.type_param_scope.insert("Self".into(), self_ty);
+
+        for method_item in methods {
+            if let Item::FnDef {
+                type_params: method_type_params,
+                params,
+                return_type,
+                body,
+                ..
+            } = &method_item.node
+            {
+                // Also add method-level type params if any
+                for tp in method_type_params {
+                    let type_var = self.types.intern(TypeKind::TypeVar {
+                        name: tp.name.clone(),
+                        bounds: tp.bounds.clone(),
+                    });
+                    self.type_param_scope.insert(tp.name.clone(), type_var);
+                }
+
+                // Resolve params
+                let mut locals = ScopedLocals::<LocalInfo>::new();
+                for p in params {
+                    let ty = if p.is_self {
+                        self_ty
+                    } else {
+                        self.resolve_type(&p.ty)
+                    };
+                    locals.insert(
+                        p.name.clone(),
+                        LocalInfo {
+                            ty,
+                            is_mut: p.is_mut,
+                        },
+                    );
+                }
+
+                let ret_ty = return_type
+                    .as_ref()
+                    .map(|t| self.resolve_type(t))
+                    .unwrap_or_else(|| self.types.unit());
+
+                self.current_return_type = Some(ret_ty);
+                let body_ty = self.check_block(&body.node, &mut locals);
+                self.current_return_type = None;
+
+                if body_ty != ret_ty
+                    && body_ty != self.types.error()
+                    && ret_ty != self.types.error()
+                    && body_ty != self.types.never()
+                {
+                    self.diagnostics
+                        .add(&CheckerDiagnostic::ReturnTypeMismatch {
+                            span: body.span,
+                            expected: self.type_name(ret_ty),
+                            found: self.type_name(body_ty),
+                        });
+                }
+
+                // Remove method-level type params
+                for tp in method_type_params {
+                    self.type_param_scope.remove(&tp.name);
+                }
+            }
+        }
+
+        self.type_param_scope = old_scope;
     }
 }

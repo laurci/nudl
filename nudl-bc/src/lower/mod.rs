@@ -55,6 +55,14 @@ pub struct Lowerer {
     pub(super) param_defaults: HashMap<String, Vec<Option<SpannedExpr>>>,
     /// Closures that need to be lowered as separate functions after the current function.
     pub(super) pending_closures: Vec<PendingClosure>,
+    /// Monomorphized function bodies from the checker
+    pub(super) mono_fn_bodies: HashMap<String, (Vec<Param>, nudl_core::span::Spanned<Block>)>,
+    /// Generic call site -> mangled function name
+    pub(super) call_resolutions: HashMap<Span, String>,
+    /// Generic struct literal -> mangled struct name
+    pub(super) struct_resolutions: HashMap<Span, String>,
+    /// Generic enum constructor -> mangled enum name
+    pub(super) enum_resolutions: HashMap<Span, String>,
 }
 
 impl Lowerer {
@@ -70,6 +78,10 @@ impl Lowerer {
             next_function_id: 0,
             param_defaults: HashMap::new(),
             pending_closures: Vec::new(),
+            mono_fn_bodies: checked.mono_fn_bodies,
+            call_resolutions: checked.call_resolutions,
+            struct_resolutions: checked.struct_resolutions,
+            enum_resolutions: checked.enum_resolutions,
         }
     }
 
@@ -136,8 +148,16 @@ impl Lowerer {
         for item in &module.items {
             match &item.node {
                 Item::FnDef {
-                    name, params, body, ..
+                    name,
+                    type_params,
+                    params,
+                    body,
+                    ..
                 } => {
+                    // Skip generic function definitions — they are lowered via mono_fn_bodies
+                    if !type_params.is_empty() {
+                        continue;
+                    }
                     let func = self.lower_function(name, params, body);
                     if name == "main" {
                         entry_function = Some(func.id);
@@ -147,6 +167,18 @@ impl Lowerer {
                 Item::ImplBlock {
                     type_name, methods, ..
                 } => {
+                    // Skip generic impl blocks — handled via monomorphization
+                    if !self
+                        .function_sigs
+                        .contains_key(&format!("{}__{}", type_name, ""))
+                        && self
+                            .mono_fn_bodies
+                            .keys()
+                            .any(|k| k.starts_with(&format!("{}$", type_name)))
+                    {
+                        // This is a generic impl block, methods are in mono_fn_bodies
+                        continue;
+                    }
                     for method_item in methods {
                         if let Item::FnDef {
                             name: method_name,
@@ -156,6 +188,10 @@ impl Lowerer {
                         } = &method_item.node
                         {
                             let mangled_name = format!("{}__{}", type_name, method_name);
+                            // Skip if the function sig doesn't exist (generic template)
+                            if !self.function_sigs.contains_key(&mangled_name) {
+                                continue;
+                            }
                             let func = self.lower_function(&mangled_name, params, body);
                             self.functions.push(func);
                         }
@@ -165,6 +201,19 @@ impl Lowerer {
                     // Imports handled at pipeline level
                 }
                 _ => {}
+            }
+        }
+
+        // Pass 2.5: Lower monomorphized function bodies
+        let mono_bodies: Vec<(String, Vec<Param>, nudl_core::span::Spanned<Block>)> = self
+            .mono_fn_bodies
+            .drain()
+            .map(|(name, (params, body))| (name, params, body))
+            .collect();
+        for (name, params, body) in &mono_bodies {
+            if self.function_sigs.contains_key(name) {
+                let func = self.lower_function(name, params, body);
+                self.functions.push(func);
             }
         }
 
@@ -273,6 +322,9 @@ impl Lowerer {
             next_function_id: &mut self.next_function_id,
             return_type: sig.return_type,
             closure_type_hint: None,
+            call_resolutions: &self.call_resolutions,
+            struct_resolutions: &self.struct_resolutions,
+            enum_resolutions: &self.enum_resolutions,
         };
 
         // Lower body — returns the register holding the result
@@ -284,7 +336,8 @@ impl Lowerer {
             ctx.lower_block_expr(&block);
         }
 
-        // Callee-release: emit Release for reference-typed params at function exit
+        // Callee-release: emit Release for reference-typed params at function exit.
+        // This balances the caller's Retain before the call.
         for (i, (_pname, pty)) in sig.params.iter().enumerate() {
             let param_reg = Register(i as u32);
             if ctx.types.is_reference_type(*pty)
@@ -388,6 +441,9 @@ impl Lowerer {
             next_function_id: &mut self.next_function_id,
             return_type: closure.return_type,
             closure_type_hint: None,
+            call_resolutions: &self.call_resolutions,
+            struct_resolutions: &self.struct_resolutions,
+            enum_resolutions: &self.enum_resolutions,
         };
 
         // Load captured variables from the env pointer
@@ -401,12 +457,61 @@ impl Lowerer {
             let cap_reg = ctx.alloc_typed_register(*cap_type);
             // Load from env struct: header(16) + field_index * 8
             ctx.push_inst(Instruction::Load(cap_reg, env_reg, i as u32));
+            // Retain reference-typed captures so the Release at closure exit is balanced.
+            // The env struct owns one reference; this creates a second one for the local.
+            if ctx.types.is_reference_type(*cap_type)
+                && !matches!(ctx.types.resolve(*cap_type), TypeKind::String)
+            {
+                ctx.push_inst(Instruction::Retain(cap_reg));
+            }
             ctx.locals.insert(cap_name.clone(), cap_reg);
             ctx.local_types.insert(cap_name.clone(), *cap_type);
         }
 
         // Lower the closure body
         let result_reg = ctx.lower_expr(&closure.body);
+
+        // Callee-release: emit Release for reference-typed closure params at function exit.
+        // This balances the caller's Retain before ClosureCall.
+        // Skip __env (register 0) — it's handled separately by the closure runtime.
+        for (pname, pty) in &closure.params {
+            if let Some(&param_reg) = ctx.locals.get(pname) {
+                if ctx.types.is_reference_type(*pty)
+                    && !matches!(ctx.types.resolve(*pty), TypeKind::String)
+                {
+                    ctx.push_inst(Instruction::Release(param_reg, Some(*pty)));
+                } else if let TypeKind::FixedArray { element, length } = ctx.types.resolve(*pty) {
+                    let elem = *element;
+                    let len = *length;
+                    if ctx.types.is_reference_type(elem) {
+                        for idx in 0..len {
+                            let idx_reg = ctx.alloc_register();
+                            ctx.push_inst(Instruction::Const(idx_reg, ConstValue::I32(idx as i32)));
+                            let elem_reg = ctx.alloc_register();
+                            ctx.push_inst(Instruction::IndexLoad(
+                                elem_reg, param_reg, idx_reg, elem,
+                            ));
+                            ctx.push_inst(Instruction::Release(elem_reg, Some(elem)));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Also release captured variables that are reference-typed
+        for (cap_name, cap_type) in closure
+            .capture_names
+            .iter()
+            .zip(closure.capture_types.iter())
+        {
+            if let Some(&cap_reg) = ctx.locals.get(cap_name) {
+                if ctx.types.is_reference_type(*cap_type)
+                    && !matches!(ctx.types.resolve(*cap_type), TypeKind::String)
+                {
+                    ctx.push_inst(Instruction::Release(cap_reg, Some(*cap_type)));
+                }
+            }
+        }
 
         // Finish with return
         ctx.finish_block(Terminator::Return(result_reg));

@@ -117,12 +117,27 @@ impl<'a> FunctionLowerCtx<'a> {
     ) -> Option<nudl_core::types::TypeId> {
         match &expr.node {
             Expr::Ident(name) => self.local_types.get(name).copied(),
-            Expr::StructLiteral { name, .. } => self
-                .struct_defs
-                .get(name.as_str())
-                .or_else(|| self.enum_defs.get(name.as_str()))
-                .copied(),
-            Expr::EnumLiteral { enum_name, .. } => self.enum_defs.get(enum_name.as_str()).copied(),
+            Expr::StructLiteral { name, .. } => {
+                // Check if this was resolved to a monomorphized struct
+                let resolved_name = self
+                    .struct_resolutions
+                    .get(&expr.span)
+                    .map(|s| s.as_str())
+                    .unwrap_or(name.as_str());
+                self.struct_defs
+                    .get(resolved_name)
+                    .or_else(|| self.enum_defs.get(resolved_name))
+                    .copied()
+            }
+            Expr::EnumLiteral { enum_name, .. } => {
+                // Check if this was resolved to a monomorphized enum
+                let resolved_name = self
+                    .enum_resolutions
+                    .get(&expr.span)
+                    .map(|s| s.as_str())
+                    .unwrap_or(enum_name.as_str());
+                self.enum_defs.get(resolved_name).copied()
+            }
             Expr::FieldAccess { object, field } => {
                 let obj_type = self.infer_expr_type(object)?;
                 match self.types.resolve(obj_type) {
@@ -138,12 +153,57 @@ impl<'a> FunctionLowerCtx<'a> {
             }
             Expr::Call { callee, .. } => {
                 if let Expr::Ident(name) = &callee.node {
-                    self.function_sigs.get(name).map(|sig| sig.return_type)
+                    // Check if this call was resolved to a monomorphized function
+                    let resolved_name = self
+                        .call_resolutions
+                        .get(&expr.span)
+                        .map(|s| s.as_str())
+                        .unwrap_or(name.as_str());
+                    if let Some(sig) = self.function_sigs.get(resolved_name) {
+                        Some(sig.return_type)
+                    } else if let Some(callee_ty) = self.local_types.get(name) {
+                        // Calling a local variable (closure): extract return type
+                        if let nudl_core::types::TypeKind::Function { ret, .. } =
+                            self.types.resolve(*callee_ty)
+                        {
+                            Some(*ret)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }
             }
             Expr::MethodCall { object, method, .. } => {
+                // Check built-in methods on known types first
+                if let Some(obj_ty) = self.infer_expr_type(object) {
+                    match self.types.resolve(obj_ty).clone() {
+                        nudl_core::types::TypeKind::Map { value, .. } => {
+                            match method.as_str() {
+                                "get" => {
+                                    // map.get() returns Option<V>
+                                    return self.find_option_type(value);
+                                }
+                                "contains_key" | "remove" => return Some(self.types.bool()),
+                                "insert" => return Some(self.types.unit()),
+                                "len" => return Some(self.types.i64()),
+                                _ => {}
+                            }
+                        }
+                        nudl_core::types::TypeKind::DynamicArray { element } => {
+                            match method.as_str() {
+                                "pop" => return Some(element),
+                                "len" => return Some(self.types.i64()),
+                                "push" => return Some(self.types.unit()),
+                                _ => {}
+                            }
+                        }
+                        _ => {}
+                    }
+                }
                 let type_name = self.infer_receiver_type_name(object)?;
                 let mangled = format!("{}__{}", type_name, method);
                 self.function_sigs.get(&mangled).map(|sig| sig.return_type)
@@ -151,8 +211,14 @@ impl<'a> FunctionLowerCtx<'a> {
             Expr::StaticCall {
                 type_name, method, ..
             } => {
+                // Check if this was resolved to a monomorphized enum
+                let resolved_name = self
+                    .enum_resolutions
+                    .get(&expr.span)
+                    .map(|s| s.as_str())
+                    .unwrap_or(type_name.as_str());
                 // Check if this is an enum variant constructor
-                if let Some(&enum_ty) = self.enum_defs.get(type_name.as_str()) {
+                if let Some(&enum_ty) = self.enum_defs.get(resolved_name) {
                     if let nudl_core::types::TypeKind::Enum { variants, .. } =
                         self.types.resolve(enum_ty)
                     {
@@ -170,7 +236,12 @@ impl<'a> FunctionLowerCtx<'a> {
                         value: val_ty,
                     }));
                 }
-                let mangled = format!("{}__{}", type_name, method);
+                // Check call_resolutions for monomorphized static methods
+                let mangled = self
+                    .call_resolutions
+                    .get(&expr.span)
+                    .cloned()
+                    .unwrap_or_else(|| format!("{}__{}", type_name, method));
                 self.function_sigs.get(&mangled).map(|sig| sig.return_type)
             }
             Expr::TupleLiteral(elements) => {
@@ -208,6 +279,9 @@ impl<'a> FunctionLowerCtx<'a> {
                 let obj_type = self.infer_expr_type(object)?;
                 match self.types.resolve(obj_type) {
                     nudl_core::types::TypeKind::FixedArray { element, .. } => Some(*element),
+                    nudl_core::types::TypeKind::DynamicArray { element } => Some(*element),
+                    nudl_core::types::TypeKind::String => Some(self.types.char_type()),
+                    nudl_core::types::TypeKind::Map { value, .. } => Some(*value),
                     _ => None,
                 }
             }
@@ -298,12 +372,26 @@ impl<'a> FunctionLowerCtx<'a> {
                 }
                 None
             }
-            Expr::StructLiteral { name, .. } => Some(name.clone()),
+            Expr::StructLiteral { name, .. } => {
+                // Check if this was resolved to a monomorphized struct
+                let resolved = self
+                    .struct_resolutions
+                    .get(&expr.span)
+                    .cloned()
+                    .unwrap_or_else(|| name.clone());
+                Some(resolved)
+            }
             Expr::StaticCall {
                 type_name, method, ..
             } => {
+                // Check if this was resolved to a monomorphized enum
+                let resolved_name = self
+                    .enum_resolutions
+                    .get(&expr.span)
+                    .map(|s| s.as_str())
+                    .unwrap_or(type_name.as_str());
                 // Check if this is an enum variant constructor
-                if let Some(&enum_ty) = self.enum_defs.get(type_name.as_str()) {
+                if let Some(&enum_ty) = self.enum_defs.get(resolved_name) {
                     if let TypeKind::Enum { name, variants, .. } = self.types.resolve(enum_ty) {
                         if variants.iter().any(|v| v.name == *method) {
                             return Some(name.clone());
@@ -333,6 +421,24 @@ impl<'a> FunctionLowerCtx<'a> {
                 None
             }
             Expr::MethodCall { object, method, .. } => {
+                // Check built-in methods on known types first
+                // For map.get() → returns Option<V>
+                let obj_ty = if let Expr::Ident(name) = &object.node {
+                    self.local_types.get(name).copied()
+                } else {
+                    None
+                };
+                if let Some(obj_ty) = obj_ty {
+                    if let TypeKind::Map { value, .. } = self.types.resolve(obj_ty).clone() {
+                        if method == "get" {
+                            if let Some(option_ty) = self.find_option_type(value) {
+                                if let TypeKind::Enum { name, .. } = self.types.resolve(option_ty) {
+                                    return Some(name.clone());
+                                }
+                            }
+                        }
+                    }
+                }
                 // Recurse: infer receiver type, then look up method return type
                 if let Some(type_name) = self.infer_receiver_type_name(object) {
                     let mangled = format!("{}__{}", type_name, method);
@@ -346,7 +452,67 @@ impl<'a> FunctionLowerCtx<'a> {
                 }
                 None
             }
+            Expr::FieldAccess { object, field } => {
+                // For field/tuple access (e.g., `tuple.0.method()`), determine
+                // the object's type and look up the field's type.
+                // First try: if object is an ident, look up its type directly.
+                let obj_type = if let Expr::Ident(name) = &object.node {
+                    self.local_types.get(name).copied()
+                } else {
+                    // For more complex expressions, try to get the type via
+                    // the receiver type name (struct/enum) or known patterns.
+                    if let Some(type_name) = self.infer_receiver_type_name(object) {
+                        self.struct_defs
+                            .get(&type_name)
+                            .or_else(|| self.enum_defs.get(&type_name))
+                            .copied()
+                    } else {
+                        None
+                    }
+                };
+                if let Some(ty_id) = obj_type {
+                    let field_ty = match self.types.resolve(ty_id) {
+                        TypeKind::Struct { fields, .. } => {
+                            fields.iter().find(|(n, _)| n == field).map(|(_, ty)| *ty)
+                        }
+                        TypeKind::Tuple(elements) => field
+                            .parse::<usize>()
+                            .ok()
+                            .and_then(|idx| elements.get(idx).copied()),
+                        _ => None,
+                    };
+                    if let Some(fty) = field_ty {
+                        match self.types.resolve(fty) {
+                            TypeKind::Struct { name, .. } => return Some(name.clone()),
+                            TypeKind::Enum { name, .. } => return Some(name.clone()),
+                            _ => {}
+                        }
+                    }
+                }
+                None
+            }
             _ => None,
         }
+    }
+
+    /// Find the monomorphized Option<V> enum type for a given value type.
+    /// Searches enum_defs for an Option$* enum whose Some variant's field matches val_ty.
+    pub(super) fn find_option_type(
+        &self,
+        val_ty: nudl_core::types::TypeId,
+    ) -> Option<nudl_core::types::TypeId> {
+        for (name, &enum_ty) in self.enum_defs.iter() {
+            if !name.starts_with("Option$") {
+                continue;
+            }
+            if let nudl_core::types::TypeKind::Enum { variants, .. } = self.types.resolve(enum_ty) {
+                if let Some(some_var) = variants.iter().find(|v| v.name == "Some") {
+                    if some_var.fields.len() == 1 && some_var.fields[0].1 == val_ty {
+                        return Some(enum_ty);
+                    }
+                }
+            }
+        }
+        None
     }
 }

@@ -186,15 +186,20 @@ impl<'a> FunctionLowerCtx<'a> {
 
         // let binding = arr[__idx];
         let cur_idx = self.locals.get(&idx_name).copied().unwrap();
-        let elem_reg = self.alloc_register();
+        let elem_reg = self.alloc_typed_register(elem_type);
         if is_dynamic {
             self.push_inst(Instruction::DynArrayGet(elem_reg, arr_reg, cur_idx));
+            // Retain extracted element — the array still owns one reference.
+            if self.types.is_reference_type(elem_type) {
+                self.push_inst(Instruction::Retain(elem_reg));
+            }
         } else {
             self.push_inst(Instruction::IndexLoad(
                 elem_reg, arr_reg, cur_idx, elem_type,
             ));
         }
         self.locals.insert(binding.to_string(), elem_reg);
+        self.local_types.insert(binding.to_string(), elem_type);
 
         self.lower_block_expr(body);
 

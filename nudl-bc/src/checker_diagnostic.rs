@@ -107,4 +107,54 @@ pub enum CheckerDiagnostic {
     #[message("cannot call mutating method '{method}' on immutable binding")]
     #[severity(Error)]
     MutatingMethodOnImmutable { span: Span, method: String },
+
+    #[message("cannot infer type for type parameter '{name}'")]
+    #[severity(Error)]
+    CannotInferTypeParam { span: Span, name: String },
+
+    #[message("expected {expected} type argument(s), found {found}")]
+    #[severity(Error)]
+    TypeArgCountMismatch {
+        span: Span,
+        expected: usize,
+        found: usize,
+    },
+
+    #[message("bound '{interface}' not satisfied for type '{ty}'")]
+    #[severity(Error)]
+    BoundCheckFailed {
+        span: Span,
+        ty: String,
+        interface: String,
+    },
+
+    #[message("operation on type parameter '{type_param}' requires '{bound}' bound")]
+    #[severity(Error)]
+    BoundNotSatisfied {
+        span: Span,
+        type_param: String,
+        bound: String,
+    },
+
+    #[message("impl {interface_name} for {type_name} is missing method '{method}'")]
+    #[severity(Error)]
+    MissingInterfaceMethod {
+        span: Span,
+        type_name: String,
+        interface_name: String,
+        method: String,
+    },
+
+    #[message(
+        "method '{method}' on {type_name} has wrong signature for {interface_name}: expected {expected}, found {found}"
+    )]
+    #[severity(Error)]
+    InterfaceMethodSignatureMismatch {
+        span: Span,
+        type_name: String,
+        interface_name: String,
+        method: String,
+        expected: String,
+        found: String,
+    },
 }

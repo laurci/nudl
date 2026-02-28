@@ -1,0 +1,13 @@
+import std::io;
+
+fn main() {
+    // Write and read a file
+    write_file("/tmp/nudl_test.txt", "Hello from nudl!");
+    let content = read_file("/tmp/nudl_test.txt");
+    println(`Read: {content}`);
+
+    // Append to the file
+    append_file("/tmp/nudl_test.txt", "\nLine 2");
+    let content2 = read_file("/tmp/nudl_test.txt");
+    println(`After append: {content2}`);
+}

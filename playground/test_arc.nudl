@@ -1,0 +1,35 @@
+extern {
+    fn write(fd: i32, buf: RawPtr, count: u64) -> i64;
+}
+
+pub fn print(s: string) {
+    write(1, __str_ptr(s), __str_len(s));
+}
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+impl Point {
+    fn to_string(self) -> string {
+        `Point({self.x}, {self.y})`
+    }
+}
+
+fn each<T>(a: T[], f: |T| -> ()) {
+    let len = a.len();
+    for i in 0i64..len {
+        f(a[i]);
+    }
+}
+
+fn main() {
+    let a: Point[] = [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }];
+
+    a |> each {
+        print(`{it.to_string()}\n`);
+    };
+
+    print("done\n");
+}

@@ -90,6 +90,12 @@ fn fmt_instruction(
         Instruction::StringConstLen(reg, idx) => {
             out.push_str(&format!("r{} = StringConstLen({})", reg.0, idx));
         }
+        Instruction::StringCharAt(dst, str_reg, idx_reg) => {
+            out.push_str(&format!(
+                "r{} = StringCharAt(r{}, r{})",
+                dst.0, str_reg.0, idx_reg.0
+            ));
+        }
         Instruction::Call(dst, func_ref, args) => {
             out.push_str(&format!("r{} = Call(", dst.0));
             match func_ref {
@@ -253,7 +259,7 @@ fn fmt_instruction(
             }
             out.push_str("])");
         }
-        Instruction::ClosureCall(dst, closure, args) => {
+        Instruction::ClosureCall(dst, closure, args, _param_types, _ret_type) => {
             out.push_str(&format!("r{} = ClosureCall(r{}, [", dst.0, closure.0));
             for (i, r) in args.iter().enumerate() {
                 if i > 0 {

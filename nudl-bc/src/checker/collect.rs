@@ -8,8 +8,10 @@ impl Checker {
     pub(super) fn collect_fn_sig(
         &mut self,
         name: &str,
+        type_params: &[TypeParam],
         params: &[Param],
         return_type: &Option<Spanned<TypeExpr>>,
+        body: Option<&Spanned<Block>>,
         span: Span,
     ) {
         if self.functions.contains_key(name) {
@@ -17,6 +19,49 @@ impl Checker {
                 span,
                 name: name.into(),
             });
+            return;
+        }
+
+        // If the function has type parameters, store as a generic template
+        if !type_params.is_empty() {
+            let generic_def = GenericFunctionDef {
+                type_params: type_params.to_vec(),
+                ast_params: params.to_vec(),
+                ast_return_type: return_type.clone(),
+                ast_body: body.cloned().unwrap_or_else(|| Spanned {
+                    node: Block {
+                        stmts: vec![],
+                        tail_expr: None,
+                    },
+                    span,
+                }),
+                span,
+            };
+
+            // Register a placeholder sig with error types — will be replaced by monomorphized versions
+            let param_count = params.len();
+            let has_default: Vec<bool> = params.iter().map(|p| p.default_value.is_some()).collect();
+            let required_params = has_default.iter().take_while(|d| !*d).count();
+            let is_method = params.first().map_or(false, |p| p.is_self);
+            let is_mut_method = is_method && params.first().map_or(false, |p| p.is_mut);
+
+            self.functions.insert(
+                name.into(),
+                FunctionSig {
+                    name: name.into(),
+                    params: params
+                        .iter()
+                        .map(|p| (p.name.clone(), self.types.error()))
+                        .collect(),
+                    return_type: self.types.error(),
+                    kind: FunctionKind::UserDefined,
+                    required_params,
+                    has_default,
+                    is_method,
+                    is_mut_method,
+                    generic_def: Some(generic_def),
+                },
+            );
             return;
         }
 
@@ -47,6 +92,7 @@ impl Checker {
                 has_default,
                 is_method,
                 is_mut_method,
+                generic_def: None,
             },
         );
     }
@@ -55,8 +101,10 @@ impl Checker {
         match &item.node {
             Item::FnDef {
                 name,
+                type_params,
                 params,
                 return_type,
+                body,
                 ..
             } => {
                 if name == "main" {
@@ -67,14 +115,39 @@ impl Checker {
                     }
                 }
 
-                self.collect_fn_sig(name, params, return_type, item.span);
+                self.collect_fn_sig(
+                    name,
+                    type_params,
+                    params,
+                    return_type,
+                    Some(body),
+                    item.span,
+                );
             }
-            Item::StructDef { name, fields, .. } => {
-                if self.structs.contains_key(name) {
+            Item::StructDef {
+                name,
+                type_params,
+                fields,
+                ..
+            } => {
+                if self.structs.contains_key(name) || self.generic_structs.contains_key(name) {
                     self.diagnostics.add(&CheckerDiagnostic::DuplicateStruct {
                         span: item.span,
                         name: name.clone(),
                     });
+                    return;
+                }
+
+                // If generic, store as template
+                if !type_params.is_empty() {
+                    self.generic_structs.insert(
+                        name.clone(),
+                        GenericStructDef {
+                            type_params: type_params.clone(),
+                            fields: fields.clone(),
+                            span: item.span,
+                        },
+                    );
                     return;
                 }
 
@@ -90,12 +163,33 @@ impl Checker {
 
                 self.structs.insert(name.clone(), type_id);
             }
-            Item::EnumDef { name, variants, .. } => {
-                if self.enums.contains_key(name) || self.structs.contains_key(name) {
+            Item::EnumDef {
+                name,
+                type_params,
+                variants,
+                ..
+            } => {
+                if self.enums.contains_key(name)
+                    || self.structs.contains_key(name)
+                    || self.generic_enums.contains_key(name)
+                {
                     self.diagnostics.add(&CheckerDiagnostic::DuplicateStruct {
                         span: item.span,
                         name: name.clone(),
                     });
+                    return;
+                }
+
+                // If generic, store as template
+                if !type_params.is_empty() {
+                    self.generic_enums.insert(
+                        name.clone(),
+                        GenericEnumDef {
+                            type_params: type_params.clone(),
+                            variants: variants.clone(),
+                            span: item.span,
+                        },
+                    );
                     return;
                 }
 
@@ -159,10 +253,77 @@ impl Checker {
             }
             Item::ImplBlock {
                 type_name,
+                type_args,
                 interface_name,
                 methods,
                 ..
             } => {
+                // Check if the impl block is for a generic type (has type_args like `impl Foo<T>`)
+                let is_generic_impl = !type_args.is_empty()
+                    && type_args.iter().any(|a| {
+                        matches!(&a.node, TypeExpr::Named(n) if self.generic_structs.contains_key(n.as_str()) || self.generic_enums.contains_key(n.as_str()) || n.chars().next().map_or(false, |c| c.is_uppercase() && n.len() == 1))
+                    });
+
+                // Also check if the base type is a generic struct/enum
+                let base_is_generic = self.generic_structs.contains_key(type_name)
+                    || self.generic_enums.contains_key(type_name);
+
+                if base_is_generic {
+                    // Store methods as generic impl methods
+                    let methods_list = self
+                        .generic_impl_methods
+                        .entry(type_name.clone())
+                        .or_default();
+
+                    for method_item in methods {
+                        if let Item::FnDef {
+                            name: method_name,
+                            type_params,
+                            params,
+                            return_type,
+                            body,
+                            is_pub,
+                        } = &method_item.node
+                        {
+                            // Collect type params from the type_args of the impl block
+                            let impl_type_params: Vec<TypeParam> = type_args
+                                .iter()
+                                .filter_map(|a| {
+                                    if let TypeExpr::Named(n) = &a.node {
+                                        // Treat single uppercase names as type params
+                                        Some(TypeParam {
+                                            name: n.clone(),
+                                            bounds: vec![],
+                                            span: a.span,
+                                        })
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect();
+
+                            methods_list.push(GenericImplMethod {
+                                type_params: impl_type_params,
+                                method_name: method_name.clone(),
+                                ast_params: params.clone(),
+                                ast_return_type: return_type.clone(),
+                                ast_body: body.clone(),
+                                span: method_item.span,
+                                is_pub: *is_pub,
+                            });
+                        }
+                    }
+
+                    // If this is an interface impl, record it for the base type name
+                    if let Some(iface_name) = interface_name {
+                        self.interface_impls
+                            .entry(iface_name.clone())
+                            .or_default()
+                            .push(type_name.clone());
+                    }
+                    return;
+                }
+
                 // Resolve the type for self parameter (struct or enum)
                 let self_ty = self
                     .structs
@@ -186,6 +347,9 @@ impl Checker {
                         .push(type_name.clone());
                 }
 
+                // Set Self type scope so that Self resolves to the impl target type
+                self.type_param_scope.insert("Self".into(), self_ty);
+
                 // Register each method as a mangled function: TypeName__methodname
                 for method_item in methods {
                     if let Item::FnDef {
@@ -197,7 +361,7 @@ impl Checker {
                     {
                         let mangled_name = format!("{}__{}", type_name, method_name);
 
-                        // Resolve params, replacing Self type with the actual type
+                        // Resolve params, replacing Self/self type with the actual type
                         let resolved_params: Vec<(String, TypeId)> = params
                             .iter()
                             .map(|p| {
@@ -240,10 +404,90 @@ impl Checker {
                                 has_default,
                                 is_method,
                                 is_mut_method,
+                                generic_def: None,
                             },
                         );
                     }
                 }
+
+                // Validate interface completeness
+                if let Some(iface_name) = interface_name {
+                    if let Some(&iface_ty) = self.interfaces.get(iface_name) {
+                        if let TypeKind::Interface {
+                            methods: iface_methods,
+                            ..
+                        } = self.types.resolve(iface_ty).clone()
+                        {
+                            for iface_method in &iface_methods {
+                                let mangled = format!("{}__{}", type_name, iface_method.name);
+                                if let Some(impl_sig) = self.functions.get(&mangled) {
+                                    // Compare return types
+                                    let ret_match =
+                                        impl_sig.return_type == iface_method.return_type;
+                                    // Compare non-self params (skip first param which is self)
+                                    let iface_non_self: Vec<_> =
+                                        iface_method.params.iter().skip(1).collect();
+                                    let impl_non_self: Vec<_> =
+                                        impl_sig.params.iter().skip(1).collect();
+                                    let params_match = iface_non_self.len() == impl_non_self.len()
+                                        && iface_non_self.iter().zip(impl_non_self.iter()).all(
+                                            |((_, iface_ty), (_, impl_ty))| iface_ty == impl_ty,
+                                        );
+                                    if !ret_match || !params_match {
+                                        let expected = format!(
+                                            "fn({}) -> {}",
+                                            iface_non_self
+                                                .iter()
+                                                .map(|(n, t)| format!(
+                                                    "{}: {}",
+                                                    n,
+                                                    self.type_name(*t)
+                                                ))
+                                                .collect::<Vec<_>>()
+                                                .join(", "),
+                                            self.type_name(iface_method.return_type)
+                                        );
+                                        let found = format!(
+                                            "fn({}) -> {}",
+                                            impl_non_self
+                                                .iter()
+                                                .map(|(n, t)| format!(
+                                                    "{}: {}",
+                                                    n,
+                                                    self.type_name(*t)
+                                                ))
+                                                .collect::<Vec<_>>()
+                                                .join(", "),
+                                            self.type_name(impl_sig.return_type)
+                                        );
+                                        self.diagnostics.add(
+                                            &CheckerDiagnostic::InterfaceMethodSignatureMismatch {
+                                                span: item.span,
+                                                type_name: type_name.clone(),
+                                                interface_name: iface_name.clone(),
+                                                method: iface_method.name.clone(),
+                                                expected,
+                                                found,
+                                            },
+                                        );
+                                    }
+                                } else {
+                                    self.diagnostics.add(
+                                        &CheckerDiagnostic::MissingInterfaceMethod {
+                                            span: item.span,
+                                            type_name: type_name.clone(),
+                                            interface_name: iface_name.clone(),
+                                            method: iface_method.name.clone(),
+                                        },
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Clear Self type scope
+                self.type_param_scope.remove("Self");
             }
             Item::Import { .. } => {
                 // Imports are handled at the pipeline level
@@ -289,6 +533,7 @@ impl Checker {
                             has_default: vec![false; param_count],
                             is_method: false,
                             is_mut_method: false,
+                            generic_def: None,
                         },
                     );
                 }

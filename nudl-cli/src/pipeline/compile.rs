@@ -22,7 +22,7 @@ use super::{CompileResult, DumpOptions, PipelineResult};
 fn resolve_import_path(
     source_dir: &Path,
     import_path: &[String],
-    workspace_root: &Path,
+    std_root: &Path,
 ) -> Option<PathBuf> {
     // Build the relative path from import segments
     let mut rel_path = PathBuf::new();
@@ -52,16 +52,13 @@ fn resolve_import_path(
     }
 
     // 3. Try in nudl-std directory
-    let std_candidate = workspace_root.join("nudl-std").join(&rel_path);
+    let std_candidate = std_root.join(&rel_path);
     if std_candidate.exists() {
         return Some(std_candidate);
     }
 
     // 4. Try nudl-std directory as directory/lib.nudl
-    let std_candidate = workspace_root
-        .join("nudl-std")
-        .join(&dir_path)
-        .join("lib.nudl");
+    let std_candidate = std_root.join(&dir_path).join("lib.nudl");
     if std_candidate.exists() {
         return Some(std_candidate);
     }
@@ -76,7 +73,7 @@ fn resolve_import_path(
                 std_rel.push(segment);
             }
         }
-        let candidate = workspace_root.join("nudl-std").join(&std_rel);
+        let candidate = std_root.join(&std_rel);
         if candidate.exists() {
             return Some(candidate);
         }
@@ -85,10 +82,7 @@ fn resolve_import_path(
         for segment in &import_path[1..] {
             dir_path.push(segment);
         }
-        let candidate = workspace_root
-            .join("nudl-std")
-            .join(&dir_path)
-            .join("lib.nudl");
+        let candidate = std_root.join(&dir_path).join("lib.nudl");
         if candidate.exists() {
             return Some(candidate);
         }
@@ -97,17 +91,19 @@ fn resolve_import_path(
     None
 }
 
-/// Find the workspace root by looking for Cargo.toml
-fn find_workspace_root(start: &Path) -> PathBuf {
-    let mut dir = start.to_path_buf();
-    loop {
-        if dir.join("Cargo.toml").exists() {
-            return dir;
-        }
-        if !dir.pop() {
-            return start.to_path_buf();
-        }
+/// Default nudl-std path, baked in at compile time from the workspace root.
+const DEFAULT_STD_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../nudl-std");
+
+/// Resolve the nudl-std directory. Uses the explicit override if provided,
+/// then checks `NUDL_STD_PATH` env var, then falls back to the compile-time default.
+fn find_std_root(explicit: Option<&Path>) -> PathBuf {
+    if let Some(path) = explicit {
+        return path.to_path_buf();
     }
+    if let Ok(path) = std::env::var("NUDL_STD_PATH") {
+        return PathBuf::from(path);
+    }
+    PathBuf::from(DEFAULT_STD_PATH)
 }
 
 /// Parse a file and return its module, accumulating diagnostics.
@@ -143,21 +139,42 @@ fn parse_file(
 
 /// Resolve and merge imports from a module.
 /// Returns the merged module with imported items prepended.
+/// Automatically injects the prelude unless the source IS the prelude.
 fn resolve_imports(
     module: Module,
     source_path: &Path,
+    std_path: Option<&Path>,
     source_map: &mut SourceMap,
     diagnostics: &mut DiagnosticBag,
 ) -> Module {
     let source_dir = source_path.parent().unwrap_or(Path::new("."));
-    let workspace_root = find_workspace_root(source_dir);
+    let std_root = find_std_root(std_path);
     let mut merged_items = Vec::new();
     let mut imported_files: HashSet<PathBuf> = HashSet::new();
 
-    // Process imports first
+    // Auto-import prelude unless the source file IS the prelude
+    let prelude_path = std_root.join("prelude.nudl");
+    let is_prelude = source_path
+        .canonicalize()
+        .ok()
+        .and_then(|sp| prelude_path.canonicalize().ok().map(|pp| sp == pp))
+        .unwrap_or(false);
+
+    if !is_prelude && prelude_path.exists() {
+        imported_files.insert(prelude_path.clone());
+        if let Some(prelude_module) = parse_file(&prelude_path, source_map, diagnostics) {
+            for imp_item in prelude_module.items {
+                if !matches!(&imp_item.node, Item::Import { .. }) {
+                    merged_items.push(imp_item);
+                }
+            }
+        }
+    }
+
+    // Process user imports
     for item in &module.items {
         if let Item::Import { path, .. } = &item.node {
-            if let Some(import_path) = resolve_import_path(source_dir, path, &workspace_root) {
+            if let Some(import_path) = resolve_import_path(source_dir, path, &std_root) {
                 if imported_files.contains(&import_path) {
                     continue; // Skip duplicate imports
                 }
@@ -184,7 +201,7 @@ fn resolve_imports(
     }
 }
 
-pub fn check(source_path: &Path, dump: &DumpOptions) -> PipelineResult {
+pub fn check(source_path: &Path, std_path: Option<&Path>, dump: &DumpOptions) -> PipelineResult {
     let mut source_map = SourceMap::new();
     let mut diagnostics = DiagnosticBag::new();
 
@@ -198,7 +215,13 @@ pub fn check(source_path: &Path, dump: &DumpOptions) -> PipelineResult {
         }
     };
 
-    let module = resolve_imports(module, source_path, &mut source_map, &mut diagnostics);
+    let module = resolve_imports(
+        module,
+        source_path,
+        std_path,
+        &mut source_map,
+        &mut diagnostics,
+    );
     if diagnostics.has_errors() {
         return PipelineResult {
             source_map,
@@ -227,6 +250,7 @@ pub fn check(source_path: &Path, dump: &DumpOptions) -> PipelineResult {
 pub fn build(
     source_path: &Path,
     output_path: &Path,
+    std_path: Option<&Path>,
     release: bool,
     dump: &DumpOptions,
 ) -> CompileResult {
@@ -244,7 +268,13 @@ pub fn build(
         }
     };
 
-    let module = resolve_imports(module, source_path, &mut source_map, &mut diagnostics);
+    let module = resolve_imports(
+        module,
+        source_path,
+        std_path,
+        &mut source_map,
+        &mut diagnostics,
+    );
     if diagnostics.has_errors() {
         return CompileResult {
             source_map,
@@ -307,7 +337,7 @@ pub fn build(
     }
 }
 
-pub fn run_vm(source_path: &Path, dump: &DumpOptions) -> CompileResult {
+pub fn run_vm(source_path: &Path, std_path: Option<&Path>, dump: &DumpOptions) -> CompileResult {
     let mut source_map = SourceMap::new();
     let mut diagnostics = DiagnosticBag::new();
 
@@ -322,7 +352,13 @@ pub fn run_vm(source_path: &Path, dump: &DumpOptions) -> CompileResult {
         }
     };
 
-    let module = resolve_imports(module, source_path, &mut source_map, &mut diagnostics);
+    let module = resolve_imports(
+        module,
+        source_path,
+        std_path,
+        &mut source_map,
+        &mut diagnostics,
+    );
     if diagnostics.has_errors() {
         return CompileResult {
             source_map,

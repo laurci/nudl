@@ -56,6 +56,10 @@ impl SourceMap {
         &self.files[id.0 as usize]
     }
 
+    pub fn file_count(&self) -> usize {
+        self.files.len()
+    }
+
     pub fn span_to_location(&self, span: Span) -> (&SourceFile, u32, u32) {
         let file = self.get_file(span.file_id);
         let (line, col) = file.line_col(span.start);

@@ -70,7 +70,30 @@ impl Parser {
         let start = self.expect(TokenKind::Let)?.span;
         let is_mut = self.eat(TokenKind::Mut);
 
-        // Check for pattern-based destructuring: let (a, b) = ... or let Foo { x, y } = ...
+        // Check for pattern-based destructuring: let [a, b] = ..., let (a, b) = ..., let Foo { x, y } = ...
+        if self.peek_kind() == TokenKind::LBracket {
+            // Array destructuring: let [a, b, c] = expr;
+            let pattern = self.parse_pattern()?;
+            let ty = if self.eat(TokenKind::Colon) {
+                Some(self.parse_type()?)
+            } else {
+                None
+            };
+            self.expect(TokenKind::Eq)?;
+            let value = self.parse_expr()?;
+            let end = value.span;
+            self.eat(TokenKind::Semi);
+            return Some(Spanned::new(
+                Stmt::LetPattern {
+                    pattern,
+                    ty,
+                    value,
+                    is_mut,
+                },
+                start.merge(end),
+            ));
+        }
+
         if self.peek_kind() == TokenKind::LParen {
             // Tuple destructuring: let (a, b, c) = expr;
             let pattern = self.parse_pattern()?;

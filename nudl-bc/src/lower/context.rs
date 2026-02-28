@@ -44,6 +44,12 @@ pub struct FunctionLowerCtx<'a> {
     pub(super) return_type: nudl_core::types::TypeId,
     /// Hint for inferring closure parameter types from the expected function type.
     pub(super) closure_type_hint: Option<nudl_core::types::TypeId>,
+    /// Generic call site -> mangled function name
+    pub(super) call_resolutions: &'a HashMap<Span, String>,
+    /// Generic struct literal -> mangled struct name
+    pub(super) struct_resolutions: &'a HashMap<Span, String>,
+    /// Generic enum constructor -> mangled enum name
+    pub(super) enum_resolutions: &'a HashMap<Span, String>,
 }
 
 impl<'a> FunctionLowerCtx<'a> {

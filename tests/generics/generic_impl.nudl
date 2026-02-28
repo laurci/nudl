@@ -1,0 +1,16 @@
+// Test: generic struct with impl block
+
+struct Wrapper<T> {
+    value: T,
+}
+
+impl Wrapper<T> {
+    fn get(self) -> T {
+        self.value
+    }
+}
+
+fn main() {
+    let w = Wrapper { value: 42 };
+    let v = w.get();
+}

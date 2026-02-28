@@ -24,13 +24,24 @@ impl<'a> FunctionLowerCtx<'a> {
                 dst
             }
             "__str_concat" | "__i32_to_str" | "__i64_to_str" | "__f64_to_str" | "__bool_to_str"
-            | "__char_to_str" => {
+            | "__char_to_str" | "__str_substr" | "__str_trim" | "__str_to_upper"
+            | "__str_to_lower" | "__str_replace" | "__str_repeat" => {
                 let arg_regs: Vec<Register> =
                     args.iter().map(|a| self.lower_expr(&a.value)).collect();
                 self.current_span = call_span;
                 let sym = self.interner.intern(name);
                 let string_ty = self.types.string();
                 let dst = self.alloc_typed_register(string_ty);
+                self.push_inst(Instruction::Call(dst, FunctionRef::Builtin(sym), arg_regs));
+                dst
+            }
+            "__str_indexof" | "__str_contains" | "__str_starts_with" | "__str_ends_with" => {
+                let arg_regs: Vec<Register> =
+                    args.iter().map(|a| self.lower_expr(&a.value)).collect();
+                self.current_span = call_span;
+                let sym = self.interner.intern(name);
+                let i64_ty = self.types.i64();
+                let dst = self.alloc_typed_register(i64_ty);
                 self.push_inst(Instruction::Call(dst, FunctionRef::Builtin(sym), arg_regs));
                 dst
             }
@@ -186,7 +197,10 @@ impl<'a> FunctionLowerCtx<'a> {
                     resolved[pos] = Some(reg);
                 }
             } else {
-                // Positional arg that came after named
+                // Positional arg that came after named — skip already-filled slots
+                while positional_idx < callable_params.len() && resolved[positional_idx].is_some() {
+                    positional_idx += 1;
+                }
                 if positional_idx < callable_params.len() {
                     let (_, pty) = &callable_params[positional_idx];
                     if matches!(self.types.resolve(*pty), TypeKind::Function { .. }) {
@@ -260,10 +274,13 @@ impl<'a> FunctionLowerCtx<'a> {
         let arg_regs = self.resolve_call_args(name, sig, args, skip_params);
         self.current_span = call_span;
 
-        // Caller-retain for struct-typed args
+        // Caller-retain for reference-typed args (except String)
         if !is_extern {
             for (i, (_pname, pty)) in sig.params[skip_params..].iter().enumerate() {
-                if self.types.is_struct(*pty) && i < arg_regs.len() {
+                if self.types.is_reference_type(*pty)
+                    && !matches!(self.types.resolve(*pty), TypeKind::String)
+                    && i < arg_regs.len()
+                {
                     self.push_inst(Instruction::Retain(arg_regs[i]));
                 }
             }
@@ -298,9 +315,12 @@ impl<'a> FunctionLowerCtx<'a> {
 
         self.current_span = call_span;
 
-        // Caller-retain for struct-typed args
+        // Caller-retain for reference-typed args (except String)
         for (i, (_pname, pty)) in sig.params.iter().enumerate() {
-            if self.types.is_struct(*pty) && i < arg_regs.len() {
+            if self.types.is_reference_type(*pty)
+                && !matches!(self.types.resolve(*pty), TypeKind::String)
+                && i < arg_regs.len()
+            {
                 self.push_inst(Instruction::Retain(arg_regs[i]));
             }
         }

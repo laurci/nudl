@@ -18,9 +18,16 @@ pub(super) fn emit_function<'ctx>(
     dibuilder: &DebugInfoBuilder<'ctx>,
     compile_unit: &DICompileUnit<'ctx>,
     source_map: Option<&SourceMap>,
+    di_files: &HashMap<u32, DIFile<'ctx>>,
 ) -> Result<(), BackendError> {
     let fn_val = function_map[&func.id.0];
     let layout = ParamLayout::compute(func, types);
+
+    // Resolve the correct DIFile for this function based on its span's file_id.
+    let func_di_file = di_files
+        .get(&func.span.file_id.0)
+        .copied()
+        .unwrap_or_else(|| compile_unit.get_file());
 
     // Create debug info for this function
     let func_line = if let Some(sm) = source_map {
@@ -35,14 +42,14 @@ pub(super) fn emit_function<'ctx>(
     };
 
     let subroutine_type =
-        dibuilder.create_subroutine_type(compile_unit.get_file(), None, &[], DIFlags::PUBLIC);
+        dibuilder.create_subroutine_type(func_di_file, None, &[], DIFlags::PUBLIC);
 
     let func_name = program.interner.resolve(func.name);
     let di_subprogram = dibuilder.create_function(
         compile_unit.as_debug_info_scope(),
         func_name,
         None,
-        compile_unit.get_file(),
+        func_di_file,
         func_line,
         subroutine_type,
         true,
@@ -54,9 +61,10 @@ pub(super) fn emit_function<'ctx>(
     fn_val.set_subprogram(di_subprogram);
     let di_scope = di_subprogram.as_debug_info_scope();
 
-    // Set default debug location to the function's start line
-    let default_debug_loc =
-        dibuilder.create_debug_location(context, func_line.max(1), 0, di_scope, None);
+    // Default debug location uses line 0 ("no source attribution") so that
+    // compiler-generated instructions (allocas, empty merge blocks, loop
+    // back-edges) don't cause the debugger to jump to the function declaration.
+    let default_debug_loc = dibuilder.create_debug_location(context, 0, 0, di_scope, None);
     builder.set_current_debug_location(default_debug_loc);
 
     // Entry block for allocas
@@ -228,6 +236,10 @@ pub(super) fn emit_function<'ctx>(
             builder,
             &block_map,
             &register_allocas,
+            &str_ptr_allocas,
+            &str_len_allocas,
+            reg_string_info,
+            string_constants,
             types,
             is_entry,
         )?;

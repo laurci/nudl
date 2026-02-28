@@ -62,6 +62,10 @@ Documentation is organized into three directories under `docs/` (see `docs/READM
 
 Each directory has a `README.md` index linking to all files with descriptions. These are the source of truth for language semantics. All implementation should conform to these specs.
 
+## Testing the Compiler
+
+When testing `.nudl` files with `cargo run --bin nudl -- build/run`, place any compiled output binaries in `./tmp/` or `/tmp/`, never in the project root.
+
 ## Implementation Tracking
 
 **Always update `STATUS.md` after implementing a feature or making significant progress.** Mark items as `[x]` (complete), `[~]` (partial), or add new entries as needed. Include a brief note describing what was done.
