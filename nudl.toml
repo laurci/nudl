@@ -17,3 +17,7 @@ link = [
     "-framework", "OpenGL",
     "-framework", "CoreFoundation",
 ]
+
+[[bin]]
+name = "server"
+path = "playground/server.nudl"

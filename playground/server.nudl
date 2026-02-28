@@ -1,0 +1,85 @@
+import std::ffi;
+import std::string;
+
+extern struct sockaddr_in {
+    sin_len: u8,        // 1B
+    sin_family: u8,     // 1B  (AF_INET = 2)
+    sin_port: u16,      // 2B  (network byte order)
+    sin_addr: u32,      // 4B  (INADDR_ANY = 0)
+    sin_zero_a: u32,    // 4B  padding
+    sin_zero_b: u32,    // 4B  padding
+}
+
+extern {
+    fn socket(domain: i32, type_: i32, protocol: i32) -> i32;
+    fn bind(sockfd: i32, addr: RawPtr, addrlen: u32) -> i32;
+    fn listen(sockfd: i32, backlog: i32) -> i32;
+    fn accept(sockfd: i32, addr: i64, addrlen: i64) -> i32;
+    fn read(fd: i32, buf: RawPtr, count: u64) -> RawPtr;
+    fn close(fd: i32) -> i32;
+    fn setsockopt(sockfd: i32, level: i32, optname: i32, optval: RawPtr, optlen: u32) -> i32;
+    fn malloc(size: u64) -> RawPtr;
+    fn free(ptr: RawPtr) -> ();
+}
+
+fn main() {
+    const AF_INET: i32 = 2;
+    const SOCK_STREAM: i32 = 1;
+    const SOL_SOCKET: i32 = 65535;
+    const SO_REUSEADDR: i32 = 4;
+    const PORT: u16 = 36895u16;  // htons(8080) pre-computed
+
+    let fd = socket(AF_INET, SOCK_STREAM, 0);
+    if fd < 0 {
+        println("error: failed to create socket");
+        return;
+    }
+
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, cptr(1), 4u32);
+
+    let addr = sockaddr_in {
+        sin_len: 16u8,
+        sin_family: 2u8,
+        sin_port: PORT,
+        sin_addr: 0u32,
+        sin_zero_a: 0u32,
+        sin_zero_b: 0u32,
+    };
+
+    let ret = bind(fd, cptr(addr), 16u32);
+    if ret < 0 {
+        println("error: failed to bind");
+        close(fd);
+        return;
+    }
+
+    // Listen
+    let ret = listen(fd, 128);
+    if ret < 0 {
+        println("error: failed to listen");
+        close(fd);
+        return;
+    }
+
+    println("listening on http://localhost:8080");
+
+    let buf = malloc(1024u64);
+
+    let body = "<html><body><h1>Hello from nudl!</h1><p>This server is written entirely in nudl using raw POSIX sockets.</p></body></html>";
+    let response = `HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\nContent-Length: {str_len(body)}\r\n\r\n{body}`;
+
+    while true {
+        let client = accept(fd, 0i64, 0i64);
+        if client < 0 {
+            continue;
+        }
+
+        read(client, buf, 1024u64);
+        write(client, cstr(response), cstr_len(response));
+
+        close(client);
+    }
+
+    free(buf);
+    close(fd);
+}
