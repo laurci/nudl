@@ -146,7 +146,7 @@
 - [x] Glob imports — `import std::io::*;` parsed (`tests/modules/glob-import/`)
 - [x] Module paths — `::` path resolution, nudl-std/ search, workspace root detection (`tests/modules/module-paths/`)
 - [x] Prelude auto-import — nudl-std/prelude.nudl is automatically imported into all user programs (unless the file is the prelude itself); provides Option<T>, Result<T,E>, operator interfaces, core interfaces, print/println, collection utils, min/max/clamp
-- [ ] Visibility — `pub` keyword parsed but not enforced at import boundaries (`tests/modules/visibility/`)
+- [x] Visibility — `pub` keyword enforced at import boundaries; private functions, methods, struct fields, and types are rejected with "not public" diagnostics when accessed cross-module (`tests/modules/visibility/`)
 
 ## 13. Async & Concurrency
 - [ ] Async functions (`tests/async/async_fn.nudl`)
@@ -188,6 +188,7 @@
 - [x] Extern structs — `extern struct` syntax for C-compatible value-type structs: stack-allocated, no ARC, native field sizes (i8/i16/i32/i64/f32/f64); passed by value to extern functions with correct C struct layout; field access via TupleLoad/TupleStore; extern functions can return extern structs; no drop functions generated
 - [x] cptr() builtin — `cptr(value) -> RawPtr` for getting a raw pointer to a C-layout copy of any value type (extern struct, fixed array, dynamic array data, primitives)
 - [x] Extern struct/fixed array return values — extern functions returning extern structs or fixed arrays now use the correct C-compatible LLVM return type; results are unpacked into internal tuple alloca storage
+- [x] Large extern struct ABI (> 16 bytes) — on ARM64, large extern structs (> 16 bytes) are passed indirectly via pointer in register (matching Clang, NOT using LLVM byval) and returned via `sret` pointer in x8; fixes crashes with raylib Image (24 bytes) and Texture (20 bytes)
 - [ ] Const at module level
 - [ ] Extern statics
 - [ ] Callbacks (#[extern_callable])

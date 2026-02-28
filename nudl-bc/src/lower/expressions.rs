@@ -1354,7 +1354,8 @@ impl<'a> FunctionLowerCtx<'a> {
             Some(nudl_core::types::TypeKind::Primitive(nudl_core::types::PrimitiveType::I64)) => {
                 "__i64_to_str"
             }
-            Some(nudl_core::types::TypeKind::Primitive(nudl_core::types::PrimitiveType::F64)) => {
+            Some(nudl_core::types::TypeKind::Primitive(nudl_core::types::PrimitiveType::F32))
+            | Some(nudl_core::types::TypeKind::Primitive(nudl_core::types::PrimitiveType::F64)) => {
                 "__f64_to_str"
             }
             Some(nudl_core::types::TypeKind::Primitive(nudl_core::types::PrimitiveType::Bool)) => {

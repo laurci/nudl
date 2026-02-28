@@ -2,32 +2,32 @@
 // Features: [f64; N], operator overloading (Add, Mul), comptime params, methods
 
 // 2x2 matrix stored as flat fixed-size array
-struct Matrix2 {
+pub struct Matrix2 {
     data: [f64; 4],  // row-major: [m00, m01, m10, m11]
 }
 
 impl Matrix2 {
-    fn new(m00: f64, m01: f64, m10: f64, m11: f64) -> Matrix2 {
+    pub fn new(m00: f64, m01: f64, m10: f64, m11: f64) -> Matrix2 {
         Matrix2 { data: [m00, m01, m10, m11] }
     }
 
-    fn identity() -> Matrix2 {
+    pub fn identity() -> Matrix2 {
         Matrix2::new(1.0, m01: 0.0, m10: 0.0, m11: 0.0)
     }
 
-    fn zero() -> Matrix2 {
+    pub fn zero() -> Matrix2 {
         Matrix2 { data: [0.0; 4] }
     }
 
-    fn at(self, row: i32, col: i32) -> f64 {
+    pub fn at(self, row: i32, col: i32) -> f64 {
         self.data[row * 2 + col]
     }
 
-    fn determinant(self) -> f64 {
+    pub fn determinant(self) -> f64 {
         self.data[0] * self.data[3] - self.data[1] * self.data[2]
     }
 
-    fn transpose(self) -> Matrix2 {
+    pub fn transpose(self) -> Matrix2 {
         Matrix2::new(
             self.data[0],
             m01: self.data[2],
@@ -36,7 +36,7 @@ impl Matrix2 {
         )
     }
 
-    fn scale(self, factor: f64) -> Matrix2 {
+    pub fn scale(self, factor: f64) -> Matrix2 {
         Matrix2 {
             data: [
                 self.data[0] * factor,
@@ -91,12 +91,12 @@ impl Printable for Matrix2 {
 
 // Vector2 for matrix-vector multiplication
 pub struct Vec2 {
-    x: f64,
-    y: f64,
+    pub x: f64,
+    pub y: f64,
 }
 
 impl Vec2 {
-    fn new(x: f64, y: f64) -> Vec2 {
+    pub fn new(x: f64, y: f64) -> Vec2 {
         Vec2 { x, y }
     }
 }

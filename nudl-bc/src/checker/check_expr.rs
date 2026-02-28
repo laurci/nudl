@@ -48,6 +48,13 @@ impl Checker {
                 if let Expr::Ident(name) = &callee.node {
                     let sig = self.functions.get(name).cloned();
                     if let Some(sig) = sig {
+                        // Check visibility: reject calls to non-public functions from other modules
+                        if !sig.is_pub && self.is_cross_module_access(expr.span, sig.source_file_id) {
+                            self.diagnostics.add(&CheckerDiagnostic::PrivateFunction {
+                                span: expr.span,
+                                name: name.clone(),
+                            });
+                        }
                         // Check if this is a generic function that needs monomorphization
                         if let Some(generic_def) = sig.generic_def.clone() {
                             // Infer type arguments from call arguments
@@ -256,6 +263,14 @@ impl Checker {
                 let sig = self.functions.get(&mangled_name).cloned();
 
                 if let Some(sig) = sig {
+                    // Check visibility: reject calls to non-public methods from other modules
+                    if !sig.is_pub && self.is_cross_module_access(expr.span, sig.source_file_id) {
+                        self.diagnostics.add(&CheckerDiagnostic::PrivateMethod {
+                            span: expr.span,
+                            ty: type_name.clone(),
+                            method: method.clone(),
+                        });
+                    }
                     // Check mutability for `mut self` methods
                     if sig.is_mut_method {
                         // Check if the object is a mutable binding
@@ -369,6 +384,16 @@ impl Checker {
                 method,
                 args,
             } => {
+                // Check type visibility
+                if let Some((is_type_pub, file_id)) = self.type_visibility.get(type_name.as_str())
+                {
+                    if !is_type_pub && self.is_cross_module_access(expr.span, *file_id) {
+                        self.diagnostics.add(&CheckerDiagnostic::PrivateType {
+                            span: expr.span,
+                            name: type_name.clone(),
+                        });
+                    }
+                }
                 // Check if this is an enum tuple variant constructor
                 if let Some(&enum_ty) = self.enums.get(type_name.as_str()) {
                     let variants = match self.types.resolve(enum_ty).clone() {
@@ -1269,15 +1294,45 @@ impl Checker {
                     return self.types.error();
                 };
 
+                // Check type visibility
+                if let Some((is_type_pub, file_id)) = self.type_visibility.get(name) {
+                    if !is_type_pub && self.is_cross_module_access(expr.span, *file_id) {
+                        self.diagnostics.add(&CheckerDiagnostic::PrivateType {
+                            span: expr.span,
+                            name: name.clone(),
+                        });
+                    }
+                }
+
                 let expected_fields = match self.types.resolve(struct_ty).clone() {
                     TypeKind::Struct { fields: f, .. } => f,
                     _ => return self.types.error(),
                 };
 
-                // Check for unknown fields
+                // Check for unknown fields and field visibility
                 for (field_name, field_val) in fields {
                     let expected = expected_fields.iter().find(|(n, _)| n == field_name);
                     if let Some((_, expected_ty)) = expected {
+                        // Check field visibility
+                        if let Some((_, file_id)) = self.type_visibility.get(name) {
+                            if self.is_cross_module_access(expr.span, *file_id) {
+                                if let Some(field_vis) = self.field_visibility.get(name) {
+                                    if let Some((_, is_field_pub)) =
+                                        field_vis.iter().find(|(n, _)| n == field_name)
+                                    {
+                                        if !is_field_pub {
+                                            self.diagnostics.add(
+                                                &CheckerDiagnostic::PrivateField {
+                                                    span: field_val.span,
+                                                    name: name.clone(),
+                                                    field: field_name.clone(),
+                                                },
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         let val_ty = self.check_expr(field_val, locals);
                         if val_ty != *expected_ty
                             && val_ty != self.types.error()
@@ -1322,6 +1377,26 @@ impl Checker {
                 match self.types.resolve(obj_ty).clone() {
                     TypeKind::Struct { name, fields, .. } => {
                         if let Some((_, field_ty)) = fields.iter().find(|(n, _)| n == field) {
+                            // Check field visibility
+                            if let Some(&(_, file_id)) = self.type_visibility.get(&name) {
+                                if self.is_cross_module_access(expr.span, file_id) {
+                                    if let Some(field_vis) = self.field_visibility.get(&name) {
+                                        if let Some((_, is_field_pub)) =
+                                            field_vis.iter().find(|(n, _)| n == field)
+                                        {
+                                            if !is_field_pub {
+                                                self.diagnostics.add(
+                                                    &CheckerDiagnostic::PrivateField {
+                                                        span: expr.span,
+                                                        name: name.clone(),
+                                                        field: field.clone(),
+                                                    },
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                             *field_ty
                         } else {
                             self.diagnostics.add(&CheckerDiagnostic::UnknownField {
@@ -1539,6 +1614,16 @@ impl Checker {
                 variant,
                 args,
             } => {
+                // Check type visibility
+                if let Some((is_type_pub, file_id)) = self.type_visibility.get(enum_name.as_str())
+                {
+                    if !is_type_pub && self.is_cross_module_access(expr.span, *file_id) {
+                        self.diagnostics.add(&CheckerDiagnostic::PrivateType {
+                            span: expr.span,
+                            name: enum_name.clone(),
+                        });
+                    }
+                }
                 // Look up enum type
                 if let Some(&enum_ty) = self.enums.get(enum_name.as_str()) {
                     let variants = match self.types.resolve(enum_ty).clone() {

@@ -13,6 +13,7 @@ impl Checker {
         return_type: &Option<Spanned<TypeExpr>>,
         body: Option<&Spanned<Block>>,
         span: Span,
+        is_pub: bool,
     ) {
         if self.functions.contains_key(name) {
             self.diagnostics.add(&CheckerDiagnostic::DuplicateFunction {
@@ -60,6 +61,8 @@ impl Checker {
                     is_method,
                     is_mut_method,
                     generic_def: Some(generic_def),
+                    is_pub,
+                    source_file_id: span.file_id,
                 },
             );
             return;
@@ -93,6 +96,8 @@ impl Checker {
                 is_method,
                 is_mut_method,
                 generic_def: None,
+                is_pub,
+                source_file_id: span.file_id,
             },
         );
     }
@@ -105,7 +110,7 @@ impl Checker {
                 params,
                 return_type,
                 body,
-                ..
+                is_pub,
             } => {
                 if name == "main" {
                     self.found_main = true;
@@ -122,12 +127,14 @@ impl Checker {
                     return_type,
                     Some(body),
                     item.span,
+                    *is_pub,
                 );
             }
             Item::StructDef {
                 name,
                 type_params,
                 fields,
+                is_pub,
                 ..
             } => {
                 if self.structs.contains_key(name) || self.generic_structs.contains_key(name) {
@@ -137,6 +144,18 @@ impl Checker {
                     });
                     return;
                 }
+
+                // Record type visibility
+                self.type_visibility
+                    .insert(name.clone(), (*is_pub, item.span.file_id));
+                // Record field visibility
+                self.field_visibility.insert(
+                    name.clone(),
+                    fields
+                        .iter()
+                        .map(|f| (f.name.clone(), f.is_pub))
+                        .collect(),
+                );
 
                 // If generic, store as template
                 if !type_params.is_empty() {
@@ -175,7 +194,7 @@ impl Checker {
                 name,
                 type_params,
                 variants,
-                ..
+                is_pub,
             } => {
                 if self.enums.contains_key(name)
                     || self.structs.contains_key(name)
@@ -187,6 +206,10 @@ impl Checker {
                     });
                     return;
                 }
+
+                // Record type visibility
+                self.type_visibility
+                    .insert(name.clone(), (*is_pub, item.span.file_id));
 
                 // If generic, store as template
                 if !type_params.is_empty() {
@@ -230,7 +253,15 @@ impl Checker {
 
                 self.enums.insert(name.clone(), type_id);
             }
-            Item::InterfaceDef { name, methods, .. } => {
+            Item::InterfaceDef {
+                name,
+                methods,
+                is_pub,
+                ..
+            } => {
+                // Record type visibility
+                self.type_visibility
+                    .insert(name.clone(), (*is_pub, item.span.file_id));
                 let resolved_methods: Vec<nudl_core::types::InterfaceMethod> = methods
                     .iter()
                     .map(|m| {
@@ -364,6 +395,7 @@ impl Checker {
                         name: method_name,
                         params,
                         return_type,
+                        is_pub: method_is_pub,
                         ..
                     } = &method_item.node
                     {
@@ -401,6 +433,10 @@ impl Checker {
                             continue;
                         }
 
+                        // Interface impl methods are auto-pub
+                        let effective_pub =
+                            *method_is_pub || interface_name.is_some();
+
                         self.functions.insert(
                             mangled_name,
                             FunctionSig {
@@ -413,6 +449,8 @@ impl Checker {
                                 is_method,
                                 is_mut_method,
                                 generic_def: None,
+                                is_pub: effective_pub,
+                                source_file_id: method_item.span.file_id,
                             },
                         );
                     }
@@ -500,7 +538,10 @@ impl Checker {
             Item::Import { .. } => {
                 // Imports are handled at the pipeline level
             }
-            Item::TypeAlias { name, ty, .. } => {
+            Item::TypeAlias { name, ty, is_pub } => {
+                // Record type visibility
+                self.type_visibility
+                    .insert(name.clone(), (*is_pub, item.span.file_id));
                 // Register the alias as mapping to the resolved type
                 let resolved = self.resolve_type(ty);
                 self.type_aliases.insert(name.clone(), resolved);
@@ -542,6 +583,8 @@ impl Checker {
                             is_method: false,
                             is_mut_method: false,
                             generic_def: None,
+                            is_pub: true, // extern functions are implicitly pub
+                            source_file_id: extern_fn.span.file_id,
                         },
                     );
                 }

@@ -95,14 +95,37 @@ pub(super) fn build_module<'ctx>(
         let ret_is_string = matches!(types.resolve(func.return_type), TypeKind::String);
 
         if func.is_extern {
-            let param_types = build_llvm_param_types(func, types, context, true);
-            let fn_type = if ret_is_string {
+            let mut param_types = build_llvm_param_types(func, types, context, true);
+
+            // Check if return type is a large extern struct (needs sret)
+            let ret_is_large_extern_struct = match types.resolve(func.return_type) {
+                TypeKind::Struct {
+                    fields,
+                    is_extern: true,
+                    ..
+                } => extern_struct_is_large(types, fields),
+                _ => false,
+            };
+
+            let fn_type = if ret_is_large_extern_struct {
+                // Large extern struct return: use void return + sret pointer param
+                let ptr_ty = context.ptr_type(AddressSpace::default());
+                param_types.insert(0, ptr_ty.into());
+                context.void_type().fn_type(&param_types, false)
+            } else if ret_is_string {
                 // Extern string-returning functions return a raw ptr (ARC heap string)
                 context
                     .ptr_type(AddressSpace::default())
                     .fn_type(&param_types, false)
             } else if ret_is_float {
-                context.f64_type().fn_type(&param_types, false)
+                // Use actual C float type (f32 or f64) for extern functions
+                let ret_float_ty = match types.resolve(func.return_type) {
+                    TypeKind::Primitive(nudl_core::types::PrimitiveType::F32) => {
+                        context.f32_type()
+                    }
+                    _ => context.f64_type(),
+                };
+                ret_float_ty.fn_type(&param_types, false)
             } else if let Some(c_ret_ty) = type_to_c_llvm_type(context, types, func.return_type) {
                 // Extern struct or fixed array return type
                 c_ret_ty.fn_type(&param_types, false)
@@ -112,6 +135,30 @@ pub(super) fn build_module<'ctx>(
             let ext_name = func.extern_symbol.as_deref().unwrap_or("unknown_extern");
             let fn_val =
                 module.add_function(ext_name, fn_type, Some(inkwell::module::Linkage::External));
+
+            // Add sret attribute to the first parameter if large struct return
+            if ret_is_large_extern_struct {
+                if let TypeKind::Struct {
+                    fields,
+                    is_extern: true,
+                    ..
+                } = types.resolve(func.return_type)
+                {
+                    let c_struct_ty = build_c_struct_type(context, types, fields);
+                    let sret_attr = context.create_type_attribute(
+                        inkwell::attributes::Attribute::get_named_enum_kind_id("sret"),
+                        c_struct_ty.as_any_type_enum(),
+                    );
+                    fn_val.add_attribute(inkwell::attributes::AttributeLoc::Param(0), sret_attr);
+                }
+            }
+
+            // Note: On ARM64, large struct parameters are passed indirectly by
+            // passing a pointer in a register (not via byval). Clang does NOT use
+            // byval on AArch64. The pack_extern_struct_for_ffi function already
+            // allocates a copy and returns a pointer, so we just declare the param
+            // as `ptr` (which build_llvm_param_types already does for large structs).
+
             function_map.insert(func.id.0, fn_val);
         } else if is_entry {
             let fn_type = context.i32_type().fn_type(&[], false);

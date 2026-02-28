@@ -352,14 +352,10 @@ impl Lowerer {
             type_param_subst: type_param_subst.clone(),
         };
 
-        // Lower body — returns the register holding the result
+        // Lower body — returns the register holding the result.
+        // Deferred blocks are emitted inside lower_block_expr before the
+        // scope is popped, so captured variables resolve correctly.
         let result_reg = ctx.lower_block_expr(&body.node);
-
-        // Emit deferred blocks in LIFO order
-        let deferred = std::mem::take(&mut ctx.deferred_blocks);
-        for block in deferred.into_iter().rev() {
-            ctx.lower_block_expr(&block);
-        }
 
         // If the return value register matches a callee-released param or is reference-typed,
         // retain it before callee-release to prevent premature deallocation when a function

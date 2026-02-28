@@ -67,10 +67,22 @@ fn pack_fixed_array_for_ffi<'ctx>(
                     elem_i64.into()
                 }
             }
-            inkwell::types::BasicTypeEnum::FloatType(t) => builder
-                .build_bit_cast(elem_i64, t, &format!("ffi_f_{}", i))
-                .map_err(|e| BackendError::LlvmError(e.to_string()))?
-                .into(),
+            inkwell::types::BasicTypeEnum::FloatType(t) => {
+                // Internal representation: all floats stored as f64 bits in i64 slots.
+                // Recover the f64 value, then fptrunc to f32 if needed.
+                let f64_val = builder
+                    .build_bit_cast(elem_i64, context.f64_type(), &format!("ffi_f64_{}", i))
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                    .into_float_value();
+                if t == context.f32_type() {
+                    builder
+                        .build_float_trunc(f64_val, t, &format!("ffi_f32_{}", i))
+                        .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                        .into()
+                } else {
+                    f64_val.into()
+                }
+            }
             _ => elem_i64.into(),
         };
 
@@ -83,22 +95,20 @@ fn pack_fixed_array_for_ffi<'ctx>(
     Ok(array_val.into())
 }
 
-/// Pack an extern struct from a TupleAlloc (stack-allocated i64 slots) into a C-compatible LLVM struct value.
+/// Build a C struct value from a TupleAlloc pointer, handling nested extern structs recursively.
 /// Each field is loaded from the tuple alloca (ARC_HEADER_SIZE + field_index * FIELD_SIZE),
 /// truncated to the C field type, and inserted into an LLVM struct.
-fn pack_extern_struct_for_ffi<'ctx>(
+/// For nested extern struct fields, the TupleAlloc slot contains a pointer to the inner
+/// TupleAlloc, which is recursively packed.
+fn build_c_struct_from_tuple<'ctx>(
     context: &'ctx Context,
     builder: &Builder<'ctx>,
-    register_allocas: &HashMap<u32, PointerValue<'ctx>>,
     types: &TypeInterner,
-    reg: u32,
+    obj_ptr: PointerValue<'ctx>,
     fields: &[(String, nudl_core::types::TypeId)],
-) -> Result<BasicValueEnum<'ctx>, BackendError> {
+) -> Result<inkwell::values::StructValue<'ctx>, BackendError> {
     let i64_ty = context.i64_type();
     let c_struct_ty = build_c_struct_type(context, types, fields);
-
-    // Load the ARC object pointer from the register (TupleAlloc stores a pointer as i64)
-    let obj_ptr = load_ptr(context, builder, register_allocas, reg)?;
 
     let mut struct_val = c_struct_ty.get_undef();
     for (i, (_, fty)) in fields.iter().enumerate() {
@@ -114,13 +124,42 @@ fn pack_extern_struct_for_ffi<'ctx>(
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?
         };
 
+        // Handle nested extern struct fields by recursion
+        if let TypeKind::Struct {
+            fields: inner_fields,
+            is_extern: true,
+            ..
+        } = types.resolve(*fty)
+        {
+            // Load pointer to inner TupleAlloc
+            let inner_ptr_i64 = builder
+                .build_load(i64_ty, field_ptr, &format!("es_inner_ptr_{}", i))
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                .into_int_value();
+            let inner_ptr = builder
+                .build_int_to_ptr(
+                    inner_ptr_i64,
+                    context.ptr_type(AddressSpace::default()),
+                    &format!("es_inner_obj_{}", i),
+                )
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            // Recursively build inner C struct
+            let inner_struct_val =
+                build_c_struct_from_tuple(context, builder, types, inner_ptr, inner_fields)?;
+            struct_val = builder
+                .build_insert_value(
+                    struct_val,
+                    inner_struct_val,
+                    i as u32,
+                    &format!("es_insert_{}", i),
+                )
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                .into_struct_value();
+            continue;
+        }
+
         let c_field_ty = match types.resolve(*fty) {
             TypeKind::Primitive(p) => primitive_to_c_type(p, context),
-            TypeKind::Struct {
-                fields: inner_fields,
-                is_extern: true,
-                ..
-            } => build_c_struct_type(context, types, inner_fields).into(),
             _ => i64_ty.into(),
         };
 
@@ -140,14 +179,24 @@ fn pack_extern_struct_for_ffi<'ctx>(
                 }
             }
             inkwell::types::BasicTypeEnum::FloatType(t) => {
+                // Internal representation: all floats stored as f64 bits in i64 slots.
+                // Recover the f64 value, then fptrunc to f32 if needed.
                 let raw = builder
                     .build_load(i64_ty, field_ptr, &format!("es_field_{}", i))
                     .map_err(|e| BackendError::LlvmError(e.to_string()))?
                     .into_int_value();
-                builder
-                    .build_bit_cast(raw, t, &format!("es_float_{}", i))
+                let f64_val = builder
+                    .build_bit_cast(raw, context.f64_type(), &format!("es_f64_{}", i))
                     .map_err(|e| BackendError::LlvmError(e.to_string()))?
-                    .into()
+                    .into_float_value();
+                if t == context.f32_type() {
+                    builder
+                        .build_float_trunc(f64_val, t, &format!("es_f32_{}", i))
+                        .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                        .into()
+                } else {
+                    f64_val.into()
+                }
             }
             _ => builder
                 .build_load(i64_ty, field_ptr, &format!("es_field_{}", i))
@@ -160,13 +209,177 @@ fn pack_extern_struct_for_ffi<'ctx>(
             .into_struct_value();
     }
 
-    // Coerce the struct to the ABI type (integer) for correct parameter passing.
-    // LLVM scalarizes struct parameters into separate registers, but the C ABI
-    // expects small structs packed into a single register.
+    Ok(struct_val)
+}
+
+/// Unpack a C struct value into a TupleAlloc buffer, handling nested extern structs recursively.
+/// For nested extern struct fields, a new TupleAlloc is allocated and recursively populated,
+/// and its pointer is stored in the outer TupleAlloc slot.
+fn unpack_c_struct_to_tuple<'ctx>(
+    context: &'ctx Context,
+    builder: &Builder<'ctx>,
+    types: &TypeInterner,
+    arc: &ArcIntrinsics<'ctx>,
+    struct_val: inkwell::values::StructValue<'ctx>,
+    fields: &[(String, nudl_core::types::TypeId)],
+    obj_ptr: PointerValue<'ctx>,
+) -> Result<(), BackendError> {
+    let i64_ty = context.i64_type();
+
+    for (i, (_, fty)) in fields.iter().enumerate() {
+        let c_val = builder
+            .build_extract_value(struct_val, i as u32, &format!("es_ret_{}", i))
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+        // Handle nested extern struct fields by recursion
+        if let TypeKind::Struct {
+            fields: inner_fields,
+            is_extern: true,
+            ..
+        } = types.resolve(*fty)
+        {
+            let inner_struct_val = c_val.into_struct_value();
+
+            // Allocate a TupleAlloc for the inner struct
+            let inner_num_fields = inner_fields.len() as u64;
+            let inner_total_size =
+                i64_ty.const_int(ARC_HEADER_SIZE + inner_num_fields * FIELD_SIZE, false);
+            let inner_type_tag = context.i32_type().const_int(fty.0 as u64, false);
+            let inner_alloc_result = builder
+                .build_direct_call(
+                    arc.arc_alloc,
+                    &[inner_total_size.into(), inner_type_tag.into()],
+                    &format!("es_inner_alloc_{}", i),
+                )
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let inner_ptr = inner_alloc_result
+                .try_as_basic_value()
+                .basic()
+                .expect("arc_alloc should return a pointer")
+                .into_pointer_value();
+
+            // Recursively unpack inner struct into inner TupleAlloc
+            unpack_c_struct_to_tuple(
+                context,
+                builder,
+                types,
+                arc,
+                inner_struct_val,
+                inner_fields,
+                inner_ptr,
+            )?;
+
+            // Store inner TupleAlloc pointer in outer TupleAlloc slot
+            let inner_ptr_i64 = builder
+                .build_ptr_to_int(inner_ptr, i64_ty, &format!("es_inner_ptr_i64_{}", i))
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let byte_offset = ARC_HEADER_SIZE + (i as u64) * FIELD_SIZE;
+            let field_ptr = unsafe {
+                builder
+                    .build_gep(
+                        context.i8_type(),
+                        obj_ptr,
+                        &[i64_ty.const_int(byte_offset, false)],
+                        &format!("es_ret_ptr_{}", i),
+                    )
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            };
+            builder
+                .build_store(field_ptr, inner_ptr_i64)
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            continue;
+        }
+
+        let i64_val: inkwell::values::IntValue = match c_val {
+            BasicValueEnum::IntValue(iv) => {
+                let is_signed =
+                    matches!(types.resolve(*fty), TypeKind::Primitive(p) if p.is_signed());
+                if iv.get_type().get_bit_width() < 64 {
+                    if is_signed {
+                        builder
+                            .build_int_s_extend(iv, i64_ty, &format!("es_sext_{}", i))
+                            .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                    } else {
+                        builder
+                            .build_int_z_extend(iv, i64_ty, &format!("es_zext_{}", i))
+                            .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                    }
+                } else {
+                    iv
+                }
+            }
+            BasicValueEnum::FloatValue(fv) => {
+                // Internal representation: all floats stored as f64 bits in i64 slots.
+                // fpext f32→f64 if needed, then bitcast f64→i64 for storage.
+                let f64_val = if fv.get_type() == context.f32_type() {
+                    builder
+                        .build_float_ext(fv, context.f64_type(), &format!("es_fext_{}", i))
+                        .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                } else {
+                    fv
+                };
+                builder
+                    .build_bit_cast(f64_val, i64_ty, &format!("es_fcast_{}", i))
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                    .into_int_value()
+            }
+            _ => i64_ty.const_zero(),
+        };
+        let byte_offset = ARC_HEADER_SIZE + (i as u64) * FIELD_SIZE;
+        let field_ptr = unsafe {
+            builder
+                .build_gep(
+                    context.i8_type(),
+                    obj_ptr,
+                    &[i64_ty.const_int(byte_offset, false)],
+                    &format!("es_ret_ptr_{}", i),
+                )
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?
+        };
+        builder
+            .build_store(field_ptr, i64_val)
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+    }
+
+    Ok(())
+}
+
+/// Pack an extern struct from a TupleAlloc (stack-allocated i64 slots) into a C-compatible LLVM value.
+/// Handles nested extern structs recursively. For large structs (> 16 bytes), returns a pointer
+/// to a stack-allocated copy. For small structs, returns an ABI-coerced integer value.
+fn pack_extern_struct_for_ffi<'ctx>(
+    context: &'ctx Context,
+    builder: &Builder<'ctx>,
+    register_allocas: &HashMap<u32, PointerValue<'ctx>>,
+    types: &TypeInterner,
+    reg: u32,
+    fields: &[(String, nudl_core::types::TypeId)],
+) -> Result<BasicValueEnum<'ctx>, BackendError> {
+    let c_struct_ty = build_c_struct_type(context, types, fields);
+
+    // Load the ARC object pointer from the register (TupleAlloc stores a pointer as i64)
+    let obj_ptr = load_ptr(context, builder, register_allocas, reg)?;
+
+    // Build the C struct value (handles nested structs recursively)
+    let struct_val = build_c_struct_from_tuple(context, builder, types, obj_ptr, fields)?;
+
+    // For large structs (> 16 bytes), alloca the C struct and return a pointer.
+    // On ARM64, large structs are passed indirectly via pointer in register.
+    if extern_struct_is_large(types, fields) {
+        let tmp = builder
+            .build_alloca(c_struct_ty, "es_byval")
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        builder
+            .build_store(tmp, struct_val)
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+        return Ok(tmp.into());
+    }
+
+    // HFAs: pass the C struct directly so LLVM uses float registers on ARM64.
+    // Non-HFA: coerce to integer type for correct GPR passing.
     let abi_ty = extern_struct_abi_type(context, types, fields);
     let coerced = match abi_ty {
         inkwell::types::BasicTypeEnum::IntType(int_ty) => {
-            // alloca struct, store, load as int
             let tmp = builder
                 .build_alloca(c_struct_ty, "es_coerce_tmp")
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?;
@@ -178,7 +391,7 @@ fn pack_extern_struct_for_ffi<'ctx>(
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?
         }
         _ => {
-            // Large structs (>8 bytes): pass as-is (LLVM struct type)
+            // HFA or medium struct: pass as-is
             struct_val.into()
         }
     };
@@ -1124,9 +1337,20 @@ pub(super) fn emit_call<'ctx>(
                 let param_is_float = param_type
                     .map(|pty| matches!(types.resolve(pty), TypeKind::Primitive(p) if p.is_float()))
                     .unwrap_or(false);
+                let param_is_f32 = param_type
+                    .map(|pty| matches!(types.resolve(pty), TypeKind::Primitive(nudl_core::types::PrimitiveType::F32)))
+                    .unwrap_or(false);
                 if param_is_float {
                     let val = load_f64(context, builder, register_allocas, arg_reg.0)?;
-                    llvm_args.push(val.into());
+                    if is_extern && param_is_f32 {
+                        // Extern f32 param: fptrunc f64 → f32
+                        let f32_val = builder
+                            .build_float_trunc(val, context.f32_type(), "fptrunc_f32")
+                            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                        llvm_args.push(f32_val.into());
+                    } else {
+                        llvm_args.push(val.into());
+                    }
                 } else {
                     let val = load_i64(context, builder, register_allocas, arg_reg.0)?;
                     llvm_args.push(val.into());
@@ -1139,6 +1363,43 @@ pub(super) fn emit_call<'ctx>(
             llvm_args.push(val.into());
         }
     }
+
+    // Check if callee returns a large extern struct (needs sret)
+    let callee_returns_large_extern_struct = callee_func
+        .map(|f| {
+            f.is_extern
+                && match types.resolve(f.return_type) {
+                    TypeKind::Struct {
+                        fields,
+                        is_extern: true,
+                        ..
+                    } => extern_struct_is_large(types, fields),
+                    _ => false,
+                }
+        })
+        .unwrap_or(false);
+
+    // For sret: alloca the C struct buffer and prepend it to args
+    let sret_alloca = if callee_returns_large_extern_struct {
+        let ret_ty = callee_func.unwrap().return_type;
+        if let TypeKind::Struct {
+            fields,
+            is_extern: true,
+            ..
+        } = types.resolve(ret_ty)
+        {
+            let c_struct_ty = build_c_struct_type(context, types, fields);
+            let sret_buf = builder
+                .build_alloca(c_struct_ty, "sret_buf")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            llvm_args.insert(0, sret_buf.into());
+            Some(sret_buf)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
 
     let llvm_args_meta: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> =
         llvm_args.iter().map(|a| (*a).into()).collect();
@@ -1162,8 +1423,52 @@ pub(super) fn emit_call<'ctx>(
 
     // Store result
     let is_extern = callee_func.map(|f| f.is_extern).unwrap_or(false);
-    if callee_returns_extern_struct {
-        // Extern function returning an extern struct: the return value is an ABI-coerced
+    if callee_returns_large_extern_struct {
+        // Large extern struct return via sret: the call returned void, and the
+        // result is in our sret_alloca buffer. Load the C struct and unpack fields
+        // into the TupleAlloc buffer.
+        let sret_buf = sret_alloca.unwrap();
+        let ret_ty = callee_func.unwrap().return_type;
+        if let TypeKind::Struct { fields, .. } = types.resolve(ret_ty) {
+            let c_struct_ty = build_c_struct_type(context, types, fields);
+
+            // Allocate a TupleAlloc buffer for the result
+            let num_fields = fields.len() as u64;
+            let total_size = context
+                .i64_type()
+                .const_int(ARC_HEADER_SIZE + num_fields * FIELD_SIZE, false);
+            let type_tag = context.i32_type().const_int(ret_ty.0 as u64, false);
+            let alloc_result = builder
+                .build_direct_call(
+                    arc.arc_alloc,
+                    &[total_size.into(), type_tag.into()],
+                    "es_ret_alloc",
+                )
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let obj_ptr = alloc_result
+                .try_as_basic_value()
+                .basic()
+                .expect("arc_alloc should return a pointer")
+                .into_pointer_value();
+
+            // Store the pointer in the result register
+            let ptr_as_i64 = builder
+                .build_ptr_to_int(obj_ptr, context.i64_type(), "es_ret_ptr_i64")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            store(builder, register_allocas, result_reg.0, ptr_as_i64)?;
+
+            // Load the C struct from the sret buffer and unpack into TupleAlloc
+            let struct_val = builder
+                .build_load(c_struct_ty, sret_buf, "es_sret_struct")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                .into_struct_value();
+
+            unpack_c_struct_to_tuple(
+                context, builder, types, arc, struct_val, fields, obj_ptr,
+            )?;
+        }
+    } else if callee_returns_extern_struct {
+        // Small extern function returning an extern struct: the return value is an ABI-coerced
         // integer (e.g., i32 for a 4-byte struct). We need to:
         // 1. Allocate a TupleAlloc buffer (ARC header + i64 fields) for the result register
         // 2. Store the coerced return into a temp, load as struct, extract fields
@@ -1211,57 +1516,10 @@ pub(super) fn emit_call<'ctx>(
                     .map_err(|e| BackendError::LlvmError(e.to_string()))?
                     .into_struct_value();
 
-                // Extract each field, widen to i64, store into TupleAlloc buffer
-                for (i, (_, fty)) in fields.iter().enumerate() {
-                    let c_val = builder
-                        .build_extract_value(struct_val, i as u32, &format!("es_ret_{}", i))
-                        .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-                    let i64_val: inkwell::values::IntValue = match c_val {
-                        BasicValueEnum::IntValue(iv) => {
-                            let is_signed = matches!(types.resolve(*fty), TypeKind::Primitive(p) if p.is_signed());
-                            if iv.get_type().get_bit_width() < 64 {
-                                if is_signed {
-                                    builder
-                                        .build_int_s_extend(
-                                            iv,
-                                            context.i64_type(),
-                                            &format!("es_sext_{}", i),
-                                        )
-                                        .map_err(|e| BackendError::LlvmError(e.to_string()))?
-                                } else {
-                                    builder
-                                        .build_int_z_extend(
-                                            iv,
-                                            context.i64_type(),
-                                            &format!("es_zext_{}", i),
-                                        )
-                                        .map_err(|e| BackendError::LlvmError(e.to_string()))?
-                                }
-                            } else {
-                                iv
-                            }
-                        }
-                        BasicValueEnum::FloatValue(fv) => builder
-                            .build_bit_cast(fv, context.i64_type(), &format!("es_fcast_{}", i))
-                            .map_err(|e| BackendError::LlvmError(e.to_string()))?
-                            .into_int_value(),
-                        _ => context.i64_type().const_zero(),
-                    };
-                    let byte_offset = ARC_HEADER_SIZE + (i as u64) * FIELD_SIZE;
-                    let field_ptr = unsafe {
-                        builder
-                            .build_gep(
-                                context.i8_type(),
-                                obj_ptr,
-                                &[context.i64_type().const_int(byte_offset, false)],
-                                &format!("es_ret_ptr_{}", i),
-                            )
-                            .map_err(|e| BackendError::LlvmError(e.to_string()))?
-                    };
-                    builder
-                        .build_store(field_ptr, i64_val)
-                        .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-                }
+                // Unpack C struct fields into TupleAlloc buffer (handles nested structs)
+                unpack_c_struct_to_tuple(
+                    context, builder, types, arc, struct_val, fields, obj_ptr,
+                )?;
             }
         }
     } else if callee_returns_fixed_array {
@@ -1301,10 +1559,29 @@ pub(super) fn emit_call<'ctx>(
                                 iv
                             }
                         }
-                        BasicValueEnum::FloatValue(fv) => builder
-                            .build_bit_cast(fv, context.i64_type(), &format!("arr_fcast_{}", i))
-                            .map_err(|e| BackendError::LlvmError(e.to_string()))?
-                            .into_int_value(),
+                        BasicValueEnum::FloatValue(fv) => {
+                            // Internal representation: all floats stored as f64 bits in i64 slots.
+                            // fpext f32→f64 if needed, then bitcast f64→i64 for storage.
+                            let f64_val = if fv.get_type() == context.f32_type() {
+                                builder
+                                    .build_float_ext(
+                                        fv,
+                                        context.f64_type(),
+                                        &format!("arr_fext_{}", i),
+                                    )
+                                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                            } else {
+                                fv
+                            };
+                            builder
+                                .build_bit_cast(
+                                    f64_val,
+                                    context.i64_type(),
+                                    &format!("arr_fcast_{}", i),
+                                )
+                                .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                                .into_int_value()
+                        }
                         _ => context.i64_type().const_zero(),
                     };
                     let byte_offset = ARC_HEADER_SIZE + (i as u64) * FIELD_SIZE;
@@ -1378,7 +1655,15 @@ pub(super) fn emit_call<'ctx>(
                 }
             }
             BasicValueEnum::FloatValue(fv) => {
-                store(builder, register_allocas, result_reg.0, fv)?;
+                // If extern returned f32, fpext to f64 for internal storage
+                let store_val = if fv.get_type() == context.f32_type() {
+                    builder
+                        .build_float_ext(fv, context.f64_type(), "fpext_f64")
+                        .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                } else {
+                    fv
+                };
+                store(builder, register_allocas, result_reg.0, store_val)?;
             }
             _ => {
                 builder

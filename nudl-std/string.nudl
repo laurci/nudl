@@ -2,67 +2,67 @@
 // String utility functions backed by C runtime builtins.
 
 // Substring extraction: s[start..end]
-fn substr(s: string, start: i64, end: i64) -> string {
+pub fn substr(s: string, start: i64, end: i64) -> string {
     __str_substr(s, start, end)
 }
 
 // Find index of needle in haystack. Returns -1 if not found.
-fn indexof(haystack: string, needle: string) -> i64 {
+pub fn indexof(haystack: string, needle: string) -> i64 {
     __str_indexof(haystack, needle)
 }
 
 // Trim leading and trailing whitespace.
-fn trim(s: string) -> string {
+pub fn trim(s: string) -> string {
     __str_trim(s)
 }
 
 // Check if haystack contains needle.
-fn contains(haystack: string, needle: string) -> bool {
+pub fn contains(haystack: string, needle: string) -> bool {
     __str_contains(haystack, needle) != 0i64
 }
 
 // Check if string starts with prefix.
-fn starts_with(s: string, prefix: string) -> bool {
+pub fn starts_with(s: string, prefix: string) -> bool {
     __str_starts_with(s, prefix) != 0i64
 }
 
 // Check if string ends with suffix.
-fn ends_with(s: string, suffix: string) -> bool {
+pub fn ends_with(s: string, suffix: string) -> bool {
     __str_ends_with(s, suffix) != 0i64
 }
 
 // Convert ASCII string to uppercase.
-fn to_upper(s: string) -> string {
+pub fn to_upper(s: string) -> string {
     __str_to_upper(s)
 }
 
 // Convert ASCII string to lowercase.
-fn to_lower(s: string) -> string {
+pub fn to_lower(s: string) -> string {
     __str_to_lower(s)
 }
 
 // Replace all occurrences of old with new_str.
-fn replace(s: string, old: string, new_str: string) -> string {
+pub fn replace(s: string, old: string, new_str: string) -> string {
     __str_replace(s, old, new_str)
 }
 
 // Repeat string count times.
-fn str_repeat(s: string, count: i64) -> string {
+pub fn str_repeat(s: string, count: i64) -> string {
     __str_repeat(s, count)
 }
 
 // Check if a string is empty (length == 0).
-fn is_empty(s: string) -> bool {
+pub fn is_empty(s: string) -> bool {
     __str_len(s) == 0u64
 }
 
 // Get string length.
-fn str_len(s: string) -> u64 {
+pub fn str_len(s: string) -> u64 {
     __str_len(s)
 }
 
 // Split string by separator. Implemented in pure nudl using indexof + substr.
-fn split(s: string, sep: string) -> string[] {
+pub fn split(s: string, sep: string) -> string[] {
     let mut result: string[] = [];
     let sep_len = __str_len(sep);
     let s_len = __str_len(s);
@@ -86,7 +86,7 @@ fn split(s: string, sep: string) -> string[] {
 }
 
 // Join array of strings with separator.
-fn join(parts: string[], sep: string) -> string {
+pub fn join(parts: string[], sep: string) -> string {
     let len = parts.len();
     if len == 0i64 {
         return "";

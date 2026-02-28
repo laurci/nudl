@@ -96,6 +96,7 @@ pub struct StructField {
     pub name: String,
     pub ty: Spanned<TypeExpr>,
     pub span: Span,
+    pub is_pub: bool,
 }
 
 #[derive(Debug, Clone)]

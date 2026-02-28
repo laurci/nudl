@@ -157,4 +157,28 @@ pub enum CheckerDiagnostic {
         expected: String,
         found: String,
     },
+
+    #[message("function '{name}' is not public")]
+    #[severity(Error)]
+    PrivateFunction { span: Span, name: String },
+
+    #[message("method '{method}' on type '{ty}' is not public")]
+    #[severity(Error)]
+    PrivateMethod {
+        span: Span,
+        ty: String,
+        method: String,
+    },
+
+    #[message("field '{field}' on struct '{name}' is not public")]
+    #[severity(Error)]
+    PrivateField {
+        span: Span,
+        name: String,
+        field: String,
+    },
+
+    #[message("type '{name}' is not public")]
+    #[severity(Error)]
+    PrivateType { span: Span, name: String },
 }

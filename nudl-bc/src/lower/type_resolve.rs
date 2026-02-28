@@ -373,6 +373,7 @@ impl<'a> FunctionLowerCtx<'a> {
                     ret,
                 }))
             }
+            Expr::Cast { target_type, .. } => Some(self.resolve_type_expr(&target_type.node)),
             _ => None,
         }
     }

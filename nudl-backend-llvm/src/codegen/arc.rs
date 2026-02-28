@@ -80,7 +80,7 @@ fn c_type_size_align(types: &TypeInterner, type_id: nudl_core::types::TypeId) ->
 }
 
 /// Compute the byte size and alignment of a C struct from its fields.
-fn c_struct_size_align(
+pub(super) fn c_struct_size_align(
     types: &TypeInterner,
     fields: &[(String, nudl_core::types::TypeId)],
 ) -> (u64, u64) {
@@ -96,22 +96,51 @@ fn c_struct_size_align(
     (total, max_align)
 }
 
-/// Get the ABI-coerced integer type for passing an extern struct by value.
-/// On ARM64/x86_64, small structs (≤8 bytes) are coerced to an integer of the
-/// same size for register passing. This matches Clang's ABI lowering.
+/// Returns true if an extern struct is "large" (> 16 bytes), meaning it must be
+/// passed by reference (byval) and returned via sret on ARM64/x86_64.
+pub(super) fn extern_struct_is_large(
+    types: &TypeInterner,
+    fields: &[(String, nudl_core::types::TypeId)],
+) -> bool {
+    let (size, _) = c_struct_size_align(types, fields);
+    size > 16
+}
+
+/// Check if an extern struct is a Homogeneous Floating-point Aggregate (HFA).
+/// On ARM64, HFAs (≤4 fields of the same float type) are passed in float registers.
+fn is_hfa(types: &TypeInterner, fields: &[(String, nudl_core::types::TypeId)]) -> bool {
+    if fields.is_empty() || fields.len() > 4 {
+        return false;
+    }
+    let base = match types.resolve(fields[0].1) {
+        TypeKind::Primitive(p) if p.is_float() => p.clone(),
+        _ => return false,
+    };
+    fields
+        .iter()
+        .all(|(_, fty)| matches!(types.resolve(*fty), TypeKind::Primitive(p) if *p == base))
+}
+
+/// Get the ABI type for passing an extern struct by value.
+/// HFAs (Homogeneous Floating-point Aggregates) use the actual C struct type
+/// so LLVM correctly assigns float registers on ARM64.
+/// Non-HFA small structs are coerced to integers for GPR passing.
 pub(super) fn extern_struct_abi_type<'ctx>(
     context: &'ctx Context,
     types: &TypeInterner,
     fields: &[(String, nudl_core::types::TypeId)],
 ) -> inkwell::types::BasicTypeEnum<'ctx> {
+    // HFAs must keep their float struct type for correct register assignment
+    if is_hfa(types, fields) {
+        return build_c_struct_type(context, types, fields).into();
+    }
+    // Non-HFA: coerce to integer type for register passing
     let (size, _) = c_struct_size_align(types, fields);
     match size {
         0 | 1 => context.i8_type().into(),
         2 => context.i16_type().into(),
         3..=4 => context.i32_type().into(),
         5..=8 => context.i64_type().into(),
-        // For structs > 8 bytes, fall back to the LLVM struct type.
-        // This handles up to 16-byte structs passed in two registers.
         _ => build_c_struct_type(context, types, fields).into(),
     }
 }
@@ -128,7 +157,14 @@ pub(super) fn type_to_c_llvm_type<'ctx>(
             fields,
             is_extern: true,
             ..
-        } => Some(extern_struct_abi_type(context, types, fields)),
+        } => {
+            if extern_struct_is_large(types, fields) {
+                // Large extern structs use sret, so we don't return a basic type here
+                None
+            } else {
+                Some(extern_struct_abi_type(context, types, fields))
+            }
+        }
         TypeKind::FixedArray { element, length } => {
             let elem_kind = types.resolve(*element);
             let c_elem = match elem_kind {
@@ -168,16 +204,27 @@ pub(super) fn build_llvm_param_types<'ctx>(
                 }
             }
             TypeKind::Primitive(p) if p.is_float() => {
-                params.push(context.f64_type().into());
+                if is_extern {
+                    // Extern: use the actual C float type (f32 or f64)
+                    params.push(primitive_to_c_type(p, context).into());
+                } else {
+                    // Internal: all floats are f64
+                    params.push(context.f64_type().into());
+                }
             }
             TypeKind::Struct {
                 fields,
                 is_extern: true,
                 ..
             } if is_extern => {
-                // Extern struct param: use ABI-coerced integer type
-                let abi_ty = extern_struct_abi_type(context, types, fields);
-                params.push(abi_ty.into());
+                if extern_struct_is_large(types, fields) {
+                    // Large extern struct param (> 16 bytes): pass by pointer (byval)
+                    params.push(context.ptr_type(AddressSpace::default()).into());
+                } else {
+                    // Small extern struct param: use ABI-coerced integer type
+                    let abi_ty = extern_struct_abi_type(context, types, fields);
+                    params.push(abi_ty.into());
+                }
             }
             TypeKind::FixedArray { element, length } if is_extern => {
                 // Extern: use C-compatible packed array type [N x elem_type]

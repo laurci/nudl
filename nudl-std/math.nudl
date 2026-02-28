@@ -8,17 +8,17 @@ const PI: f64 = 3.14159265358979323846;
 const E: f64 = 2.71828182845904523536;
 
 /// Absolute value of an i32
-fn abs(x: i32) -> i32 {
+pub fn abs(x: i32) -> i32 {
     if x < 0 { 0 - x } else { x }
 }
 
 /// Absolute value of an i64
-fn abs_i64(x: i64) -> i64 {
+pub fn abs_i64(x: i64) -> i64 {
     if x < 0i64 { 0i64 - x } else { x }
 }
 
 /// Power function: base^exp for non-negative integer exponents
-fn pow(base: i32, exp: i32) -> i32 {
+pub fn pow(base: i32, exp: i32) -> i32 {
     let mut result = 1;
     let mut i = 0;
     while i < exp {
@@ -29,7 +29,7 @@ fn pow(base: i32, exp: i32) -> i32 {
 }
 
 /// Integer square root (floor)
-fn isqrt(n: i32) -> i32 {
+pub fn isqrt(n: i32) -> i32 {
     if n < 0 {
         0
     } else if n == 0 {
@@ -46,7 +46,7 @@ fn isqrt(n: i32) -> i32 {
 }
 
 /// Greatest common divisor
-fn gcd(a: i32, b: i32) -> i32 {
+pub fn gcd(a: i32, b: i32) -> i32 {
     let mut x = abs(a);
     let mut y = abs(b);
     while y != 0 {
@@ -58,7 +58,7 @@ fn gcd(a: i32, b: i32) -> i32 {
 }
 
 /// Least common multiple
-fn lcm(a: i32, b: i32) -> i32 {
+pub fn lcm(a: i32, b: i32) -> i32 {
     if a == 0 {
         0
     } else {

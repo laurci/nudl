@@ -27,7 +27,7 @@ use inkwell::passes::PassBuilderOptions;
 use inkwell::targets::{
     CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
 };
-use inkwell::types::{BasicMetadataTypeEnum, BasicType};
+use inkwell::types::{AnyType, BasicMetadataTypeEnum, BasicType};
 use inkwell::values::{BasicValueEnum, FunctionValue, GlobalValue, PointerValue};
 
 use inkwell::FloatPredicate;

@@ -2,7 +2,7 @@
 // Collection data structures and utilities
 
 /// Check if a value exists in an i32 array
-fn contains(arr: i32[], value: i32) -> bool {
+pub fn contains(arr: i32[], value: i32) -> bool {
     let mut i = 0i64;
     while i < arr.len() {
         if arr[i] == value {
@@ -14,7 +14,7 @@ fn contains(arr: i32[], value: i32) -> bool {
 }
 
 /// Find the minimum value in an i32 array (returns 0 for empty)
-fn array_min(arr: i32[]) -> i32 {
+pub fn array_min(arr: i32[]) -> i32 {
     if arr.len() == 0i64 {
         return 0;
     }
@@ -30,7 +30,7 @@ fn array_min(arr: i32[]) -> i32 {
 }
 
 /// Find the maximum value in an i32 array (returns 0 for empty)
-fn array_max(arr: i32[]) -> i32 {
+pub fn array_max(arr: i32[]) -> i32 {
     if arr.len() == 0i64 {
         return 0;
     }

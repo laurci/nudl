@@ -21,38 +21,38 @@ extern {
 }
 
 /// Print a newline character
-fn newline() {
+pub fn newline() {
     putchar(10);
 }
 
 /// Open a file. mode: 0=read, 1=write(create/truncate), 2=append(create).
 /// Returns fd or -1.
-fn open(path: string, mode: i64) -> i64 {
+pub fn open(path: string, mode: i64) -> i64 {
     __nudl_file_open(path, mode)
 }
 
 /// Close a file descriptor.
-fn close_fd(fd: i64) -> i32 {
+pub fn close_fd(fd: i64) -> i32 {
     close(fd as i32)
 }
 
 /// Read up to count bytes from fd.
-fn read(fd: i64, count: i64) -> string {
+pub fn read(fd: i64, count: i64) -> string {
     __nudl_file_read(fd, count)
 }
 
 /// Write string to fd. Returns bytes written or -1.
-fn file_write(fd: i64, data: string) -> i64 {
+pub fn file_write(fd: i64, data: string) -> i64 {
     write(fd as i32, __str_ptr(data), __str_len(data))
 }
 
 /// Read entire file to string.
-fn read_file(path: string) -> string {
+pub fn read_file(path: string) -> string {
     __nudl_file_read_all(path)
 }
 
 /// Write string to file (create/truncate). Returns 0/-1.
-fn write_file(path: string, data: string) -> i64 {
+pub fn write_file(path: string, data: string) -> i64 {
     let fd = open(path, 1i64);
     if fd < 0i64 { return -1i64; }
     let n = write(fd as i32, __str_ptr(data), __str_len(data));
@@ -61,7 +61,7 @@ fn write_file(path: string, data: string) -> i64 {
 }
 
 /// Append string to file. Returns 0/-1.
-fn append_file(path: string, data: string) -> i64 {
+pub fn append_file(path: string, data: string) -> i64 {
     let fd = open(path, 2i64);
     if fd < 0i64 { return -1i64; }
     let n = write(fd as i32, __str_ptr(data), __str_len(data));

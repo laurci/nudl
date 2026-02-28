@@ -10,6 +10,7 @@ impl<'a> FunctionLowerCtx<'a> {
     pub(super) fn lower_block_expr(&mut self, block: &Block) -> Register {
         self.locals.push_scope();
         self.local_types.push_scope();
+        let deferred_start = self.deferred_blocks.len();
         for stmt in &block.stmts {
             self.lower_stmt(stmt);
         }
@@ -20,6 +21,13 @@ impl<'a> FunctionLowerCtx<'a> {
             self.push_inst(Instruction::ConstUnit(reg));
             reg
         };
+
+        // Emit deferred blocks (LIFO) registered in this scope, while variables
+        // are still in scope so they can be resolved correctly.
+        let deferred: Vec<_> = self.deferred_blocks.drain(deferred_start..).collect();
+        for block in deferred.into_iter().rev() {
+            self.lower_block_expr(&block);
+        }
 
         // Scope release: emit Release for reference-typed locals defined in this scope
         // Skip releasing the result register — it's the block's return value and

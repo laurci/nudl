@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 
 use nudl_ast::ast::*;
 use nudl_core::diagnostic::DiagnosticBag;
-use nudl_core::span::{Span, Spanned};
+use nudl_core::span::{FileId, Span, Spanned};
 use nudl_core::types::{PrimitiveType, TypeId, TypeInterner, TypeKind};
 
 use crate::checker_diagnostic::CheckerDiagnostic;
@@ -32,6 +32,10 @@ pub struct FunctionSig {
     pub is_mut_method: bool,
     /// If this function is generic, holds the template definition
     pub generic_def: Option<GenericFunctionDef>,
+    /// Whether this function is public (accessible from other modules)
+    pub is_pub: bool,
+    /// Which file this function was defined in
+    pub source_file_id: FileId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -118,6 +122,12 @@ pub struct Checker {
     /// Hint for inferring closure parameter types from the expected function type.
     pub(super) closure_type_hint: Option<TypeId>,
 
+    // --- Visibility ---
+    /// Type name → (is_pub, source_file_id)
+    pub(super) type_visibility: HashMap<String, (bool, FileId)>,
+    /// Struct name → [(field_name, is_pub)]
+    pub(super) field_visibility: HashMap<String, Vec<(String, bool)>>,
+
     // --- Generics support ---
     /// Generic struct templates (not yet monomorphized)
     pub(super) generic_structs: HashMap<String, GenericStructDef>,
@@ -161,6 +171,8 @@ impl Checker {
             require_main: true,
             current_return_type: None,
             closure_type_hint: None,
+            type_visibility: HashMap::new(),
+            field_visibility: HashMap::new(),
             generic_structs: HashMap::new(),
             generic_enums: HashMap::new(),
             generic_impl_methods: HashMap::new(),
@@ -178,6 +190,11 @@ impl Checker {
     pub fn require_main(mut self, require: bool) -> Self {
         self.require_main = require;
         self
+    }
+
+    /// Returns true if the accessing code is in a different file than the item's definition.
+    pub(super) fn is_cross_module_access(&self, access_span: Span, source_file_id: FileId) -> bool {
+        access_span.file_id != source_file_id
     }
 
     pub fn check(mut self, module: &Module) -> (CheckedModule, DiagnosticBag) {

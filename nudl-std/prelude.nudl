@@ -5,34 +5,34 @@
 // Core Types
 // ================================================================
 
-enum Option<T> {
+pub enum Option<T> {
     Some(T),
     None,
 }
 
 impl Option<T> {
-    fn is_some(self) -> bool {
+    pub fn is_some(self) -> bool {
         match self {
             Some(v) => true,
             None => false,
         }
     }
 
-    fn is_none(self) -> bool {
+    pub fn is_none(self) -> bool {
         match self {
             Some(v) => false,
             None => true,
         }
     }
 
-    fn unwrap(self) -> T {
+    pub fn unwrap(self) -> T {
         match self {
             Some(v) => v,
             None => panic("called unwrap on None"),
         }
     }
 
-    fn unwrap_or(self, default: T) -> T {
+    pub fn unwrap_or(self, default: T) -> T {
         match self {
             Some(v) => v,
             None => default,
@@ -40,34 +40,34 @@ impl Option<T> {
     }
 }
 
-enum Result<T, E> {
+pub enum Result<T, E> {
     Ok(T),
     Err(E),
 }
 
 impl Result<T, E> {
-    fn is_ok(self) -> bool {
+    pub fn is_ok(self) -> bool {
         match self {
             Ok(v) => true,
             Err(v) => false,
         }
     }
 
-    fn is_err(self) -> bool {
+    pub fn is_err(self) -> bool {
         match self {
             Ok(v) => false,
             Err(v) => true,
         }
     }
 
-    fn unwrap(self) -> T {
+    pub fn unwrap(self) -> T {
         match self {
             Ok(v) => v,
             Err(v) => panic("called unwrap on Err"),
         }
     }
 
-    fn unwrap_or(self, default: T) -> T {
+    pub fn unwrap_or(self, default: T) -> T {
         match self {
             Ok(v) => v,
             Err(v) => default,
@@ -79,39 +79,39 @@ impl Result<T, E> {
 // Operator Overloading Interfaces
 // ================================================================
 
-interface Add {
+pub interface Add {
     fn add(self, other: Self) -> Self;
 }
 
-interface Sub {
+pub interface Sub {
     fn sub(self, other: Self) -> Self;
 }
 
-interface Mul {
+pub interface Mul {
     fn mul(self, other: Self) -> Self;
 }
 
-interface Div {
+pub interface Div {
     fn div(self, other: Self) -> Self;
 }
 
-interface Rem {
+pub interface Rem {
     fn rem(self, other: Self) -> Self;
 }
 
-interface Eq {
+pub interface Eq {
     fn eq(self, other: Self) -> bool;
     fn ne(self, other: Self) -> bool;
 }
 
-interface Ord {
+pub interface Ord {
     fn lt(self, other: Self) -> bool;
     fn le(self, other: Self) -> bool;
     fn gt(self, other: Self) -> bool;
     fn ge(self, other: Self) -> bool;
 }
 
-interface Neg {
+pub interface Neg {
     fn neg(self) -> Self;
 }
 
@@ -119,15 +119,15 @@ interface Neg {
 // Core Interfaces
 // ================================================================
 
-interface Printable {
+pub interface Printable {
     fn to_string(self) -> string;
 }
 
-interface Drop {
+pub interface Drop {
     fn drop(mut self);
 }
 
-interface Clone {
+pub interface Clone {
     fn clone(self) -> Self;
 }
 
@@ -139,11 +139,11 @@ extern {
     fn write(fd: i32, buf: RawPtr, count: u64) -> i64;
 }
 
-fn print(s: string) {
+pub fn print(s: string) {
     write(1, __str_ptr(s), __str_len(s));
 }
 
-fn println(s: string = "") {
+pub fn println(s: string = "") {
     print(s);
     print("\n");
 }
@@ -152,21 +152,21 @@ fn println(s: string = "") {
 // Generic Utility Functions
 // ================================================================
 
-fn min_i64(a: i64, b: i64) -> i64 {
+pub fn min_i64(a: i64, b: i64) -> i64 {
     if a < b {
         return a;
     }
     b
 }
 
-fn max_i64(a: i64, b: i64) -> i64 {
+pub fn max_i64(a: i64, b: i64) -> i64 {
     if a > b {
         return a;
     }
     b
 }
 
-fn clamp_i32(value: i32, lo: i32, hi: i32) -> i32 {
+pub fn clamp_i32(value: i32, lo: i32, hi: i32) -> i32 {
     if value < lo {
         return lo;
     }
@@ -176,21 +176,21 @@ fn clamp_i32(value: i32, lo: i32, hi: i32) -> i32 {
     value
 }
 
-fn min(a: i32, b: i32) -> i32 {
+pub fn min(a: i32, b: i32) -> i32 {
     if a < b {
         return a;
     }
     b
 }
 
-fn max(a: i32, b: i32) -> i32 {
+pub fn max(a: i32, b: i32) -> i32 {
     if a > b {
         return a;
     }
     b
 }
 
-fn clamp(value: i32, lo: i32, hi: i32) -> i32 {
+pub fn clamp(value: i32, lo: i32, hi: i32) -> i32 {
     if value < lo {
         return lo;
     }
@@ -204,14 +204,14 @@ fn clamp(value: i32, lo: i32, hi: i32) -> i32 {
 // Collection Functions (work with pipe operator and trailing closures)
 // ================================================================
 
-fn each<T>(arr: T[], f: |T| -> ()) {
+pub fn each<T>(arr: T[], f: |T| -> ()) {
     let len = arr.len();
     for i in 0i64..len {
         f(arr[i]);
     }
 }
 
-fn map<T, K>(input: T[], f: |T| -> K) -> K[] {
+pub fn map<T, K>(input: T[], f: |T| -> K) -> K[] {
     let mut result: K[] = [];
     for x in input {
         result.push(f(x));
@@ -219,7 +219,7 @@ fn map<T, K>(input: T[], f: |T| -> K) -> K[] {
     result
 }
 
-fn filter<T>(input: T[], f: |T| -> bool) -> T[] {
+pub fn filter<T>(input: T[], f: |T| -> bool) -> T[] {
     let mut result: T[] = [];
     for x in input {
         if f(x) {
@@ -229,7 +229,7 @@ fn filter<T>(input: T[], f: |T| -> bool) -> T[] {
     result
 }
 
-fn filter_map<T, K>(input: T[], f: |T| -> Option<K>) -> K[] {
+pub fn filter_map<T, K>(input: T[], f: |T| -> Option<K>) -> K[] {
     let mut result: K[] = [];
     for x in input {
         if let Option::Some(v) = f(x) {
@@ -240,7 +240,7 @@ fn filter_map<T, K>(input: T[], f: |T| -> Option<K>) -> K[] {
     result
 }
 
-fn fold<T, K>(input: T[], initial: K, f: |T, K| -> K) -> K {
+pub fn fold<T, K>(input: T[], initial: K, f: |T, K| -> K) -> K {
     let mut result = initial;
     for x in input {
         result = f(x, result);
@@ -248,7 +248,7 @@ fn fold<T, K>(input: T[], initial: K, f: |T, K| -> K) -> K {
     result
 }
 
-fn find<T>(arr: T[], f: |T| -> bool) -> Option<T> {
+pub fn find<T>(arr: T[], f: |T| -> bool) -> Option<T> {
     for x in arr {
         if f(x) {
             return Option::Some(x);
@@ -257,7 +257,7 @@ fn find<T>(arr: T[], f: |T| -> bool) -> Option<T> {
     Option::None
 }
 
-fn any<T>(arr: T[], f: |T| -> bool) -> bool {
+pub fn any<T>(arr: T[], f: |T| -> bool) -> bool {
     for x in arr {
         if f(x) {
             return true;
@@ -266,7 +266,7 @@ fn any<T>(arr: T[], f: |T| -> bool) -> bool {
     false
 }
 
-fn all<T>(arr: T[], f: |T| -> bool) -> bool {
+pub fn all<T>(arr: T[], f: |T| -> bool) -> bool {
     for x in arr {
         if !f(x) {
             return false;
@@ -275,14 +275,14 @@ fn all<T>(arr: T[], f: |T| -> bool) -> bool {
     true
 }
 
-fn enumerate<T>(arr: T[], f: |(T, i64)| -> ()) {
+pub fn enumerate<T>(arr: T[], f: |(T, i64)| -> ()) {
     let len = arr.len();
     for i in 0i64..len {
         f((arr[i], i));
     }
 }
 
-fn sort(arr: i32[]) -> i32[] {
+pub fn sort(arr: i32[]) -> i32[] {
     let mut result: i32[] = [];
     let len = arr.len();
     for i in 0i64..len {
@@ -304,7 +304,7 @@ fn sort(arr: i32[]) -> i32[] {
     result
 }
 
-fn sort_by<T>(arr: T[], less: |T, T| -> bool) -> T[] {
+pub fn sort_by<T>(arr: T[], less: |T, T| -> bool) -> T[] {
     let mut result: T[] = [];
     let len = arr.len();
     for i in 0i64..len {
@@ -326,7 +326,7 @@ fn sort_by<T>(arr: T[], less: |T, T| -> bool) -> T[] {
     result
 }
 
-fn reverse<T>(arr: T[]) -> T[] {
+pub fn reverse<T>(arr: T[]) -> T[] {
     let mut result: T[] = [];
     let len = arr.len();
     let mut i = len - 1i64;

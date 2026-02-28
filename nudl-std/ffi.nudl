@@ -3,11 +3,11 @@
 
 /// Get a null-terminated C string pointer from a nudl string.
 /// The pointer is valid as long as the string's ARC reference is alive.
-fn cstr(s: string) -> RawPtr {
+pub fn cstr(s: string) -> RawPtr {
     __str_ptr(s)
 }
 
 /// Get the byte length of a string (not including null terminator).
-fn cstr_len(s: string) -> u64 {
+pub fn cstr_len(s: string) -> u64 {
     __str_len(s)
 }

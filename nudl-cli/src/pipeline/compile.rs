@@ -106,12 +106,12 @@ fn find_std_root(explicit: Option<&Path>) -> PathBuf {
     PathBuf::from(DEFAULT_STD_PATH)
 }
 
-/// Parse a file and return its module, accumulating diagnostics.
+/// Parse a file and return its module + file_id, accumulating diagnostics.
 fn parse_file(
     path: &Path,
     source_map: &mut SourceMap,
     diagnostics: &mut DiagnosticBag,
-) -> Option<Module> {
+) -> Option<(Module, nudl_core::span::FileId)> {
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
         Err(e) => {
@@ -134,7 +134,7 @@ fn parse_file(
         return None;
     }
 
-    Some(module)
+    Some((module, file_id))
 }
 
 /// Resolve and merge imports from a module.
@@ -161,7 +161,7 @@ fn resolve_imports(
 
     if !is_prelude && prelude_path.exists() {
         imported_files.insert(prelude_path.clone());
-        if let Some(prelude_module) = parse_file(&prelude_path, source_map, diagnostics) {
+        if let Some((prelude_module, _)) = parse_file(&prelude_path, source_map, diagnostics) {
             for imp_item in prelude_module.items {
                 if !matches!(&imp_item.node, Item::Import { .. }) {
                     merged_items.push(imp_item);
@@ -209,7 +209,7 @@ fn collect_imports(
                 }
                 imported_files.insert(import_path.clone());
 
-                if let Some(imported_module) = parse_file(&import_path, source_map, diagnostics) {
+                if let Some((imported_module, _)) = parse_file(&import_path, source_map, diagnostics) {
                     // Recursively resolve this module's imports first
                     let imported_dir = import_path.parent().unwrap_or(Path::new("."));
                     collect_imports(
@@ -238,8 +238,9 @@ pub fn check(source_path: &Path, std_path: Option<&Path>, dump: &DumpOptions) ->
     let mut source_map = SourceMap::new();
     let mut diagnostics = DiagnosticBag::new();
 
-    let module = match parse_file(source_path, &mut source_map, &mut diagnostics) {
-        Some(m) => m,
+    let (module, _local_file_id) = match parse_file(source_path, &mut source_map, &mut diagnostics)
+    {
+        Some(r) => r,
         None => {
             return PipelineResult {
                 source_map,
@@ -292,8 +293,9 @@ pub fn build(
     let mut source_map = SourceMap::new();
     let mut diagnostics = DiagnosticBag::new();
 
-    let module = match parse_file(source_path, &mut source_map, &mut diagnostics) {
-        Some(m) => m,
+    let (module, _local_file_id) = match parse_file(source_path, &mut source_map, &mut diagnostics)
+    {
+        Some(r) => r,
         None => {
             return CompileResult {
                 source_map,
@@ -376,8 +378,9 @@ pub fn run_vm(source_path: &Path, std_path: Option<&Path>, dump: &DumpOptions) -
     let mut source_map = SourceMap::new();
     let mut diagnostics = DiagnosticBag::new();
 
-    let module = match parse_file(source_path, &mut source_map, &mut diagnostics) {
-        Some(m) => m,
+    let (module, _local_file_id) = match parse_file(source_path, &mut source_map, &mut diagnostics)
+    {
+        Some(r) => r,
         None => {
             return CompileResult {
                 source_map,

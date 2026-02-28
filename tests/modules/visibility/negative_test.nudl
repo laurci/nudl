@@ -1,0 +1,10 @@
+// Negative test: accessing private items should produce errors
+// @expect-fail E0428
+
+import lib::{Config, create_default_config};
+
+fn main() {
+    let cfg = create_default_config();
+    // Accessing a private field should fail
+    let key = cfg.secret_key;
+}

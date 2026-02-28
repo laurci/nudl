@@ -117,6 +117,7 @@ impl Parser {
                     name: format!("{}", idx),
                     ty,
                     span,
+                    is_pub: false,
                 });
                 idx += 1;
                 if !self.eat(TokenKind::Comma) {
@@ -145,6 +146,7 @@ impl Parser {
 
         let mut fields = Vec::new();
         while self.peek_kind() != TokenKind::RBrace && !self.at_eof() {
+            let field_is_pub = self.eat(TokenKind::Pub);
             let field_name_tok = self.expect(TokenKind::Ident)?;
             let field_start = field_name_tok.span;
             self.expect(TokenKind::Colon)?;
@@ -154,6 +156,7 @@ impl Parser {
                 name: field_name_tok.text.clone(),
                 ty,
                 span: field_start.merge(field_end),
+                is_pub: field_is_pub,
             });
             if !self.eat(TokenKind::Comma) {
                 break;
@@ -214,6 +217,7 @@ impl Parser {
                         name: field_name_tok.text.clone(),
                         ty,
                         span: field_start.merge(field_end),
+                        is_pub: false,
                     });
                     if !self.eat(TokenKind::Comma) {
                         break;
@@ -321,7 +325,8 @@ impl Parser {
 
         let mut methods = Vec::new();
         while self.peek_kind() != TokenKind::RBrace && !self.at_eof() {
-            if let Some(item) = self.parse_fn_def(false) {
+            let method_is_pub = self.eat(TokenKind::Pub);
+            if let Some(item) = self.parse_fn_def(method_is_pub) {
                 methods.push(item);
             } else {
                 self.advance();
