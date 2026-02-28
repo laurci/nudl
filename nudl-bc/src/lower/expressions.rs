@@ -1348,23 +1348,16 @@ impl<'a> FunctionLowerCtx<'a> {
 
         // Determine the conversion builtin based on type
         let builtin_name = match expr_type.map(|t| self.types.resolve(t).clone()) {
-            Some(nudl_core::types::TypeKind::Primitive(nudl_core::types::PrimitiveType::I32)) => {
-                "__i32_to_str"
-            }
-            Some(nudl_core::types::TypeKind::Primitive(nudl_core::types::PrimitiveType::I64)) => {
-                "__i64_to_str"
-            }
-            Some(nudl_core::types::TypeKind::Primitive(nudl_core::types::PrimitiveType::F32))
-            | Some(nudl_core::types::TypeKind::Primitive(nudl_core::types::PrimitiveType::F64)) => {
-                "__f64_to_str"
-            }
-            Some(nudl_core::types::TypeKind::Primitive(nudl_core::types::PrimitiveType::Bool)) => {
-                "__bool_to_str"
-            }
-            Some(nudl_core::types::TypeKind::Primitive(nudl_core::types::PrimitiveType::Char)) => {
-                "__char_to_str"
-            }
-            _ => "__i32_to_str", // fallback
+            Some(nudl_core::types::TypeKind::Primitive(p)) => match p {
+                nudl_core::types::PrimitiveType::F32 | nudl_core::types::PrimitiveType::F64 => {
+                    "__f64_to_str"
+                }
+                nudl_core::types::PrimitiveType::Bool => "__bool_to_str",
+                nudl_core::types::PrimitiveType::Char => "__char_to_str",
+                // All integer types use i64_to_str (values are stored as i64 internally)
+                _ => "__i64_to_str",
+            },
+            _ => "__i64_to_str", // fallback for unknown types
         };
 
         let sym = self.interner.intern(builtin_name);

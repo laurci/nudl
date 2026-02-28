@@ -374,6 +374,48 @@ impl<'a> FunctionLowerCtx<'a> {
                 }))
             }
             Expr::Cast { target_type, .. } => Some(self.resolve_type_expr(&target_type.node)),
+            Expr::Binary { op, left, .. } => {
+                use nudl_ast::ast::BinOp;
+                match op {
+                    // Comparisons and logical ops always return bool
+                    BinOp::Eq
+                    | BinOp::Ne
+                    | BinOp::Lt
+                    | BinOp::Le
+                    | BinOp::Gt
+                    | BinOp::Ge
+                    | BinOp::And
+                    | BinOp::Or => Some(self.types.bool()),
+                    // Arithmetic: result type matches operands
+                    _ => self.infer_expr_type(left),
+                }
+            }
+            Expr::Unary { operand, .. } => self.infer_expr_type(operand),
+            Expr::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                // Try then branch, fall back to else
+                then_branch
+                    .node
+                    .tail_expr
+                    .as_ref()
+                    .and_then(|e| self.infer_expr_type(e))
+                    .or_else(|| {
+                        else_branch.as_ref().and_then(|eb| match &eb.node {
+                            Expr::Block(block) => block
+                                .tail_expr
+                                .as_ref()
+                                .and_then(|e| self.infer_expr_type(e)),
+                            _ => self.infer_expr_type(eb),
+                        })
+                    })
+            }
+            Expr::Block(block) => block
+                .tail_expr
+                .as_ref()
+                .and_then(|e| self.infer_expr_type(e)),
             _ => None,
         }
     }
