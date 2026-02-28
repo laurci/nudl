@@ -39,7 +39,7 @@ impl Checker {
             };
 
             // Register a placeholder sig with error types — will be replaced by monomorphized versions
-            let param_count = params.len();
+            let _param_count = params.len();
             let has_default: Vec<bool> = params.iter().map(|p| p.default_value.is_some()).collect();
             let required_params = has_default.iter().take_while(|d| !*d).count();
             let is_method = params.first().map_or(false, |p| p.is_self);
@@ -259,7 +259,7 @@ impl Checker {
                 ..
             } => {
                 // Check if the impl block is for a generic type (has type_args like `impl Foo<T>`)
-                let is_generic_impl = !type_args.is_empty()
+                let _is_generic_impl = !type_args.is_empty()
                     && type_args.iter().any(|a| {
                         matches!(&a.node, TypeExpr::Named(n) if self.generic_structs.contains_key(n.as_str()) || self.generic_enums.contains_key(n.as_str()) || n.chars().next().map_or(false, |c| c.is_uppercase() && n.len() == 1))
                     });
@@ -278,7 +278,7 @@ impl Checker {
                     for method_item in methods {
                         if let Item::FnDef {
                             name: method_name,
-                            type_params,
+                            type_params: _type_params,
                             params,
                             return_type,
                             body,

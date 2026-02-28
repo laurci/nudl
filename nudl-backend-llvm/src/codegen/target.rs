@@ -5,6 +5,7 @@ pub(super) const RUNTIME_OBJ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/
 
 pub(super) fn create_target_machine(
     opt_level: OptimizationLevel,
+    native: bool,
 ) -> Result<TargetMachine, BackendError> {
     Target::initialize_all(&InitializationConfig::default());
 
@@ -12,11 +13,22 @@ pub(super) fn create_target_machine(
     let target =
         Target::from_triple(&target_triple).map_err(|e| BackendError::LlvmError(e.to_string()))?;
 
+    let (cpu, features) = if native {
+        let cpu = TargetMachine::get_host_cpu_name();
+        let features = TargetMachine::get_host_cpu_features();
+        (
+            cpu.to_string_lossy().into_owned(),
+            features.to_string_lossy().into_owned(),
+        )
+    } else {
+        ("generic".to_string(), String::new())
+    };
+
     target
         .create_target_machine(
             &target_triple,
-            "generic",
-            "",
+            &cpu,
+            &features,
             opt_level,
             RelocMode::PIC,
             CodeModel::Default,
@@ -32,9 +44,7 @@ pub(super) fn link(obj_path: &Path, rt_obj_path: &Path, output: &Path) -> Result
         .arg(obj_path)
         .arg(rt_obj_path);
 
-    if cfg!(target_os = "macos") {
-        cmd.arg("-lSystem");
-    } else {
+    if cfg!(not(target_os = "macos")) {
         cmd.arg("-lc");
     }
 

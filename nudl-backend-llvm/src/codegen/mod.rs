@@ -23,6 +23,7 @@ use inkwell::debug_info::{
     DWARFSourceLanguage, DebugInfoBuilder,
 };
 use inkwell::module::Module;
+use inkwell::passes::PassBuilderOptions;
 use inkwell::targets::{
     CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
 };
@@ -146,10 +147,13 @@ pub(super) unsafe fn extend_ptr_lifetime<'a>(v: PointerValue<'_>) -> PointerValu
 // --- Public API ---
 
 /// Compile a program to an executable binary at the given output path.
+/// When `optimized` is true, runs the full LLVM `-O3` pass pipeline.
+/// When `native` is true, targets the host CPU (like `-march=native`).
 pub fn compile_to_executable(
     program: &Program,
     output: &Path,
     optimized: bool,
+    native: bool,
 ) -> Result<(), BackendError> {
     let context = Context::create();
     let module = build_module(&context, program, optimized)?;
@@ -159,7 +163,20 @@ pub fn compile_to_executable(
     } else {
         OptimizationLevel::None
     };
-    let target_machine = create_target_machine(opt)?;
+    let target_machine = create_target_machine(opt, native)?;
+
+    // Run LLVM optimization passes in release mode
+    if optimized {
+        let pass_options = PassBuilderOptions::create();
+        pass_options.set_loop_vectorization(true);
+        pass_options.set_loop_slp_vectorization(true);
+        pass_options.set_loop_unrolling(true);
+        pass_options.set_loop_interleaving(true);
+        pass_options.set_merge_functions(true);
+        module
+            .run_passes("default<O3>", &target_machine, pass_options)
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+    }
 
     let obj_path = output.with_extension("o");
     target_machine
@@ -173,7 +190,7 @@ pub fn compile_to_executable(
     link(&obj_path, &rt_obj_path, output)?;
 
     // Generate .dSYM bundle on macOS (must happen before .o is deleted)
-    if cfg!(target_os = "macos") {
+    if cfg!(target_os = "macos") && !optimized {
         let _ = Command::new("dsymutil").arg(output).status();
     }
 
@@ -191,7 +208,11 @@ pub fn compile_to_llvm_ir(program: &Program) -> Result<String, BackendError> {
 }
 
 /// Compile a program and return native assembly text.
-pub fn compile_to_asm_text(program: &Program, optimized: bool) -> Result<String, BackendError> {
+pub fn compile_to_asm_text(
+    program: &Program,
+    optimized: bool,
+    native: bool,
+) -> Result<String, BackendError> {
     let context = Context::create();
     let module = build_module(&context, program, optimized)?;
 
@@ -200,7 +221,20 @@ pub fn compile_to_asm_text(program: &Program, optimized: bool) -> Result<String,
     } else {
         OptimizationLevel::None
     };
-    let target_machine = create_target_machine(opt)?;
+    let target_machine = create_target_machine(opt, native)?;
+
+    // Run LLVM optimization passes in release mode
+    if optimized {
+        let pass_options = PassBuilderOptions::create();
+        pass_options.set_loop_vectorization(true);
+        pass_options.set_loop_slp_vectorization(true);
+        pass_options.set_loop_unrolling(true);
+        pass_options.set_loop_interleaving(true);
+        pass_options.set_merge_functions(true);
+        module
+            .run_passes("default<O3>", &target_machine, pass_options)
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+    }
 
     let buf = target_machine
         .write_to_memory_buffer(&module, FileType::Assembly)

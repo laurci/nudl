@@ -342,7 +342,7 @@ impl Checker {
     ) -> TypeId {
         let callable_params = &sig.params[skip_params..];
         let callable_defaults = &sig.has_default[skip_params..];
-        let required = sig.required_params.saturating_sub(skip_params);
+        let _required = sig.required_params.saturating_sub(skip_params);
 
         // Build a positional map: for each param, which arg index fills it (if any)
         let mut filled = vec![false; callable_params.len()];

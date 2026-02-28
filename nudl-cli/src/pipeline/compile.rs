@@ -252,6 +252,7 @@ pub fn build(
     output_path: &Path,
     std_path: Option<&Path>,
     release: bool,
+    native: bool,
     dump: &DumpOptions,
 ) -> CompileResult {
     let mut source_map = SourceMap::new();
@@ -312,13 +313,13 @@ pub fn build(
     }
 
     if dump.dump_asm {
-        match codegen::compile_to_asm_text(&program, release) {
+        match codegen::compile_to_asm_text(&program, release, native) {
             Ok(asm) => eprintln!("{}", asm),
             Err(e) => eprintln!("error generating assembly: {}", e),
         }
     }
 
-    let result = codegen::compile_to_executable(&program, output_path, release);
+    let result = codegen::compile_to_executable(&program, output_path, release, native);
     let source_map = program.source_map.unwrap_or_default();
     match result {
         Ok(()) => CompileResult {

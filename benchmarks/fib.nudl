@@ -1,0 +1,13 @@
+// Recursive Fibonacci — pure compute benchmark (no heap allocation)
+
+fn fib(n: i64) -> i64 {
+    if n <= 1i64 {
+        return n;
+    }
+    fib(n - 1i64) + fib(n - 2i64)
+}
+
+fn main() {
+    let result = fib(42i64);
+    println(`{result}`);
+}

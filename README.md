@@ -111,6 +111,18 @@ Source (.nudl)
 - **[Language Specification](docs/spec/README.md)** -- Normative spec covering lexical structure, type system, memory model, expressions, pattern matching, comptime, and full grammar
 - **[Compiler Internals](docs/internals/README.md)** -- Architecture, SSA bytecode design, VM execution model, ARC implementation, and LLVM native codegen
 
+## Performance
+
+nudl compiles through LLVM with the full `-O3` optimization pipeline. Compute-bound code runs at C speed.
+
+| Benchmark | nudl vs C | nudl vs Swift | Description |
+|:---|:---|:---|:---|
+| Fibonacci (recursive) | **1.01x** | **0.76x (faster)** | Pure compute — matches C, beats Swift |
+| Dynamic array (10M push + sum) | **2.2x** | **1.0x (tied)** | Same ballpark as Swift's Array |
+| Struct churn (ARC, 10M alloc/free) | **264x** | **1.55x** | ARC cost; Swift's optimizer is more mature |
+
+Zero overhead for arithmetic and function calls. The cost is in heap allocation and reference counting — the same tradeoff as Swift. See [benchmarks/](benchmarks/) for methodology, full results, and Swift struct vs class comparison.
+
 ## Status
 
 The core compilation pipeline works end-to-end: lexer → parser → type checker → SSA IR → LLVM backend → native binary. See [STATUS.md](STATUS.md) for detailed feature-level tracking.

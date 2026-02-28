@@ -35,6 +35,10 @@ enum Command {
         #[arg(long)]
         release: bool,
 
+        /// Target the host CPU (like -march=native)
+        #[arg(long)]
+        native: bool,
+
         /// Dump the parsed AST
         #[arg(long)]
         dump_ast: bool,
@@ -72,6 +76,10 @@ enum Command {
         /// Build with optimizations
         #[arg(long)]
         release: bool,
+
+        /// Target the host CPU (like -march=native)
+        #[arg(long)]
+        native: bool,
 
         /// Dump the parsed AST
         #[arg(long)]
@@ -253,6 +261,7 @@ fn main() {
             output,
             std_path,
             release,
+            native,
             dump_ast,
             dump_ir,
             dump_asm,
@@ -271,8 +280,14 @@ fn main() {
             let mut any_failed = false;
             for target in &targets {
                 let out = resolve_output(output.clone(), &package, target, release);
-                let result =
-                    pipeline::build(&target.source, &out, std_path.as_deref(), release, &dump);
+                let result = pipeline::build(
+                    &target.source,
+                    &out,
+                    std_path.as_deref(),
+                    release,
+                    native,
+                    &dump,
+                );
                 render::render_diagnostics(&result.diagnostics, &result.source_map);
 
                 if !result.success {
@@ -290,6 +305,7 @@ fn main() {
             vm,
             std_path,
             release,
+            native,
             dump_ast,
             dump_ir,
             dump_asm,
@@ -337,8 +353,14 @@ fn main() {
                     dump_asm: dump_asm || dump_all,
                     dump_llvm_ir: dump_llvm_ir || dump_all,
                 };
-                let result =
-                    pipeline::build(&target.source, &output, std_path.as_deref(), release, &dump);
+                let result = pipeline::build(
+                    &target.source,
+                    &output,
+                    std_path.as_deref(),
+                    release,
+                    native,
+                    &dump,
+                );
                 render::render_diagnostics(&result.diagnostics, &result.source_map);
 
                 if !result.success {

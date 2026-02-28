@@ -236,8 +236,8 @@ fn fmt_ast_stmt(stmt: &Stmt, out: &mut String, level: usize) {
             out.push('\n');
         }
         Stmt::LetPattern {
-            pattern,
-            ty,
+            pattern: _pattern,
+            ty: _ty,
             value,
             is_mut,
         } => {
@@ -534,7 +534,7 @@ fn fmt_ast_expr(expr: &Expr, out: &mut String, level: usize) {
             }
         }
         Expr::IfLet {
-            pattern,
+            pattern: _pattern,
             expr,
             then_branch,
             else_branch,
@@ -552,7 +552,7 @@ fn fmt_ast_expr(expr: &Expr, out: &mut String, level: usize) {
         }
         Expr::Closure {
             params,
-            return_type,
+            return_type: _return_type,
             body,
         } => {
             out.push_str("Closure(|");

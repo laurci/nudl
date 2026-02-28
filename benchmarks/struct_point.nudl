@@ -1,0 +1,21 @@
+// Struct point accumulation — measures ARC overhead vs stack allocation
+
+struct Point {
+    x: i64,
+    y: i64,
+}
+
+impl Point {
+    fn add(self, other: Point) -> Point {
+        Point { x: self.x + other.x, y: self.y + other.y }
+    }
+}
+
+fn main() {
+    let n = 10000000i64;
+    let mut p = Point { x: 0i64, y: 0i64 };
+    for i in 0i64..n {
+        p = p.add(Point { x: i, y: i * 2i64 });
+    }
+    println(`{p.x}, {p.y}`);
+}

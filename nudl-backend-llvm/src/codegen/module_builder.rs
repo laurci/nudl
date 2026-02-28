@@ -38,6 +38,12 @@ pub(super) fn build_module<'ctx>(
         debug_metadata_version,
     );
 
+    let emission_kind = if optimized {
+        DWARFEmissionKind::None
+    } else {
+        DWARFEmissionKind::Full
+    };
+
     let (dibuilder, compile_unit) = module.create_debug_info_builder(
         true,
         DWARFSourceLanguage::C,
@@ -48,7 +54,7 @@ pub(super) fn build_module<'ctx>(
         "",
         0,
         "",
-        DWARFEmissionKind::Full,
+        emission_kind,
         0,
         false,
         false,
@@ -127,33 +133,24 @@ pub(super) fn build_module<'ctx>(
         }
     }
 
-    // Generate per-struct drop functions that log "dropping <Name>\n"
+    // Generate per-struct drop functions.
+    // In debug builds, they log "dropping <Name>\n" via write(1, ...).
+    // In release builds, they are empty stubs (no I/O overhead).
     let mut drop_fns: HashMap<nudl_core::types::TypeId, FunctionValue<'ctx>> = HashMap::new();
     {
         let ptr_ty = context.ptr_type(AddressSpace::default());
         let void_ty = context.void_type();
         let drop_fn_ty = void_ty.fn_type(&[ptr_ty.into()], false);
 
-        // Find the extern write function in the module
-        let write_fn = module.get_function("write");
+        // Find the extern write function in the module (only needed for debug drops)
+        let write_fn = if !optimized {
+            module.get_function("write")
+        } else {
+            None
+        };
 
         for (type_id, kind) in types.iter_types() {
             if let TypeKind::Struct { name, .. } = kind {
-                let msg = format!("dropping {}\n", name);
-                let msg_bytes = msg.as_bytes();
-
-                // Create a global string for the drop message
-                let global = context.const_string(msg_bytes, false);
-                let global_val = module.add_global(
-                    context.i8_type().array_type(msg_bytes.len() as u32),
-                    Some(AddressSpace::default()),
-                    &format!(".drop_msg.{}", name),
-                );
-                global_val.set_initializer(&global);
-                global_val.set_constant(true);
-                global_val.set_unnamed_addr(true);
-                global_val.set_linkage(inkwell::module::Linkage::Private);
-
                 let drop_fn = module.add_function(
                     &format!("__nudl_drop_{}", name),
                     drop_fn_ty,
@@ -163,9 +160,23 @@ pub(super) fn build_module<'ctx>(
                 let b = context.create_builder();
                 b.position_at_end(bb);
 
-                // Call write(1, msg_ptr, msg_len) if write is available
-                // Note: extern write has LLVM signature (i64, i64, i64) -> i64
+                // Only emit drop logging in debug builds
                 if let Some(write_fn) = write_fn {
+                    let msg = format!("dropping {}\n", name);
+                    let msg_bytes = msg.as_bytes();
+
+                    let global = context.const_string(msg_bytes, false);
+                    let global_val = module.add_global(
+                        context.i8_type().array_type(msg_bytes.len() as u32),
+                        Some(AddressSpace::default()),
+                        &format!(".drop_msg.{}", name),
+                    );
+                    global_val.set_initializer(&global);
+                    global_val.set_constant(true);
+                    global_val.set_unnamed_addr(true);
+                    global_val.set_linkage(inkwell::module::Linkage::Private);
+
+                    // Note: extern write has LLVM signature (i64, i64, i64) -> i64
                     let i64_ty = context.i64_type();
                     let fd = i64_ty.const_int(1, false);
                     let msg_ptr_raw = b

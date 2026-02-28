@@ -1375,7 +1375,7 @@ impl<'a> FunctionLowerCtx<'a> {
             None
         };
 
-        let mut remaining_arms: Vec<(usize, &MatchArm)> = arms.iter().enumerate().collect();
+        let remaining_arms: Vec<(usize, &MatchArm)> = arms.iter().enumerate().collect();
         self.lower_match_arms(
             &remaining_arms,
             scrutinee_reg,
@@ -1483,7 +1483,7 @@ impl<'a> FunctionLowerCtx<'a> {
                 );
             }
             Pattern::Enum {
-                enum_name,
+                enum_name: _enum_name,
                 variant,
                 fields,
             } => {
