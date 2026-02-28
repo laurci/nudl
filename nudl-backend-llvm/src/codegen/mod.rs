@@ -89,13 +89,9 @@ impl ParamLayout {
         for (_name, type_id) in &func.params {
             let kind = types.resolve(*type_id);
             match kind {
-                TypeKind::String => {
+                TypeKind::String if !func.is_extern => {
                     entries.push((llvm_param, 2));
                     llvm_param += 2;
-                }
-                TypeKind::Struct { .. } => {
-                    entries.push((llvm_param, 1));
-                    llvm_param += 1;
                 }
                 _ => {
                     entries.push((llvm_param, 1));

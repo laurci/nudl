@@ -1,21 +1,201 @@
 use super::*;
 
+/// Map a nudl PrimitiveType to the corresponding C-sized LLVM type.
+pub(super) fn primitive_to_c_type<'ctx>(
+    p: &nudl_core::types::PrimitiveType,
+    context: &'ctx Context,
+) -> inkwell::types::BasicTypeEnum<'ctx> {
+    use nudl_core::types::PrimitiveType;
+    match p {
+        PrimitiveType::I8 | PrimitiveType::U8 | PrimitiveType::Bool => context.i8_type().into(),
+        PrimitiveType::I16 | PrimitiveType::U16 => context.i16_type().into(),
+        PrimitiveType::I32 | PrimitiveType::U32 | PrimitiveType::Char => context.i32_type().into(),
+        PrimitiveType::I64 | PrimitiveType::U64 | PrimitiveType::Unit => context.i64_type().into(),
+        PrimitiveType::F32 => context.f32_type().into(),
+        PrimitiveType::F64 => context.f64_type().into(),
+    }
+}
+
+/// Build a C-compatible LLVM struct type from extern struct fields.
+pub(super) fn build_c_struct_type<'ctx>(
+    context: &'ctx Context,
+    types: &TypeInterner,
+    fields: &[(String, nudl_core::types::TypeId)],
+) -> inkwell::types::StructType<'ctx> {
+    let field_types: Vec<inkwell::types::BasicTypeEnum<'ctx>> = fields
+        .iter()
+        .map(|(_, fty)| match types.resolve(*fty) {
+            TypeKind::Primitive(p) => primitive_to_c_type(p, context),
+            TypeKind::Struct {
+                fields: inner_fields,
+                is_extern: true,
+                ..
+            } => build_c_struct_type(context, types, inner_fields).into(),
+            TypeKind::FixedArray { element, length } => {
+                let elem_kind = types.resolve(*element);
+                let c_elem = match elem_kind {
+                    TypeKind::Primitive(p) => primitive_to_c_type(p, context),
+                    _ => context.i64_type().into(),
+                };
+                match c_elem {
+                    inkwell::types::BasicTypeEnum::IntType(t) => {
+                        t.array_type(*length as u32).into()
+                    }
+                    inkwell::types::BasicTypeEnum::FloatType(t) => {
+                        t.array_type(*length as u32).into()
+                    }
+                    _ => context.i64_type().array_type(*length as u32).into(),
+                }
+            }
+            _ => context.i64_type().into(),
+        })
+        .collect();
+    context.struct_type(&field_types, false)
+}
+
+/// Compute the byte size and alignment of a nudl type when laid out as a C type.
+fn c_type_size_align(types: &TypeInterner, type_id: nudl_core::types::TypeId) -> (u64, u64) {
+    use nudl_core::types::PrimitiveType;
+    match types.resolve(type_id) {
+        TypeKind::Primitive(p) => match p {
+            PrimitiveType::I8 | PrimitiveType::U8 | PrimitiveType::Bool => (1, 1),
+            PrimitiveType::I16 | PrimitiveType::U16 => (2, 2),
+            PrimitiveType::I32 | PrimitiveType::U32 | PrimitiveType::Char => (4, 4),
+            PrimitiveType::I64 | PrimitiveType::U64 => (8, 8),
+            PrimitiveType::F32 => (4, 4),
+            PrimitiveType::F64 => (8, 8),
+            PrimitiveType::Unit => (0, 1),
+        },
+        TypeKind::Struct {
+            fields,
+            is_extern: true,
+            ..
+        } => c_struct_size_align(types, fields),
+        TypeKind::FixedArray { element, length } => {
+            let (elem_sz, elem_align) = c_type_size_align(types, *element);
+            (elem_sz * (*length as u64), elem_align)
+        }
+        _ => (8, 8),
+    }
+}
+
+/// Compute the byte size and alignment of a C struct from its fields.
+fn c_struct_size_align(
+    types: &TypeInterner,
+    fields: &[(String, nudl_core::types::TypeId)],
+) -> (u64, u64) {
+    let mut offset = 0u64;
+    let mut max_align = 1u64;
+    for (_, fty) in fields {
+        let (sz, align) = c_type_size_align(types, *fty);
+        offset = (offset + align - 1) & !(align - 1);
+        offset += sz;
+        max_align = max_align.max(align);
+    }
+    let total = (offset + max_align - 1) & !(max_align - 1);
+    (total, max_align)
+}
+
+/// Get the ABI-coerced integer type for passing an extern struct by value.
+/// On ARM64/x86_64, small structs (≤8 bytes) are coerced to an integer of the
+/// same size for register passing. This matches Clang's ABI lowering.
+pub(super) fn extern_struct_abi_type<'ctx>(
+    context: &'ctx Context,
+    types: &TypeInterner,
+    fields: &[(String, nudl_core::types::TypeId)],
+) -> inkwell::types::BasicTypeEnum<'ctx> {
+    let (size, _) = c_struct_size_align(types, fields);
+    match size {
+        0 | 1 => context.i8_type().into(),
+        2 => context.i16_type().into(),
+        3..=4 => context.i32_type().into(),
+        5..=8 => context.i64_type().into(),
+        // For structs > 8 bytes, fall back to the LLVM struct type.
+        // This handles up to 16-byte structs passed in two registers.
+        _ => build_c_struct_type(context, types, fields).into(),
+    }
+}
+
+/// Get the C-compatible LLVM type for a TypeId (handles extern struct, FixedArray, primitives).
+/// For extern structs, returns the ABI-coerced integer type for correct parameter/return passing.
+pub(super) fn type_to_c_llvm_type<'ctx>(
+    context: &'ctx Context,
+    types: &TypeInterner,
+    type_id: nudl_core::types::TypeId,
+) -> Option<inkwell::types::BasicTypeEnum<'ctx>> {
+    match types.resolve(type_id) {
+        TypeKind::Struct {
+            fields,
+            is_extern: true,
+            ..
+        } => Some(extern_struct_abi_type(context, types, fields)),
+        TypeKind::FixedArray { element, length } => {
+            let elem_kind = types.resolve(*element);
+            let c_elem = match elem_kind {
+                TypeKind::Primitive(p) => primitive_to_c_type(p, context),
+                _ => context.i64_type().into(),
+            };
+            Some(match c_elem {
+                inkwell::types::BasicTypeEnum::IntType(t) => t.array_type(*length as u32).into(),
+                inkwell::types::BasicTypeEnum::FloatType(t) => t.array_type(*length as u32).into(),
+                _ => context.i64_type().array_type(*length as u32).into(),
+            })
+        }
+        _ => None,
+    }
+}
+
 /// Build LLVM param types for a function based on its param layout.
+/// When `is_extern` is true, FixedArray and extern struct params use C-compatible types
+/// instead of i64 pointers to ARC objects.
 pub(super) fn build_llvm_param_types<'ctx>(
     func: &Function,
     types: &TypeInterner,
     context: &'ctx Context,
+    is_extern: bool,
 ) -> Vec<BasicMetadataTypeEnum<'ctx>> {
     let mut params = Vec::new();
     for (_name, type_id) in &func.params {
         let kind = types.resolve(*type_id);
         match kind {
             TypeKind::String => {
-                params.push(context.ptr_type(AddressSpace::default()).into());
-                params.push(context.i64_type().into());
+                if is_extern {
+                    // Extern: pass as raw ptr (caller must use cstr())
+                    params.push(context.ptr_type(AddressSpace::default()).into());
+                } else {
+                    params.push(context.ptr_type(AddressSpace::default()).into());
+                    params.push(context.i64_type().into());
+                }
             }
             TypeKind::Primitive(p) if p.is_float() => {
                 params.push(context.f64_type().into());
+            }
+            TypeKind::Struct {
+                fields,
+                is_extern: true,
+                ..
+            } if is_extern => {
+                // Extern struct param: use ABI-coerced integer type
+                let abi_ty = extern_struct_abi_type(context, types, fields);
+                params.push(abi_ty.into());
+            }
+            TypeKind::FixedArray { element, length } if is_extern => {
+                // Extern: use C-compatible packed array type [N x elem_type]
+                let elem_kind = types.resolve(*element);
+                let llvm_elem_ty = match elem_kind {
+                    TypeKind::Primitive(p) => primitive_to_c_type(p, context),
+                    _ => context.i64_type().into(),
+                };
+                let array_ty = match llvm_elem_ty {
+                    inkwell::types::BasicTypeEnum::IntType(t) => {
+                        t.array_type(*length as u32).into()
+                    }
+                    inkwell::types::BasicTypeEnum::FloatType(t) => {
+                        t.array_type(*length as u32).into()
+                    }
+                    _ => context.i64_type().into(),
+                };
+                params.push(array_ty);
             }
             _ => {
                 params.push(context.i64_type().into());

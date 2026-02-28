@@ -82,6 +82,7 @@ pub enum TypeKind {
     Struct {
         name: String,
         fields: Vec<(String, TypeId)>,
+        is_extern: bool,
     },
     Enum {
         name: String,
@@ -250,27 +251,38 @@ impl TypeInterner {
 
     /// Returns true if this type is a reference type (heap-allocated, ARC-managed)
     pub fn is_reference_type(&self, id: TypeId) -> bool {
-        matches!(
-            self.resolve(id),
-            TypeKind::Struct { .. }
-                | TypeKind::Enum { .. }
-                | TypeKind::String
-                | TypeKind::DynamicArray { .. }
-                | TypeKind::Map { .. }
-                | TypeKind::DynInterface { .. }
-                | TypeKind::Function { .. }
-        )
+        match self.resolve(id) {
+            TypeKind::Struct { is_extern, .. } => !is_extern,
+            TypeKind::Enum { .. }
+            | TypeKind::String
+            | TypeKind::DynamicArray { .. }
+            | TypeKind::Map { .. }
+            | TypeKind::DynInterface { .. }
+            | TypeKind::Function { .. } => true,
+            _ => false,
+        }
     }
 
     /// Returns true if this type needs ARC management (struct or enum)
     pub fn is_arc_managed(&self, id: TypeId) -> bool {
+        match self.resolve(id) {
+            TypeKind::Struct { is_extern, .. } => !is_extern,
+            TypeKind::Enum { .. }
+            | TypeKind::DynamicArray { .. }
+            | TypeKind::Map { .. }
+            | TypeKind::DynInterface { .. } => true,
+            _ => false,
+        }
+    }
+
+    /// Returns true if this type is an extern struct (C-compatible value type)
+    pub fn is_extern_struct(&self, id: TypeId) -> bool {
         matches!(
             self.resolve(id),
-            TypeKind::Struct { .. }
-                | TypeKind::Enum { .. }
-                | TypeKind::DynamicArray { .. }
-                | TypeKind::Map { .. }
-                | TypeKind::DynInterface { .. }
+            TypeKind::Struct {
+                is_extern: true,
+                ..
+            }
         )
     }
 

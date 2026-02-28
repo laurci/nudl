@@ -156,9 +156,17 @@ impl Checker {
                     .map(|f| (f.name.clone(), self.resolve_type(&f.ty)))
                     .collect();
 
+                let is_extern = matches!(
+                    &item.node,
+                    Item::StructDef {
+                        is_extern: true,
+                        ..
+                    }
+                );
                 let type_id = self.types.intern(TypeKind::Struct {
                     name: name.clone(),
                     fields: resolved_fields,
+                    is_extern,
                 });
 
                 self.structs.insert(name.clone(), type_id);

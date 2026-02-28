@@ -147,7 +147,6 @@ fn resolve_imports(
     source_map: &mut SourceMap,
     diagnostics: &mut DiagnosticBag,
 ) -> Module {
-    let source_dir = source_path.parent().unwrap_or(Path::new("."));
     let std_root = find_std_root(std_path);
     let mut merged_items = Vec::new();
     let mut imported_files: HashSet<PathBuf> = HashSet::new();
@@ -171,17 +170,59 @@ fn resolve_imports(
         }
     }
 
-    // Process user imports
+    // Recursively collect items from a module's imports
+    let source_dir = source_path.parent().unwrap_or(Path::new("."));
+    collect_imports(
+        &module,
+        source_dir,
+        &std_root,
+        &mut imported_files,
+        &mut merged_items,
+        source_map,
+        diagnostics,
+    );
+
+    // Add all original items (including imports, which checker will skip)
+    merged_items.extend(module.items);
+
+    Module {
+        items: merged_items,
+    }
+}
+
+/// Recursively resolve imports from a module and collect their non-import items.
+/// Each imported file's own imports are resolved before its items are added.
+fn collect_imports(
+    module: &Module,
+    source_dir: &Path,
+    std_root: &Path,
+    imported_files: &mut HashSet<PathBuf>,
+    merged_items: &mut Vec<nudl_core::span::Spanned<Item>>,
+    source_map: &mut SourceMap,
+    diagnostics: &mut DiagnosticBag,
+) {
     for item in &module.items {
         if let Item::Import { path, .. } = &item.node {
-            if let Some(import_path) = resolve_import_path(source_dir, path, &std_root) {
+            if let Some(import_path) = resolve_import_path(source_dir, path, std_root) {
                 if imported_files.contains(&import_path) {
                     continue; // Skip duplicate imports
                 }
                 imported_files.insert(import_path.clone());
 
                 if let Some(imported_module) = parse_file(&import_path, source_map, diagnostics) {
-                    // Add all non-import items from the imported module
+                    // Recursively resolve this module's imports first
+                    let imported_dir = import_path.parent().unwrap_or(Path::new("."));
+                    collect_imports(
+                        &imported_module,
+                        imported_dir,
+                        std_root,
+                        imported_files,
+                        merged_items,
+                        source_map,
+                        diagnostics,
+                    );
+
+                    // Then add its non-import items
                     for imp_item in imported_module.items {
                         if !matches!(&imp_item.node, Item::Import { .. }) {
                             merged_items.push(imp_item);
@@ -189,15 +230,7 @@ fn resolve_imports(
                     }
                 }
             }
-            // Silently skip unresolved imports - the stdlib prelude will be auto-loaded
         }
-    }
-
-    // Add all original items (including imports, which checker will skip)
-    merged_items.extend(module.items);
-
-    Module {
-        items: merged_items,
     }
 }
 

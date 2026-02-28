@@ -4,3 +4,16 @@ name = "nudl"
 [[bin]]
 name = "playground"
 path = "playground/main.nudl"
+
+[[bin]]
+name = "game"
+path = "playground/game.nudl"
+link = [
+    "../vendor/raylib-5.5_macos/lib/libraylib.a",
+    "-framework", "CoreVideo",
+    "-framework", "IOKit",
+    "-framework", "Cocoa",
+    "-framework", "GLUT",
+    "-framework", "OpenGL",
+    "-framework", "CoreFoundation",
+]

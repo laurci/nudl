@@ -500,6 +500,7 @@ pub(super) fn emit_instruction<'ctx>(
                 string_constants,
                 function_map,
                 types,
+                arc,
                 string_builtins,
                 result_reg,
                 func_ref,

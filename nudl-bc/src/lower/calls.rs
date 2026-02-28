@@ -85,6 +85,20 @@ impl<'a> FunctionLowerCtx<'a> {
                 ));
                 dst
             }
+            "cptr" => {
+                // cptr(value) -> RawPtr: emitted as a builtin call
+                let arg_reg = self.lower_expr(&args[0].value);
+                self.current_span = call_span;
+                let sym = self.interner.intern("cptr");
+                let raw_ptr_ty = self.types.raw_ptr();
+                let dst = self.alloc_typed_register(raw_ptr_ty);
+                self.push_inst(Instruction::Call(
+                    dst,
+                    FunctionRef::Builtin(sym),
+                    vec![arg_reg],
+                ));
+                dst
+            }
             _ => {
                 let reg = self.alloc_register();
                 self.push_inst(Instruction::ConstUnit(reg));

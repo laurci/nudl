@@ -1,0 +1,35 @@
+import raylib;
+import vec;
+
+fn main() {
+    const WIDTH: i32 = 800;
+    const HEIGHT: i32 = 600;
+
+    const PLAYER_SIZE: i32 = 20;
+
+    const MIN: Vec2 = Vec2 { x: 0, y: 0 };
+    const MAX: Vec2 = Vec2 { x: WIDTH - PLAYER_SIZE, y: HEIGHT - PLAYER_SIZE };
+
+    init_game(WIDTH, HEIGHT, "Hello from Nudl!");
+    defer { close_window() }
+
+    let mut pos = Vec2 { x: 100, y: 100 };
+    let mut vel = Vec2 { x: 4, y: 4 };
+
+    while !window_should_close() {
+        pos = pos.add(vel)
+    
+        if pos.x == 0 || pos.x == MAX.x {
+            vel = Vec2 { x: -vel.x, y: vel.y };
+        }
+    
+        if pos.y == 0 || pos.y == MAX.y {
+            vel = Vec2 { x: vel.x, y: -vel.y };
+        }
+
+        begin_drawing();
+        clear_background(Color::black());
+        draw_rectangle(pos.x, pos.y, PLAYER_SIZE, PLAYER_SIZE, Color::white());
+        end_drawing();
+    }
+}

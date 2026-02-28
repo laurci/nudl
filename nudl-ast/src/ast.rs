@@ -24,6 +24,7 @@ pub enum Item {
         type_params: Vec<TypeParam>,
         fields: Vec<StructField>,
         is_pub: bool,
+        is_extern: bool,
     },
     EnumDef {
         name: String,

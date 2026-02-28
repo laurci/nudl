@@ -70,16 +70,25 @@ impl<'a> FunctionLowerCtx<'a> {
                     }
                     // Check if it's a tuple struct constructor: Foo(val1, val2)
                     if let Some(&struct_ty) = self.struct_defs.get(name) {
-                        let dst = self.alloc_typed_register(struct_ty);
-                        self.push_inst(Instruction::Alloc(dst, struct_ty));
-                        // Lower args and store them as positional fields
-                        for (i, arg) in args.iter().enumerate() {
-                            let val = self.lower_expr(&arg.value);
-                            self.push_inst(Instruction::Store(dst, i as u32, val));
+                        if self.types.is_extern_struct(struct_ty) {
+                            // Extern struct: use TupleAlloc (value type, no ARC)
+                            let element_regs: Vec<Register> =
+                                args.iter().map(|a| self.lower_expr(&a.value)).collect();
+                            let dst = self.alloc_typed_register(struct_ty);
+                            self.push_inst(Instruction::TupleAlloc(dst, struct_ty, element_regs));
+                            return dst;
+                        } else {
+                            let dst = self.alloc_typed_register(struct_ty);
+                            self.push_inst(Instruction::Alloc(dst, struct_ty));
+                            // Lower args and store them as positional fields
+                            for (i, arg) in args.iter().enumerate() {
+                                let val = self.lower_expr(&arg.value);
+                                self.push_inst(Instruction::Store(dst, i as u32, val));
+                            }
+                            // ARC retain for newly allocated
+                            self.push_inst(Instruction::Retain(dst));
+                            return dst;
                         }
-                        // ARC retain for newly allocated
-                        self.push_inst(Instruction::Retain(dst));
-                        return dst;
                     }
                 }
                 // Fallback: emit unit
@@ -572,25 +581,43 @@ impl<'a> FunctionLowerCtx<'a> {
                     .map(|s| s.as_str())
                     .unwrap_or(name.as_str());
                 let type_id = self.struct_defs.get(resolved_name).copied().unwrap();
-                let dst = self.alloc_register();
-                self.push_inst(Instruction::Alloc(dst, type_id));
 
                 // Resolve field order from the type definition
-                let struct_fields = match self.types.resolve(type_id).clone() {
-                    nudl_core::types::TypeKind::Struct { fields: f, .. } => f,
-                    _ => vec![],
+                let (struct_fields, is_extern_struct) = match self.types.resolve(type_id).clone() {
+                    nudl_core::types::TypeKind::Struct {
+                        fields: f,
+                        is_extern,
+                        ..
+                    } => (f, is_extern),
+                    _ => (vec![], false),
                 };
 
-                for (field_name, field_val) in fields {
-                    let val_reg = self.lower_expr(field_val);
-                    // Find field index in the struct definition
-                    let field_idx = struct_fields
-                        .iter()
-                        .position(|(n, _)| n == field_name)
-                        .unwrap() as u32;
-                    self.push_inst(Instruction::Store(dst, field_idx, val_reg));
+                if is_extern_struct {
+                    // Extern struct: use tuple instructions (stack-allocated value type)
+                    let mut element_regs = Vec::new();
+                    for (fname, _fty) in &struct_fields {
+                        if let Some((_, field_val)) = fields.iter().find(|(n, _)| n == fname) {
+                            let val_reg = self.lower_expr(field_val);
+                            element_regs.push(val_reg);
+                        }
+                    }
+                    let dst = self.alloc_typed_register(type_id);
+                    self.push_inst(Instruction::TupleAlloc(dst, type_id, element_regs));
+                    dst
+                } else {
+                    // Regular struct: ARC-managed heap object
+                    let dst = self.alloc_register();
+                    self.push_inst(Instruction::Alloc(dst, type_id));
+                    for (field_name, field_val) in fields {
+                        let val_reg = self.lower_expr(field_val);
+                        let field_idx = struct_fields
+                            .iter()
+                            .position(|(n, _)| n == field_name)
+                            .unwrap() as u32;
+                        self.push_inst(Instruction::Store(dst, field_idx, val_reg));
+                    }
+                    dst
                 }
-                dst
             }
 
             Expr::FieldAccess { object, field } => {
@@ -618,11 +645,25 @@ impl<'a> FunctionLowerCtx<'a> {
                         }
                     }
                 }
-                // Resolve object type to find field index (struct field access)
+                // Check if object is an extern struct — use TupleLoad instead of Load
+                let obj_type = self.infer_expr_type(object);
+                let is_extern_struct =
+                    obj_type.map_or(false, |tid| self.types.is_extern_struct(tid));
                 let field_idx = self.resolve_field_index(object, field);
-                let dst = self.alloc_register();
-                self.push_inst(Instruction::Load(dst, obj_reg, field_idx));
-                dst
+                if is_extern_struct {
+                    let field_type = self.infer_field_type(object, field);
+                    let dst = if let Some(ft) = field_type {
+                        self.alloc_typed_register(ft)
+                    } else {
+                        self.alloc_register()
+                    };
+                    self.push_inst(Instruction::TupleLoad(dst, obj_reg, field_idx));
+                    dst
+                } else {
+                    let dst = self.alloc_register();
+                    self.push_inst(Instruction::Load(dst, obj_reg, field_idx));
+                    dst
+                }
             }
 
             Expr::Assign { target, value } => {
@@ -638,13 +679,21 @@ impl<'a> FunctionLowerCtx<'a> {
                 } else if let Expr::FieldAccess { object, field } = &target.node {
                     let obj_reg = self.lower_expr(object);
                     let field_idx = self.resolve_field_index(object, field);
-                    // Release old field value if reference-typed
-                    if let Some(ft) = self.infer_field_type(object, field) {
-                        let old_val = self.alloc_typed_register(ft);
-                        self.push_inst(Instruction::Load(old_val, obj_reg, field_idx));
-                        self.emit_release_for_type(old_val, ft);
+                    let obj_type = self.infer_expr_type(object);
+                    let is_extern_struct =
+                        obj_type.map_or(false, |tid| self.types.is_extern_struct(tid));
+                    if is_extern_struct {
+                        // Extern struct: use TupleStore (no ARC)
+                        self.push_inst(Instruction::TupleStore(obj_reg, field_idx, val_reg));
+                    } else {
+                        // Release old field value if reference-typed
+                        if let Some(ft) = self.infer_field_type(object, field) {
+                            let old_val = self.alloc_typed_register(ft);
+                            self.push_inst(Instruction::Load(old_val, obj_reg, field_idx));
+                            self.emit_release_for_type(old_val, ft);
+                        }
+                        self.push_inst(Instruction::Store(obj_reg, field_idx, val_reg));
                     }
-                    self.push_inst(Instruction::Store(obj_reg, field_idx, val_reg));
                 } else if let Expr::IndexAccess { object, index } = &target.node {
                     let obj_type = self.infer_expr_type(object);
                     let is_dynamic = obj_type.map_or(false, |tid| {

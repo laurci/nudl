@@ -1,6 +1,190 @@
 use nudl_core::intern::Symbol;
+use nudl_core::types::TypeId;
 
 use super::*;
+
+/// Pack a FixedArray from an ARC heap object into a C-compatible LLVM array value.
+/// The ARC object stores each element as i64 at offset ARC_HEADER_SIZE + i * FIELD_SIZE.
+/// This extracts each element, truncates to the C element type, and builds an LLVM array.
+fn pack_fixed_array_for_ffi<'ctx>(
+    context: &'ctx Context,
+    builder: &Builder<'ctx>,
+    register_allocas: &HashMap<u32, PointerValue<'ctx>>,
+    types: &TypeInterner,
+    reg: u32,
+    element: TypeId,
+    length: usize,
+) -> Result<BasicValueEnum<'ctx>, BackendError> {
+    let i8_ty = context.i8_type();
+    let i64_ty = context.i64_type();
+
+    // Get the C element type
+    let elem_kind = types.resolve(element);
+    let c_elem_ty = match elem_kind {
+        TypeKind::Primitive(p) => primitive_to_c_type(p, context),
+        _ => i64_ty.into(),
+    };
+
+    // Load the ARC object pointer from the register
+    let obj_ptr = load_ptr(context, builder, register_allocas, reg)?;
+
+    // Build the array value by extracting each element
+    let array_ty = match c_elem_ty {
+        inkwell::types::BasicTypeEnum::IntType(t) => t.array_type(length as u32),
+        inkwell::types::BasicTypeEnum::FloatType(t) => t.array_type(length as u32),
+        _ => i64_ty.array_type(length as u32),
+    };
+    let mut array_val = array_ty.const_zero();
+
+    for i in 0..length {
+        let byte_offset = ARC_HEADER_SIZE + (i as u64) * FIELD_SIZE;
+        let elem_ptr = unsafe {
+            builder
+                .build_gep(
+                    i8_ty,
+                    obj_ptr,
+                    &[i64_ty.const_int(byte_offset, false)],
+                    &format!("ffi_arr_elem_ptr_{}", i),
+                )
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?
+        };
+
+        // Load as i64 (that's how elements are stored internally)
+        let elem_i64 = builder
+            .build_load(i64_ty, elem_ptr, &format!("ffi_arr_elem_{}", i))
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            .into_int_value();
+
+        // Truncate/convert to the C element type and insert into array
+        let c_val: BasicValueEnum = match c_elem_ty {
+            inkwell::types::BasicTypeEnum::IntType(t) => {
+                if t.get_bit_width() < 64 {
+                    builder
+                        .build_int_truncate(elem_i64, t, &format!("ffi_trunc_{}", i))
+                        .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                        .into()
+                } else {
+                    elem_i64.into()
+                }
+            }
+            inkwell::types::BasicTypeEnum::FloatType(t) => builder
+                .build_bit_cast(elem_i64, t, &format!("ffi_f_{}", i))
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                .into(),
+            _ => elem_i64.into(),
+        };
+
+        array_val = builder
+            .build_insert_value(array_val, c_val, i as u32, &format!("ffi_arr_insert_{}", i))
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            .into_array_value();
+    }
+
+    Ok(array_val.into())
+}
+
+/// Pack an extern struct from a TupleAlloc (stack-allocated i64 slots) into a C-compatible LLVM struct value.
+/// Each field is loaded from the tuple alloca (ARC_HEADER_SIZE + field_index * FIELD_SIZE),
+/// truncated to the C field type, and inserted into an LLVM struct.
+fn pack_extern_struct_for_ffi<'ctx>(
+    context: &'ctx Context,
+    builder: &Builder<'ctx>,
+    register_allocas: &HashMap<u32, PointerValue<'ctx>>,
+    types: &TypeInterner,
+    reg: u32,
+    fields: &[(String, nudl_core::types::TypeId)],
+) -> Result<BasicValueEnum<'ctx>, BackendError> {
+    let i64_ty = context.i64_type();
+    let c_struct_ty = build_c_struct_type(context, types, fields);
+
+    // Load the ARC object pointer from the register (TupleAlloc stores a pointer as i64)
+    let obj_ptr = load_ptr(context, builder, register_allocas, reg)?;
+
+    let mut struct_val = c_struct_ty.get_undef();
+    for (i, (_, fty)) in fields.iter().enumerate() {
+        let byte_offset = ARC_HEADER_SIZE + (i as u64) * FIELD_SIZE;
+        let field_ptr = unsafe {
+            builder
+                .build_gep(
+                    context.i8_type(),
+                    obj_ptr,
+                    &[i64_ty.const_int(byte_offset, false)],
+                    &format!("es_field_ptr_{}", i),
+                )
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?
+        };
+
+        let c_field_ty = match types.resolve(*fty) {
+            TypeKind::Primitive(p) => primitive_to_c_type(p, context),
+            TypeKind::Struct {
+                fields: inner_fields,
+                is_extern: true,
+                ..
+            } => build_c_struct_type(context, types, inner_fields).into(),
+            _ => i64_ty.into(),
+        };
+
+        let c_val: BasicValueEnum = match c_field_ty {
+            inkwell::types::BasicTypeEnum::IntType(t) => {
+                let raw = builder
+                    .build_load(i64_ty, field_ptr, &format!("es_field_{}", i))
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                    .into_int_value();
+                if t.get_bit_width() < 64 {
+                    builder
+                        .build_int_truncate(raw, t, &format!("es_trunc_{}", i))
+                        .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                        .into()
+                } else {
+                    raw.into()
+                }
+            }
+            inkwell::types::BasicTypeEnum::FloatType(t) => {
+                let raw = builder
+                    .build_load(i64_ty, field_ptr, &format!("es_field_{}", i))
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                    .into_int_value();
+                builder
+                    .build_bit_cast(raw, t, &format!("es_float_{}", i))
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                    .into()
+            }
+            _ => builder
+                .build_load(i64_ty, field_ptr, &format!("es_field_{}", i))
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?,
+        };
+
+        struct_val = builder
+            .build_insert_value(struct_val, c_val, i as u32, &format!("es_insert_{}", i))
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            .into_struct_value();
+    }
+
+    // Coerce the struct to the ABI type (integer) for correct parameter passing.
+    // LLVM scalarizes struct parameters into separate registers, but the C ABI
+    // expects small structs packed into a single register.
+    let abi_ty = extern_struct_abi_type(context, types, fields);
+    let coerced = match abi_ty {
+        inkwell::types::BasicTypeEnum::IntType(int_ty) => {
+            // alloca struct, store, load as int
+            let tmp = builder
+                .build_alloca(c_struct_ty, "es_coerce_tmp")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            builder
+                .build_store(tmp, struct_val)
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            builder
+                .build_load(int_ty, tmp, "es_coerced")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?
+        }
+        _ => {
+            // Large structs (>8 bytes): pass as-is (LLVM struct type)
+            struct_val.into()
+        }
+    };
+
+    Ok(coerced)
+}
 
 /// Load a string argument's (ptr, len) pair from a register.
 pub(super) fn load_string_arg<'ctx>(
@@ -156,11 +340,12 @@ pub(super) fn store_string_result<'ctx>(
     Ok(())
 }
 
-/// Emit a builtin call (string builtins, panic, assert, etc.).
+/// Emit a builtin call (string builtins, panic, assert, cptr, etc.).
 fn emit_builtin_call<'ctx>(
     context: &'ctx Context,
     builder: &Builder<'ctx>,
     program: &Program,
+    caller_func: &Function,
     register_allocas: &HashMap<u32, PointerValue<'ctx>>,
     str_ptr_allocas: &HashMap<u32, PointerValue<'ctx>>,
     str_len_allocas: &HashMap<u32, PointerValue<'ctx>>,
@@ -682,6 +867,103 @@ fn emit_builtin_call<'ctx>(
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?;
         }
 
+        "cptr" => {
+            // cptr(value) -> RawPtr: get a pointer to a C-layout copy of the value
+            let types = &program.types;
+            let arg_ty = caller_func.register_types.get(args[0].0 as usize).copied();
+
+            if let Some(ty) = arg_ty {
+                match types.resolve(ty) {
+                    TypeKind::Struct {
+                        fields,
+                        is_extern: true,
+                        ..
+                    } => {
+                        // Extern struct: alloca C struct, pack fields, return pointer
+                        let c_struct_ty = build_c_struct_type(context, types, fields);
+                        let struct_val = pack_extern_struct_for_ffi(
+                            context,
+                            builder,
+                            register_allocas,
+                            types,
+                            args[0].0,
+                            fields,
+                        )?;
+                        let alloca = builder
+                            .build_alloca(c_struct_ty, "cptr_struct")
+                            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                        builder
+                            .build_store(alloca, struct_val)
+                            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                        let ptr_as_i64 = builder
+                            .build_ptr_to_int(alloca, context.i64_type(), "cptr_i64")
+                            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                        store(builder, register_allocas, result_reg.0, ptr_as_i64)?;
+                    }
+                    TypeKind::FixedArray { element, length } => {
+                        // Fixed array: alloca C array, pack elements, return pointer
+                        let arr_val = pack_fixed_array_for_ffi(
+                            context,
+                            builder,
+                            register_allocas,
+                            types,
+                            args[0].0,
+                            *element,
+                            *length,
+                        )?;
+                        let c_arr_ty = match type_to_c_llvm_type(context, types, ty) {
+                            Some(t) => t,
+                            None => context.i64_type().array_type(*length as u32).into(),
+                        };
+                        let alloca = builder
+                            .build_alloca(c_arr_ty, "cptr_array")
+                            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                        builder
+                            .build_store(alloca, arr_val)
+                            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                        let ptr_as_i64 = builder
+                            .build_ptr_to_int(alloca, context.i64_type(), "cptr_i64")
+                            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                        store(builder, register_allocas, result_reg.0, ptr_as_i64)?;
+                    }
+                    TypeKind::DynamicArray { .. } => {
+                        // Dynamic array: return data pointer from ARC array object
+                        // Layout: [ARC header 16 bytes][ptr 8 bytes][len 8 bytes][cap 8 bytes]
+                        let obj_ptr = load_ptr(context, builder, register_allocas, args[0].0)?;
+                        let data_field_ptr = unsafe {
+                            builder
+                                .build_gep(
+                                    context.i8_type(),
+                                    obj_ptr,
+                                    &[context.i64_type().const_int(ARC_HEADER_SIZE, false)],
+                                    "darr_data_field",
+                                )
+                                .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                        };
+                        let data_ptr = builder
+                            .build_load(context.i64_type(), data_field_ptr, "darr_data_ptr")
+                            .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                            .into_int_value();
+                        store(builder, register_allocas, result_reg.0, data_ptr)?;
+                    }
+                    _ => {
+                        // For primitives: alloca, store, return pointer
+                        let val = load_i64(context, builder, register_allocas, args[0].0)?;
+                        let alloca = builder
+                            .build_alloca(context.i64_type(), "cptr_val")
+                            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                        builder
+                            .build_store(alloca, val)
+                            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                        let ptr_as_i64 = builder
+                            .build_ptr_to_int(alloca, context.i64_type(), "cptr_i64")
+                            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                        store(builder, register_allocas, result_reg.0, ptr_as_i64)?;
+                    }
+                }
+            }
+        }
+
         // Unknown builtins — silently skip (panic/assert not yet wired)
         _ => {}
     }
@@ -701,6 +983,7 @@ pub(super) fn emit_call<'ctx>(
     string_constants: &[(GlobalValue<'ctx>, u64)],
     function_map: &HashMap<u32, FunctionValue<'ctx>>,
     types: &TypeInterner,
+    arc: &ArcIntrinsics<'ctx>,
     string_builtins: &StringBuiltins<'ctx>,
     result_reg: &Register,
     func_ref: &FunctionRef,
@@ -712,6 +995,7 @@ pub(super) fn emit_call<'ctx>(
             context,
             builder,
             program,
+            _caller_func,
             register_allocas,
             str_ptr_allocas,
             str_len_allocas,
@@ -777,12 +1061,68 @@ pub(super) fn emit_call<'ctx>(
                 llvm_args.push(ptr);
                 llvm_args.push(len);
             } else {
-                // Check if the callee param is float
-                let param_is_float = callee_func
+                // Check if the callee param is a FixedArray in an extern call
+                let param_type = callee_func
                     .and_then(|cf| cf.params.get(i))
-                    .map(|(_, pty)| {
-                        matches!(types.resolve(*pty), TypeKind::Primitive(p) if p.is_float())
-                    })
+                    .map(|(_, pty)| *pty);
+                let is_extern = callee_func.map(|f| f.is_extern).unwrap_or(false);
+
+                if let Some(pty) = param_type {
+                    if is_extern {
+                        match types.resolve(pty) {
+                            TypeKind::FixedArray { element, length } => {
+                                // Pack elements from ARC object into C-compatible array
+                                let arr_val = pack_fixed_array_for_ffi(
+                                    context,
+                                    builder,
+                                    register_allocas,
+                                    types,
+                                    arg_reg.0,
+                                    *element,
+                                    *length,
+                                )?;
+                                llvm_args.push(arr_val);
+                                continue;
+                            }
+                            TypeKind::Struct {
+                                fields,
+                                is_extern: true,
+                                ..
+                            } => {
+                                // Pack extern struct fields into C-compatible struct
+                                let struct_val = pack_extern_struct_for_ffi(
+                                    context,
+                                    builder,
+                                    register_allocas,
+                                    types,
+                                    arg_reg.0,
+                                    fields,
+                                )?;
+                                llvm_args.push(struct_val);
+                                continue;
+                            }
+                            TypeKind::String => {
+                                // Extern string param: pass just the ptr (not ptr+len)
+                                let (ptr, _len) = load_string_arg(
+                                    context,
+                                    builder,
+                                    reg_string_info,
+                                    string_constants,
+                                    str_ptr_allocas,
+                                    str_len_allocas,
+                                    arg_reg.0,
+                                )?;
+                                llvm_args.push(ptr);
+                                continue;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
+                // Check if the callee param is float
+                let param_is_float = param_type
+                    .map(|pty| matches!(types.resolve(pty), TypeKind::Primitive(p) if p.is_float()))
                     .unwrap_or(false);
                 if param_is_float {
                     let val = load_f64(context, builder, register_allocas, arg_reg.0)?;
@@ -812,9 +1152,179 @@ pub(super) fn emit_call<'ctx>(
         .map(|f| matches!(types.resolve(f.return_type), TypeKind::String))
         .unwrap_or(false);
 
+    // Check if callee returns an extern struct or fixed array (C-compatible value types)
+    let callee_returns_extern_struct = callee_func
+        .map(|f| f.is_extern && types.is_extern_struct(f.return_type))
+        .unwrap_or(false);
+    let callee_returns_fixed_array = callee_func
+        .map(|f| f.is_extern && matches!(types.resolve(f.return_type), TypeKind::FixedArray { .. }))
+        .unwrap_or(false);
+
     // Store result
     let is_extern = callee_func.map(|f| f.is_extern).unwrap_or(false);
-    if callee_returns_string {
+    if callee_returns_extern_struct {
+        // Extern function returning an extern struct: the return value is an ABI-coerced
+        // integer (e.g., i32 for a 4-byte struct). We need to:
+        // 1. Allocate a TupleAlloc buffer (ARC header + i64 fields) for the result register
+        // 2. Store the coerced return into a temp, load as struct, extract fields
+        // 3. Widen each field to i64 and store into the TupleAlloc buffer
+        if let Some(ret_val) = call_result.try_as_basic_value().basic() {
+            let ret_ty = callee_func.unwrap().return_type;
+            if let TypeKind::Struct { fields, .. } = types.resolve(ret_ty) {
+                let c_struct_ty = build_c_struct_type(context, types, fields);
+
+                // Allocate a TupleAlloc buffer for the result
+                let num_fields = fields.len() as u64;
+                let total_size = context
+                    .i64_type()
+                    .const_int(ARC_HEADER_SIZE + num_fields * FIELD_SIZE, false);
+                let type_tag = context.i32_type().const_int(ret_ty.0 as u64, false);
+                let alloc_result = builder
+                    .build_direct_call(
+                        arc.arc_alloc,
+                        &[total_size.into(), type_tag.into()],
+                        "es_ret_alloc",
+                    )
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                let obj_ptr = alloc_result
+                    .try_as_basic_value()
+                    .basic()
+                    .expect("arc_alloc should return a pointer")
+                    .into_pointer_value();
+
+                // Store the pointer in the result register
+                let ptr_as_i64 = builder
+                    .build_ptr_to_int(obj_ptr, context.i64_type(), "es_ret_ptr_i64")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                store(builder, register_allocas, result_reg.0, ptr_as_i64)?;
+
+                // Store ABI-coerced return value, then load as struct to extract fields
+                let tmp = builder
+                    .build_alloca(c_struct_ty, "es_ret_tmp")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                builder
+                    .build_store(tmp, ret_val)
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+                let struct_val = builder
+                    .build_load(c_struct_ty, tmp, "es_ret_struct")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                    .into_struct_value();
+
+                // Extract each field, widen to i64, store into TupleAlloc buffer
+                for (i, (_, fty)) in fields.iter().enumerate() {
+                    let c_val = builder
+                        .build_extract_value(struct_val, i as u32, &format!("es_ret_{}", i))
+                        .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                    let i64_val: inkwell::values::IntValue = match c_val {
+                        BasicValueEnum::IntValue(iv) => {
+                            let is_signed = matches!(types.resolve(*fty), TypeKind::Primitive(p) if p.is_signed());
+                            if iv.get_type().get_bit_width() < 64 {
+                                if is_signed {
+                                    builder
+                                        .build_int_s_extend(
+                                            iv,
+                                            context.i64_type(),
+                                            &format!("es_sext_{}", i),
+                                        )
+                                        .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                                } else {
+                                    builder
+                                        .build_int_z_extend(
+                                            iv,
+                                            context.i64_type(),
+                                            &format!("es_zext_{}", i),
+                                        )
+                                        .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                                }
+                            } else {
+                                iv
+                            }
+                        }
+                        BasicValueEnum::FloatValue(fv) => builder
+                            .build_bit_cast(fv, context.i64_type(), &format!("es_fcast_{}", i))
+                            .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                            .into_int_value(),
+                        _ => context.i64_type().const_zero(),
+                    };
+                    let byte_offset = ARC_HEADER_SIZE + (i as u64) * FIELD_SIZE;
+                    let field_ptr = unsafe {
+                        builder
+                            .build_gep(
+                                context.i8_type(),
+                                obj_ptr,
+                                &[context.i64_type().const_int(byte_offset, false)],
+                                &format!("es_ret_ptr_{}", i),
+                            )
+                            .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                    };
+                    builder
+                        .build_store(field_ptr, i64_val)
+                        .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                }
+            }
+        }
+    } else if callee_returns_fixed_array {
+        // Extern function returning a fixed array: unpack C array into tuple alloca
+        if let Some(ret_val) = call_result.try_as_basic_value().basic() {
+            let array_val = ret_val.into_array_value();
+            let ret_ty = callee_func.unwrap().return_type;
+            if let TypeKind::FixedArray { element, length } = types.resolve(ret_ty) {
+                let obj_ptr = load_ptr(context, builder, register_allocas, result_reg.0)?;
+                let is_signed =
+                    matches!(types.resolve(*element), TypeKind::Primitive(p) if p.is_signed());
+                for i in 0..*length {
+                    let c_val = builder
+                        .build_extract_value(array_val, i as u32, &format!("arr_ret_{}", i))
+                        .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                    let i64_val: inkwell::values::IntValue = match c_val {
+                        BasicValueEnum::IntValue(iv) => {
+                            if iv.get_type().get_bit_width() < 64 {
+                                if is_signed {
+                                    builder
+                                        .build_int_s_extend(
+                                            iv,
+                                            context.i64_type(),
+                                            &format!("arr_sext_{}", i),
+                                        )
+                                        .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                                } else {
+                                    builder
+                                        .build_int_z_extend(
+                                            iv,
+                                            context.i64_type(),
+                                            &format!("arr_zext_{}", i),
+                                        )
+                                        .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                                }
+                            } else {
+                                iv
+                            }
+                        }
+                        BasicValueEnum::FloatValue(fv) => builder
+                            .build_bit_cast(fv, context.i64_type(), &format!("arr_fcast_{}", i))
+                            .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                            .into_int_value(),
+                        _ => context.i64_type().const_zero(),
+                    };
+                    let byte_offset = ARC_HEADER_SIZE + (i as u64) * FIELD_SIZE;
+                    let field_ptr = unsafe {
+                        builder
+                            .build_gep(
+                                context.i8_type(),
+                                obj_ptr,
+                                &[context.i64_type().const_int(byte_offset, false)],
+                                &format!("arr_ret_ptr_{}", i),
+                            )
+                            .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                    };
+                    builder
+                        .build_store(field_ptr, i64_val)
+                        .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                }
+            }
+        }
+    } else if callee_returns_string {
         if let Some(ret_val) = call_result.try_as_basic_value().basic() {
             if is_extern {
                 // Extern returns raw ptr → extract_heap_string

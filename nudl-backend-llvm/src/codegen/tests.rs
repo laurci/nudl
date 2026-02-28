@@ -21,7 +21,7 @@ mod tests {
     fn compile_and_run(source: &str) -> (String, bool) {
         let program = compile_source(source);
         let output = std::env::temp_dir().join("nudl_llvm_test");
-        compile_to_executable(&program, &output, false).expect("compilation failed");
+        compile_to_executable(&program, &output, false, false, &[]).expect("compilation failed");
 
         assert!(output.exists(), "output binary should exist");
 
@@ -129,8 +129,86 @@ fn main() {
 }
 "#,
         );
-        let asm = compile_to_asm_text(&program, false).expect("ASM generation failed");
+        let asm = compile_to_asm_text(&program, false, false).expect("ASM generation failed");
         assert!(!asm.is_empty());
         assert!(asm.contains("main"));
+    }
+
+    #[test]
+    fn compile_extern_struct() {
+        let program = compile_source(
+            r#"
+extern struct Color {
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+}
+
+extern {
+    fn write(fd: i32, buf: RawPtr, count: u64) -> i64;
+}
+
+fn main() {
+    let c = Color { r: 255u8, g: 0u8, b: 0u8, a: 255u8 };
+    let r = c.r;
+    let g = c.g;
+}
+"#,
+        );
+        let ir = compile_to_llvm_ir(&program).expect("IR generation failed");
+        assert!(ir.contains("define i32 @main()"));
+        // Extern struct should NOT have a drop function
+        assert!(!ir.contains("__nudl_drop_Color"));
+    }
+
+    #[test]
+    fn compile_extern_struct_as_extern_param() {
+        let program = compile_source(
+            r#"
+extern struct Color {
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+}
+
+extern {
+    fn SomeFunction(color: Color);
+}
+
+fn main() {
+    let c = Color { r: 255u8, g: 128u8, b: 0u8, a: 255u8 };
+    SomeFunction(c);
+}
+"#,
+        );
+        let ir = compile_to_llvm_ir(&program).expect("IR generation failed");
+        // The extern function should declare a struct param type, not i64
+        assert!(ir.contains("{ i8, i8, i8, i8 }"));
+    }
+
+    #[test]
+    fn compile_cptr_builtin() {
+        let program = compile_source(
+            r#"
+extern struct Point {
+    x: i32,
+    y: i32,
+}
+
+extern {
+    fn SomeApi(ptr: RawPtr);
+}
+
+fn main() {
+    let v = Point { x: 1, y: 2 };
+    SomeApi(cptr(v));
+}
+"#,
+        );
+        let ir = compile_to_llvm_ir(&program).expect("IR generation failed");
+        assert!(ir.contains("define i32 @main()"));
+        assert!(ir.contains("cptr_struct"));
     }
 }

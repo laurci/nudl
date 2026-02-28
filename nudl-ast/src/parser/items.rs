@@ -11,11 +11,19 @@ impl Parser {
 
         match self.peek_kind() {
             TokenKind::Fn => self.parse_fn_def(is_pub),
-            TokenKind::Struct => self.parse_struct_def(is_pub),
+            TokenKind::Struct => self.parse_struct_def(is_pub, false),
             TokenKind::Enum => self.parse_enum_def(is_pub),
             TokenKind::Interface => self.parse_interface_def(is_pub),
             TokenKind::Impl => self.parse_impl_block(),
-            TokenKind::Extern => self.parse_extern_block(),
+            TokenKind::Extern => {
+                // Check if `extern struct` (extern value-type struct)
+                if self.peek_nth(1).kind == TokenKind::Struct {
+                    self.advance(); // consume `extern`
+                    self.parse_struct_def(is_pub, true)
+                } else {
+                    self.parse_extern_block()
+                }
+            }
             TokenKind::Type => self.parse_type_alias(is_pub),
             _ => {
                 if is_pub {
@@ -66,12 +74,21 @@ impl Parser {
         ))
     }
 
-    fn parse_struct_def(&mut self, is_pub: bool) -> Option<SpannedItem> {
+    fn parse_struct_def(&mut self, is_pub: bool, is_extern: bool) -> Option<SpannedItem> {
         let start = self.expect(TokenKind::Struct)?.span;
         let name_tok = self.expect(TokenKind::Ident)?;
         let name = name_tok.text.clone();
 
         let type_params = self.parse_optional_type_params();
+
+        // Extern structs must not have type params
+        if is_extern && !type_params.is_empty() {
+            self.diagnostics.add(&ParserDiagnostic::UnexpectedToken {
+                span: start,
+                expected: "extern struct cannot have type parameters".into(),
+                found: name.clone(),
+            });
+        }
 
         if self.peek_kind() == TokenKind::Semi {
             // Unit struct: `struct Foo;`
@@ -82,6 +99,7 @@ impl Parser {
                     type_params,
                     fields: Vec::new(),
                     is_pub,
+                    is_extern,
                 },
                 start.merge(end),
             ));
@@ -116,6 +134,7 @@ impl Parser {
                     type_params,
                     fields,
                     is_pub,
+                    is_extern,
                 },
                 start.merge(end),
             ));
@@ -148,6 +167,7 @@ impl Parser {
                 type_params,
                 fields,
                 is_pub,
+                is_extern,
             },
             start.merge(end),
         ))

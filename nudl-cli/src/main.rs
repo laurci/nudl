@@ -137,6 +137,8 @@ enum Command {
 struct Target {
     name: String,
     source: PathBuf,
+    /// Extra linker arguments from nudl.toml `[[bin]]` link field.
+    link: Vec<String>,
 }
 
 /// Resolved package information from `nudl.toml`.
@@ -175,6 +177,7 @@ fn resolve_targets(arg: Option<String>) -> (Vec<Target>, Option<PackageInfo>) {
                 return (
                     vec![Target {
                         name: bin.name.clone(),
+                        link: bin.link.clone(),
                         source,
                     }],
                     Some(pkg_info),
@@ -193,7 +196,14 @@ fn resolve_targets(arg: Option<String>) -> (Vec<Target>, Option<PackageInfo>) {
             .unwrap_or_default()
             .to_string_lossy()
             .to_string();
-        return (vec![Target { name, source: path }], None);
+        return (
+            vec![Target {
+                name,
+                source: path,
+                link: Vec::new(),
+            }],
+            None,
+        );
     }
 
     // No argument: use all bins from package
@@ -204,18 +214,23 @@ fn resolve_targets(arg: Option<String>) -> (Vec<Target>, Option<PackageInfo>) {
                 process::exit(1);
             }
             let targets: Vec<Target> = config
-                .bin_paths(&package_dir)
-                .into_iter()
-                .map(|(name, source)| {
+                .bin
+                .iter()
+                .map(|b| {
+                    let source = config.resolve_bin_path(b, &package_dir);
                     if !source.exists() {
                         eprintln!(
                             "error: source file '{}' for bin target '{}' does not exist",
                             source.display(),
-                            name
+                            b.name
                         );
                         process::exit(1);
                     }
-                    Target { name, source }
+                    Target {
+                        name: b.name.clone(),
+                        source,
+                        link: b.link.clone(),
+                    }
                 })
                 .collect();
             let pkg_info = PackageInfo { package_dir };
@@ -289,13 +304,15 @@ fn main() {
             let mut any_failed = false;
             for target in &targets {
                 let out = resolve_output(output.clone(), &package, target, release);
+                let mut all_link_args = target.link.clone();
+                all_link_args.extend(link_args.iter().cloned());
                 let result = pipeline::build(
                     &target.source,
                     &out,
                     std_path.as_deref(),
                     release,
                     native,
-                    &link_args,
+                    &all_link_args,
                     &dump,
                 );
                 render::render_diagnostics(&result.diagnostics, &result.source_map);
@@ -364,13 +381,15 @@ fn main() {
                     dump_asm: dump_asm || dump_all,
                     dump_llvm_ir: dump_llvm_ir || dump_all,
                 };
+                let mut all_link_args = target.link.clone();
+                all_link_args.extend(link_args.iter().cloned());
                 let result = pipeline::build(
                     &target.source,
                     &output,
                     std_path.as_deref(),
                     release,
                     native,
-                    &link_args,
+                    &all_link_args,
                     &dump,
                 );
                 render::render_diagnostics(&result.diagnostics, &result.source_map);

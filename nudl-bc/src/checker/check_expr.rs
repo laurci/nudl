@@ -144,6 +144,13 @@ impl Checker {
                             }
                             return self.types.error();
                         }
+                        // cptr is polymorphic: accept any single argument, return RawPtr
+                        if name == "cptr" {
+                            if args.len() == 1 {
+                                self.check_expr(&args[0].value, locals);
+                            }
+                            return sig.return_type;
+                        }
                         self.check_call_args(expr.span, &sig, args, locals, 0)
                     } else {
                         // Check if it's a local variable with a Function type (closure call)
@@ -901,7 +908,7 @@ impl Checker {
                     let obj_ty = self.check_expr(object, locals);
                     if obj_ty != self.types.error() {
                         match self.types.resolve(obj_ty).clone() {
-                            TypeKind::Struct { name, fields } => {
+                            TypeKind::Struct { name, fields, .. } => {
                                 if let Some((_, field_ty)) = fields.iter().find(|(n, _)| n == field)
                                 {
                                     if val_ty != *field_ty
@@ -1313,7 +1320,7 @@ impl Checker {
                 }
 
                 match self.types.resolve(obj_ty).clone() {
-                    TypeKind::Struct { name, fields } => {
+                    TypeKind::Struct { name, fields, .. } => {
                         if let Some((_, field_ty)) = fields.iter().find(|(n, _)| n == field) {
                             *field_ty
                         } else {

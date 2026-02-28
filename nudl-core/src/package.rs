@@ -6,6 +6,9 @@ use serde::Deserialize;
 pub struct BinTarget {
     pub name: String,
     pub path: String,
+    /// Extra arguments passed to the linker (object files, -L, -l flags, etc.)
+    #[serde(default)]
+    pub link: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]

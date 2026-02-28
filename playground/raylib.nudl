@@ -1,0 +1,79 @@
+import std::ffi;
+
+extern struct Color {
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+}
+
+extern {
+    fn InitWindow(width: i32, height: i32, title: RawPtr) -> ();
+    fn SetTargetFPS(fps: i32) -> ();
+    fn CloseWindow() -> ();
+    fn WindowShouldClose() -> bool;
+    fn BeginDrawing() -> ();
+    fn EndDrawing() -> ();
+    fn ClearBackground(color: Color) -> ();
+    fn DrawRectangle(x: i32, y: i32, w: i32, h: i32, color: Color) -> ();
+    fn GetColor(hexValue: u32) -> Color;
+}
+
+pub fn init_game(width: i32, height: i32, title: string, fps: i32 = 60) {
+    InitWindow(width, height, cstr(title));
+    SetTargetFPS(fps);
+}
+
+impl Color {
+    fn new(r: u8, g: u8, b: u8, a: u8) -> Color {
+        Color { r, g, b, a }
+    }
+
+    fn red() -> Color {
+        Color::new(230u8, 41u8, 55u8, 255u8)
+    }
+
+    fn green() -> Color {
+        Color::new(0u8, 228u8, 48u8, 255u8)
+    }
+
+    fn blue() -> Color {
+        Color::new(0u8, 121u8, 241u8, 255u8)
+    }
+
+    fn white() -> Color {
+        Color::new(245u8, 245u8, 245u8, 255u8)
+    }
+
+    fn black() -> Color {
+        Color::new(0u8, 0u8, 0u8, 255u8)
+    }
+}
+
+pub fn close_window() {
+    CloseWindow();
+}
+
+pub fn window_should_close() -> bool {
+    WindowShouldClose()
+}
+
+pub fn begin_drawing() {
+    BeginDrawing()
+}
+
+pub fn end_drawing() {
+    EndDrawing()
+}
+
+pub fn clear_background(color: Color) {
+    ClearBackground(color)
+}
+
+pub fn draw_rectangle(x: i32, y: i32, w: i32, h: i32, color: Color) {
+    DrawRectangle(x, y, w, h, color)
+}
+
+pub fn get_color(hexValue: u32) -> Color {
+    GetColor(hexValue)
+}

@@ -1,0 +1,30 @@
+struct Vec2 {
+    x: i32,
+    y: i32,
+}
+
+impl Vec2 {
+    fn zero() -> Vec2 {
+        Vec2 { x: 0, y: 0 }
+    }
+
+    fn clamp(self, min: Vec2, max: Vec2) -> Vec2 {
+        Vec2 { x: clamp(self.x, min.x, max.x), y: clamp(self.y, min.y, max.y) }
+    }
+
+    fn add(self, other: Vec2) -> Vec2 {
+        Vec2 { x: self.x + other.x, y: self.y + other.y }
+    }
+
+    fn sub(self, other: Vec2) -> Vec2 {
+        Vec2 { x: self.x - other.x, y: self.y - other.y }
+    }
+
+    fn mul(self, scalar: i32) -> Vec2 {
+        Vec2 { x: self.x * scalar, y: self.y * scalar }
+    }
+
+    fn div(self, scalar: i32) -> Vec2 {
+        Vec2 { x: self.x / scalar, y: self.y / scalar }
+    }
+}

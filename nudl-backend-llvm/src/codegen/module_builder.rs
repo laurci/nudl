@@ -95,7 +95,7 @@ pub(super) fn build_module<'ctx>(
         let ret_is_string = matches!(types.resolve(func.return_type), TypeKind::String);
 
         if func.is_extern {
-            let param_types = build_llvm_param_types(func, types, context);
+            let param_types = build_llvm_param_types(func, types, context, true);
             let fn_type = if ret_is_string {
                 // Extern string-returning functions return a raw ptr (ARC heap string)
                 context
@@ -103,6 +103,9 @@ pub(super) fn build_module<'ctx>(
                     .fn_type(&param_types, false)
             } else if ret_is_float {
                 context.f64_type().fn_type(&param_types, false)
+            } else if let Some(c_ret_ty) = type_to_c_llvm_type(context, types, func.return_type) {
+                // Extern struct or fixed array return type
+                c_ret_ty.fn_type(&param_types, false)
             } else {
                 context.i64_type().fn_type(&param_types, false)
             };
@@ -115,7 +118,7 @@ pub(super) fn build_module<'ctx>(
             let fn_val = module.add_function("main", fn_type, None);
             function_map.insert(func.id.0, fn_val);
         } else {
-            let param_types = build_llvm_param_types(func, types, context);
+            let param_types = build_llvm_param_types(func, types, context, false);
             let fn_type = if ret_is_string {
                 // String-returning functions return {ptr, i64} struct
                 let ptr_ty = context.ptr_type(AddressSpace::default());
@@ -150,7 +153,14 @@ pub(super) fn build_module<'ctx>(
         };
 
         for (type_id, kind) in types.iter_types() {
-            if let TypeKind::Struct { name, .. } = kind {
+            if let TypeKind::Struct {
+                name, is_extern, ..
+            } = kind
+            {
+                // Skip drop function for extern structs (no ARC management)
+                if *is_extern {
+                    continue;
+                }
                 let drop_fn = module.add_function(
                     &format!("__nudl_drop_{}", name),
                     drop_fn_ty,

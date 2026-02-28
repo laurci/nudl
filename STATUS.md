@@ -185,6 +185,9 @@
 - [x] Standard library — nudl-std/ with auto-imported prelude: generic Option<T>/Result<T,E> with methods, print/println via extern write, operator interfaces (Add, Sub, Mul, Div, Rem, Eq, Ord, Neg), core interfaces (Printable, Drop, Clone), generic collection functions (each, map, filter, fold, find, any, all, enumerate, reverse), min/max/clamp; string module with builtins: substr, indexof, trim, contains, starts_with, ends_with, to_upper, to_lower, replace, repeat, split, join; math module (PI, E, abs, pow, gcd, lcm); ffi module (cstr, cstr_len); io module with file operations (open, close_fd, read, file_write, read_file, write_file, append_file)
 - [x] Null-terminated strings — all heap strings and string literal globals are null-terminated for C FFI compatibility; length field unchanged
 - [x] Extern string returns — extern functions returning string now return ptr (ARC heap string), extracted via extract_heap_string in codegen
+- [x] Extern structs — `extern struct` syntax for C-compatible value-type structs: stack-allocated, no ARC, native field sizes (i8/i16/i32/i64/f32/f64); passed by value to extern functions with correct C struct layout; field access via TupleLoad/TupleStore; extern functions can return extern structs; no drop functions generated
+- [x] cptr() builtin — `cptr(value) -> RawPtr` for getting a raw pointer to a C-layout copy of any value type (extern struct, fixed array, dynamic array data, primitives)
+- [x] Extern struct/fixed array return values — extern functions returning extern structs or fixed arrays now use the correct C-compatible LLVM return type; results are unpacked into internal tuple alloca storage
 - [ ] Const at module level
 - [ ] Extern statics
 - [ ] Callbacks (#[extern_callable])

@@ -185,6 +185,24 @@ impl Checker {
             },
         );
 
+        // cptr builtin: cptr(value) -> RawPtr
+        // Takes any value type and returns a raw pointer to a C-layout copy.
+        // Type-checking is lenient: accepts any single argument.
+        self.functions.insert(
+            "cptr".into(),
+            FunctionSig {
+                name: "cptr".into(),
+                params: vec![("value".into(), i64_ty)],
+                return_type: raw_ptr_ty,
+                kind: FunctionKind::Builtin,
+                required_params: 1,
+                has_default: vec![false],
+                is_method: false,
+                is_mut_method: false,
+                generic_def: None,
+            },
+        );
+
         // String operation builtins
         // __str_substr(s: string, start: i64, end: i64) -> string
         self.functions.insert(
@@ -644,10 +662,11 @@ impl Checker {
             .map(|f| (f.name.clone(), self.resolve_type_with_subst(&f.ty, &subst)))
             .collect();
 
-        // Intern the monomorphized struct
+        // Intern the monomorphized struct (generic structs are never extern)
         let type_id = self.types.intern(TypeKind::Struct {
             name: mangled.clone(),
             fields: resolved_fields,
+            is_extern: false,
         });
 
         self.structs.insert(mangled.clone(), type_id);
