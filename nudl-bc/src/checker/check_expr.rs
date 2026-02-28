@@ -49,7 +49,8 @@ impl Checker {
                     let sig = self.functions.get(name).cloned();
                     if let Some(sig) = sig {
                         // Check visibility: reject calls to non-public functions from other modules
-                        if !sig.is_pub && self.is_cross_module_access(expr.span, sig.source_file_id) {
+                        if !sig.is_pub && self.is_cross_module_access(expr.span, sig.source_file_id)
+                        {
                             self.diagnostics.add(&CheckerDiagnostic::PrivateFunction {
                                 span: expr.span,
                                 name: name.clone(),
@@ -385,8 +386,7 @@ impl Checker {
                 args,
             } => {
                 // Check type visibility
-                if let Some((is_type_pub, file_id)) = self.type_visibility.get(type_name.as_str())
-                {
+                if let Some((is_type_pub, file_id)) = self.type_visibility.get(type_name.as_str()) {
                     if !is_type_pub && self.is_cross_module_access(expr.span, *file_id) {
                         self.diagnostics.add(&CheckerDiagnostic::PrivateType {
                             span: expr.span,
@@ -1615,8 +1615,7 @@ impl Checker {
                 args,
             } => {
                 // Check type visibility
-                if let Some((is_type_pub, file_id)) = self.type_visibility.get(enum_name.as_str())
-                {
+                if let Some((is_type_pub, file_id)) = self.type_visibility.get(enum_name.as_str()) {
                     if !is_type_pub && self.is_cross_module_access(expr.span, *file_id) {
                         self.diagnostics.add(&CheckerDiagnostic::PrivateType {
                             span: expr.span,

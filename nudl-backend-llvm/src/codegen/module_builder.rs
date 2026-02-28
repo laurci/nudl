@@ -120,9 +120,7 @@ pub(super) fn build_module<'ctx>(
             } else if ret_is_float {
                 // Use actual C float type (f32 or f64) for extern functions
                 let ret_float_ty = match types.resolve(func.return_type) {
-                    TypeKind::Primitive(nudl_core::types::PrimitiveType::F32) => {
-                        context.f32_type()
-                    }
+                    TypeKind::Primitive(nudl_core::types::PrimitiveType::F32) => context.f32_type(),
                     _ => context.f64_type(),
                 };
                 ret_float_ty.fn_type(&param_types, false)

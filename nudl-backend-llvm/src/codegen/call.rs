@@ -1338,7 +1338,12 @@ pub(super) fn emit_call<'ctx>(
                     .map(|pty| matches!(types.resolve(pty), TypeKind::Primitive(p) if p.is_float()))
                     .unwrap_or(false);
                 let param_is_f32 = param_type
-                    .map(|pty| matches!(types.resolve(pty), TypeKind::Primitive(nudl_core::types::PrimitiveType::F32)))
+                    .map(|pty| {
+                        matches!(
+                            types.resolve(pty),
+                            TypeKind::Primitive(nudl_core::types::PrimitiveType::F32)
+                        )
+                    })
                     .unwrap_or(false);
                 if param_is_float {
                     let val = load_f64(context, builder, register_allocas, arg_reg.0)?;
@@ -1463,9 +1468,7 @@ pub(super) fn emit_call<'ctx>(
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?
                 .into_struct_value();
 
-            unpack_c_struct_to_tuple(
-                context, builder, types, arc, struct_val, fields, obj_ptr,
-            )?;
+            unpack_c_struct_to_tuple(context, builder, types, arc, struct_val, fields, obj_ptr)?;
         }
     } else if callee_returns_extern_struct {
         // Small extern function returning an extern struct: the return value is an ABI-coerced

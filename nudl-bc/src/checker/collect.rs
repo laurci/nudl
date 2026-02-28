@@ -151,10 +151,7 @@ impl Checker {
                 // Record field visibility
                 self.field_visibility.insert(
                     name.clone(),
-                    fields
-                        .iter()
-                        .map(|f| (f.name.clone(), f.is_pub))
-                        .collect(),
+                    fields.iter().map(|f| (f.name.clone(), f.is_pub)).collect(),
                 );
 
                 // If generic, store as template
@@ -434,8 +431,7 @@ impl Checker {
                         }
 
                         // Interface impl methods are auto-pub
-                        let effective_pub =
-                            *method_is_pub || interface_name.is_some();
+                        let effective_pub = *method_is_pub || interface_name.is_some();
 
                         self.functions.insert(
                             mangled_name,

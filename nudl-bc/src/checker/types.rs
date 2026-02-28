@@ -27,8 +27,8 @@ impl Checker {
                 is_method: false,
                 is_mut_method: false,
                 generic_def: None,
-                    is_pub: true,
-                    source_file_id: FileId(0),
+                is_pub: true,
+                source_file_id: FileId(0),
             },
         );
 
@@ -44,8 +44,8 @@ impl Checker {
                 is_method: false,
                 is_mut_method: false,
                 generic_def: None,
-                    is_pub: true,
-                    source_file_id: FileId(0),
+                is_pub: true,
+                source_file_id: FileId(0),
             },
         );
 
@@ -62,8 +62,8 @@ impl Checker {
                 is_method: false,
                 is_mut_method: false,
                 generic_def: None,
-                    is_pub: true,
-                    source_file_id: FileId(0),
+                is_pub: true,
+                source_file_id: FileId(0),
             },
         );
 
@@ -80,8 +80,8 @@ impl Checker {
                 is_method: false,
                 is_mut_method: false,
                 generic_def: None,
-                    is_pub: true,
-                    source_file_id: FileId(0),
+                is_pub: true,
+                source_file_id: FileId(0),
             },
         );
 
@@ -97,8 +97,8 @@ impl Checker {
                 is_method: false,
                 is_mut_method: false,
                 generic_def: None,
-                    is_pub: true,
-                    source_file_id: FileId(0),
+                is_pub: true,
+                source_file_id: FileId(0),
             },
         );
 
@@ -114,8 +114,8 @@ impl Checker {
                 is_method: false,
                 is_mut_method: false,
                 generic_def: None,
-                    is_pub: true,
-                    source_file_id: FileId(0),
+                is_pub: true,
+                source_file_id: FileId(0),
             },
         );
 
@@ -131,8 +131,8 @@ impl Checker {
                 is_method: false,
                 is_mut_method: false,
                 generic_def: None,
-                    is_pub: true,
-                    source_file_id: FileId(0),
+                is_pub: true,
+                source_file_id: FileId(0),
             },
         );
 
@@ -148,8 +148,8 @@ impl Checker {
                 is_method: false,
                 is_mut_method: false,
                 generic_def: None,
-                    is_pub: true,
-                    source_file_id: FileId(0),
+                is_pub: true,
+                source_file_id: FileId(0),
             },
         );
 
@@ -166,8 +166,8 @@ impl Checker {
                 is_method: false,
                 is_mut_method: false,
                 generic_def: None,
-                    is_pub: true,
-                    source_file_id: FileId(0),
+                is_pub: true,
+                source_file_id: FileId(0),
             },
         );
 
@@ -184,8 +184,8 @@ impl Checker {
                 is_method: false,
                 is_mut_method: false,
                 generic_def: None,
-                    is_pub: true,
-                    source_file_id: FileId(0),
+                is_pub: true,
+                source_file_id: FileId(0),
             },
         );
 
@@ -202,8 +202,8 @@ impl Checker {
                 is_method: false,
                 is_mut_method: false,
                 generic_def: None,
-                    is_pub: true,
-                    source_file_id: FileId(0),
+                is_pub: true,
+                source_file_id: FileId(0),
             },
         );
 
@@ -222,8 +222,8 @@ impl Checker {
                 is_method: false,
                 is_mut_method: false,
                 generic_def: None,
-                    is_pub: true,
-                    source_file_id: FileId(0),
+                is_pub: true,
+                source_file_id: FileId(0),
             },
         );
 
@@ -245,8 +245,8 @@ impl Checker {
                 is_method: false,
                 is_mut_method: false,
                 generic_def: None,
-                    is_pub: true,
-                    source_file_id: FileId(0),
+                is_pub: true,
+                source_file_id: FileId(0),
             },
         );
         // __str_indexof(haystack: string, needle: string) -> i64
@@ -262,8 +262,8 @@ impl Checker {
                 is_method: false,
                 is_mut_method: false,
                 generic_def: None,
-                    is_pub: true,
-                    source_file_id: FileId(0),
+                is_pub: true,
+                source_file_id: FileId(0),
             },
         );
         // __str_trim(s: string) -> string
@@ -279,8 +279,8 @@ impl Checker {
                 is_method: false,
                 is_mut_method: false,
                 generic_def: None,
-                    is_pub: true,
-                    source_file_id: FileId(0),
+                is_pub: true,
+                source_file_id: FileId(0),
             },
         );
         // __str_contains(haystack: string, needle: string) -> i64
@@ -296,8 +296,8 @@ impl Checker {
                 is_method: false,
                 is_mut_method: false,
                 generic_def: None,
-                    is_pub: true,
-                    source_file_id: FileId(0),
+                is_pub: true,
+                source_file_id: FileId(0),
             },
         );
         // __str_starts_with(s: string, prefix: string) -> i64
@@ -313,8 +313,8 @@ impl Checker {
                 is_method: false,
                 is_mut_method: false,
                 generic_def: None,
-                    is_pub: true,
-                    source_file_id: FileId(0),
+                is_pub: true,
+                source_file_id: FileId(0),
             },
         );
         // __str_ends_with(s: string, suffix: string) -> i64
@@ -330,8 +330,8 @@ impl Checker {
                 is_method: false,
                 is_mut_method: false,
                 generic_def: None,
-                    is_pub: true,
-                    source_file_id: FileId(0),
+                is_pub: true,
+                source_file_id: FileId(0),
             },
         );
         // __str_to_upper(s: string) -> string
@@ -347,8 +347,8 @@ impl Checker {
                 is_method: false,
                 is_mut_method: false,
                 generic_def: None,
-                    is_pub: true,
-                    source_file_id: FileId(0),
+                is_pub: true,
+                source_file_id: FileId(0),
             },
         );
         // __str_to_lower(s: string) -> string
@@ -364,8 +364,8 @@ impl Checker {
                 is_method: false,
                 is_mut_method: false,
                 generic_def: None,
-                    is_pub: true,
-                    source_file_id: FileId(0),
+                is_pub: true,
+                source_file_id: FileId(0),
             },
         );
         // __str_replace(s: string, old: string, new_str: string) -> string
@@ -385,8 +385,8 @@ impl Checker {
                 is_method: false,
                 is_mut_method: false,
                 generic_def: None,
-                    is_pub: true,
-                    source_file_id: FileId(0),
+                is_pub: true,
+                source_file_id: FileId(0),
             },
         );
         // __str_repeat(s: string, count: i64) -> string
@@ -402,8 +402,8 @@ impl Checker {
                 is_method: false,
                 is_mut_method: false,
                 generic_def: None,
-                    is_pub: true,
-                    source_file_id: FileId(0),
+                is_pub: true,
+                source_file_id: FileId(0),
             },
         );
     }
@@ -976,8 +976,8 @@ impl Checker {
                 is_method,
                 is_mut_method,
                 generic_def: None,
-                    is_pub: true,
-                    source_file_id: FileId(0),
+                is_pub: true,
+                source_file_id: FileId(0),
             },
         );
 

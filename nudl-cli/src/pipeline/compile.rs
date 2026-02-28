@@ -209,7 +209,9 @@ fn collect_imports(
                 }
                 imported_files.insert(import_path.clone());
 
-                if let Some((imported_module, _)) = parse_file(&import_path, source_map, diagnostics) {
+                if let Some((imported_module, _)) =
+                    parse_file(&import_path, source_map, diagnostics)
+                {
                     // Recursively resolve this module's imports first
                     let imported_dir = import_path.parent().unwrap_or(Path::new("."));
                     collect_imports(
