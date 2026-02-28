@@ -117,11 +117,12 @@ nudl compiles through LLVM with the full `-O3` optimization pipeline. Compute-bo
 
 | Benchmark | nudl vs C | nudl vs Swift | Description |
 |:---|:---|:---|:---|
-| Fibonacci (recursive) | **1.01x** | **0.76x (faster)** | Pure compute — matches C, beats Swift |
-| Dynamic array (10M push + sum) | **2.2x** | **1.0x (tied)** | Same ballpark as Swift's Array |
-| Struct churn (ARC, 10M alloc/free) | **264x** | **1.55x** | ARC cost; Swift's optimizer is more mature |
+| Fibonacci (recursive) | **1.01x** | **0.75x (faster)** | Pure compute — matches C, beats Swift |
+| Dynamic array (10M push + sum) | **2.15x** | **1.0x (tied)** | Same ballpark as Swift's Array |
+| FFI calls (50M to C function) | **1.00x** | **1.0x (tied)** | Zero FFI overhead |
+| Struct churn (ARC, 10M alloc/free) | **271x** | **1.53x** | ARC cost; Swift's optimizer is more mature |
 
-Zero overhead for arithmetic and function calls. The cost is in heap allocation and reference counting — the same tradeoff as Swift. See [benchmarks/](benchmarks/) for methodology, full results, and Swift struct vs class comparison.
+Zero overhead for arithmetic, function calls, and FFI. The cost is in heap allocation and reference counting — the same tradeoff as Swift. See [benchmarks/](benchmarks/) for methodology, full results, and Swift struct vs class comparison.
 
 ## Status
 

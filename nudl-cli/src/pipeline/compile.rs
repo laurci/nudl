@@ -253,6 +253,7 @@ pub fn build(
     std_path: Option<&Path>,
     release: bool,
     native: bool,
+    link_args: &[String],
     dump: &DumpOptions,
 ) -> CompileResult {
     let mut source_map = SourceMap::new();
@@ -319,7 +320,7 @@ pub fn build(
         }
     }
 
-    let result = codegen::compile_to_executable(&program, output_path, release, native);
+    let result = codegen::compile_to_executable(&program, output_path, release, native, link_args);
     let source_map = program.source_map.unwrap_or_default();
     match result {
         Ok(()) => CompileResult {

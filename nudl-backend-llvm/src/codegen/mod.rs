@@ -149,11 +149,13 @@ pub(super) unsafe fn extend_ptr_lifetime<'a>(v: PointerValue<'_>) -> PointerValu
 /// Compile a program to an executable binary at the given output path.
 /// When `optimized` is true, runs the full LLVM `-O3` pass pipeline.
 /// When `native` is true, targets the host CPU (like `-march=native`).
+/// `extra_link_args` are passed directly to the linker (e.g., object files, `-L`, `-l`).
 pub fn compile_to_executable(
     program: &Program,
     output: &Path,
     optimized: bool,
     native: bool,
+    extra_link_args: &[String],
 ) -> Result<(), BackendError> {
     let context = Context::create();
     let module = build_module(&context, program, optimized)?;
@@ -187,7 +189,7 @@ pub fn compile_to_executable(
     let rt_obj_path = output.with_file_name("nudl_rt.o");
     std::fs::write(&rt_obj_path, RUNTIME_OBJ)?;
 
-    link(&obj_path, &rt_obj_path, output)?;
+    link(&obj_path, &rt_obj_path, output, extra_link_args)?;
 
     // Generate .dSYM bundle on macOS (must happen before .o is deleted)
     if cfg!(target_os = "macos") && !optimized {

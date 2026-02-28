@@ -39,6 +39,10 @@ enum Command {
         #[arg(long)]
         native: bool,
 
+        /// Extra arguments passed to the linker (e.g., object files, -L, -l)
+        #[arg(long = "link")]
+        link_args: Vec<String>,
+
         /// Dump the parsed AST
         #[arg(long)]
         dump_ast: bool,
@@ -80,6 +84,10 @@ enum Command {
         /// Target the host CPU (like -march=native)
         #[arg(long)]
         native: bool,
+
+        /// Extra arguments passed to the linker (e.g., object files, -L, -l)
+        #[arg(long = "link")]
+        link_args: Vec<String>,
 
         /// Dump the parsed AST
         #[arg(long)]
@@ -262,6 +270,7 @@ fn main() {
             std_path,
             release,
             native,
+            link_args,
             dump_ast,
             dump_ir,
             dump_asm,
@@ -286,6 +295,7 @@ fn main() {
                     std_path.as_deref(),
                     release,
                     native,
+                    &link_args,
                     &dump,
                 );
                 render::render_diagnostics(&result.diagnostics, &result.source_map);
@@ -306,6 +316,7 @@ fn main() {
             std_path,
             release,
             native,
+            link_args,
             dump_ast,
             dump_ir,
             dump_asm,
@@ -359,6 +370,7 @@ fn main() {
                     std_path.as_deref(),
                     release,
                     native,
+                    &link_args,
                     &dump,
                 );
                 render::render_diagnostics(&result.diagnostics, &result.source_map);

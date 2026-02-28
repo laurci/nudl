@@ -36,13 +36,22 @@ pub(super) fn create_target_machine(
         .ok_or_else(|| BackendError::LlvmError("failed to create target machine".into()))
 }
 
-pub(super) fn link(obj_path: &Path, rt_obj_path: &Path, output: &Path) -> Result<(), BackendError> {
+pub(super) fn link(
+    obj_path: &Path,
+    rt_obj_path: &Path,
+    output: &Path,
+    extra_link_args: &[String],
+) -> Result<(), BackendError> {
     let mut cmd = Command::new("cc");
     cmd.arg("-g")
         .arg("-o")
         .arg(output)
         .arg(obj_path)
         .arg(rt_obj_path);
+
+    for arg in extra_link_args {
+        cmd.arg(arg);
+    }
 
     if cfg!(not(target_os = "macos")) {
         cmd.arg("-lc");
