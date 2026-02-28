@@ -128,7 +128,7 @@
 - [x] ? operator — parsed as postfix operator; type checker extracts T from Option<T> (Some variant) and Result<T,E> (Ok variant); lowered to tag check + branch with early return of None/Err (`tests/error-handling/question_mark.nudl`)
 
 ## 11. Memory Management
-- [~] ARC runtime — C runtime (alloc, release_slow, overflow_abort, weak ops) + inline LLVM retain/release; SSA instructions (Alloc, Load, Store, Retain, Release) in IR + backend + VM; compiler emits Retain/Release for struct and enum types (caller-retain, callee-release, scope-exit release)
+- [~] ARC runtime — C runtime (alloc, release_slow, overflow_abort, weak ops) + inline LLVM retain/release; SSA instructions (Alloc, Load, Store, Retain, Release) in IR + backend + VM; unified emit_release_for_type/emit_retain_for_type helpers cover all reference types (struct, enum, dynamic array, map, closure, dyn interface); caller-retain, callee-release, scope-exit release, assignment release-before-overwrite (ident/field/index targets), for-loop element release, ARC-aware loop copyback; type inference warns on fallback instead of silently defaulting to i64
 - [ ] ARC sharing (`tests/memory-management/arc_sharing.nudl`)
 - [ ] ARC deallocation (`tests/memory-management/arc_deallocation.nudl`)
 - [ ] Value type copy (`tests/memory-management/value_type_copy.nudl`)

@@ -30,31 +30,7 @@ impl<'a> FunctionLowerCtx<'a> {
                 if reg == result {
                     continue;
                 }
-                if self.types.is_reference_type(*type_id)
-                    && !matches!(
-                        self.types.resolve(*type_id),
-                        nudl_core::types::TypeKind::String
-                    )
-                {
-                    self.push_inst(Instruction::Release(reg, Some(*type_id)));
-                } else if let nudl_core::types::TypeKind::FixedArray { element, length } =
-                    self.types.resolve(*type_id)
-                {
-                    let elem = *element;
-                    let len = *length;
-                    if self.types.is_reference_type(elem) {
-                        for idx in 0..len {
-                            let idx_reg = self.alloc_register();
-                            self.push_inst(Instruction::Const(
-                                idx_reg,
-                                ConstValue::I32(idx as i32),
-                            ));
-                            let elem_reg = self.alloc_register();
-                            self.push_inst(Instruction::IndexLoad(elem_reg, reg, idx_reg, elem));
-                            self.push_inst(Instruction::Release(elem_reg, Some(elem)));
-                        }
-                    }
-                }
+                self.emit_release_for_type(reg, *type_id);
             }
         }
 

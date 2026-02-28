@@ -205,6 +205,13 @@ impl<'a> FunctionLowerCtx<'a> {
 
         self.loop_stack.pop();
 
+        // Release the loop element before copyback (balances the Retain at iteration start)
+        if is_dynamic {
+            if let Some(&cur_elem) = self.locals.get(binding) {
+                self.emit_release_for_type(cur_elem, elem_type);
+            }
+        }
+
         // Fall through to increment block
         self.emit_loop_copyback(&pre_loop_locals);
         self.finish_block(Terminator::Jump(incr_block));

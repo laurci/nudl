@@ -1,5 +1,14 @@
 use super::*;
 
+/// ARC object header size in bytes (refcount: i64, type tag: i64)
+pub(super) const ARC_HEADER_SIZE: u64 = 16;
+/// Size of each field/element slot in bytes (everything is i64-width)
+pub(super) const FIELD_SIZE: u64 = 8;
+/// Offset of string length field within heap string object (after ARC header)
+pub(super) const STRING_LEN_OFFSET: u64 = 16;
+/// Offset of string data within heap string object (after ARC header + length)
+pub(super) const STRING_DATA_OFFSET: u64 = 24;
+
 pub(super) fn emit_instruction<'ctx>(
     inst: &Instruction,
     program: &Program,
@@ -18,6 +27,53 @@ pub(super) fn emit_instruction<'ctx>(
     string_builtins: &StringBuiltins<'ctx>,
     drop_fns: &HashMap<nudl_core::types::TypeId, FunctionValue<'ctx>>,
 ) -> Result<(), BackendError> {
+    // Macro for arithmetic ops with float/int dispatch
+    macro_rules! emit_arith {
+        ($dst:expr, $lhs:expr, $rhs:expr, $float_op:ident, $fname:expr, $int_op:ident, $iname:expr) => {{
+            if is_float_register(func, $dst.0, types) {
+                let (lv, rv) =
+                    load_float_binop(context, builder, register_allocas, $lhs.0, $rhs.0)?;
+                let r = builder
+                    .$float_op(lv, rv, $fname)
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                store(builder, register_allocas, $dst.0, r)?;
+            } else {
+                let (lv, rv) = load_binop(context, builder, register_allocas, $lhs.0, $rhs.0)?;
+                let r = builder
+                    .$int_op(lv, rv, $iname)
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                store(builder, register_allocas, $dst.0, r)?;
+            }
+        }};
+    }
+
+    // Macro for comparison ops with float/int dispatch
+    macro_rules! emit_cmp {
+        ($dst:expr, $lhs:expr, $rhs:expr, $fpred:expr, $ipred:expr) => {{
+            if is_float_register(func, $lhs.0, types) {
+                emit_fcmp(
+                    context,
+                    builder,
+                    register_allocas,
+                    $dst.0,
+                    $lhs.0,
+                    $rhs.0,
+                    $fpred,
+                )?;
+            } else {
+                emit_icmp(
+                    context,
+                    builder,
+                    register_allocas,
+                    $dst.0,
+                    $lhs.0,
+                    $rhs.0,
+                    $ipred,
+                )?;
+            }
+        }};
+    }
+
     match inst {
         Instruction::Const(reg, ConstValue::I32(val)) => {
             let v = context.i64_type().const_int(*val as i64 as u64, true);
@@ -246,79 +302,35 @@ pub(super) fn emit_instruction<'ctx>(
 
         // Arithmetic
         Instruction::Add(dst, lhs, rhs) => {
-            if is_float_register(func, dst.0, types) {
-                let (lv, rv) = load_float_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
-                let r = builder
-                    .build_float_add(lv, rv, "fadd")
-                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-                store(builder, register_allocas, dst.0, r)?;
-            } else {
-                let (lv, rv) = load_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
-                let r = builder
-                    .build_int_add(lv, rv, "add")
-                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-                store(builder, register_allocas, dst.0, r)?;
-            }
+            emit_arith!(dst, lhs, rhs, build_float_add, "fadd", build_int_add, "add");
         }
         Instruction::Sub(dst, lhs, rhs) => {
-            if is_float_register(func, dst.0, types) {
-                let (lv, rv) = load_float_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
-                let r = builder
-                    .build_float_sub(lv, rv, "fsub")
-                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-                store(builder, register_allocas, dst.0, r)?;
-            } else {
-                let (lv, rv) = load_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
-                let r = builder
-                    .build_int_sub(lv, rv, "sub")
-                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-                store(builder, register_allocas, dst.0, r)?;
-            }
+            emit_arith!(dst, lhs, rhs, build_float_sub, "fsub", build_int_sub, "sub");
         }
         Instruction::Mul(dst, lhs, rhs) => {
-            if is_float_register(func, dst.0, types) {
-                let (lv, rv) = load_float_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
-                let r = builder
-                    .build_float_mul(lv, rv, "fmul")
-                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-                store(builder, register_allocas, dst.0, r)?;
-            } else {
-                let (lv, rv) = load_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
-                let r = builder
-                    .build_int_mul(lv, rv, "mul")
-                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-                store(builder, register_allocas, dst.0, r)?;
-            }
+            emit_arith!(dst, lhs, rhs, build_float_mul, "fmul", build_int_mul, "mul");
         }
         Instruction::Div(dst, lhs, rhs) => {
-            if is_float_register(func, dst.0, types) {
-                let (lv, rv) = load_float_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
-                let r = builder
-                    .build_float_div(lv, rv, "fdiv")
-                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-                store(builder, register_allocas, dst.0, r)?;
-            } else {
-                let (lv, rv) = load_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
-                let r = builder
-                    .build_int_signed_div(lv, rv, "sdiv")
-                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-                store(builder, register_allocas, dst.0, r)?;
-            }
+            emit_arith!(
+                dst,
+                lhs,
+                rhs,
+                build_float_div,
+                "fdiv",
+                build_int_signed_div,
+                "sdiv"
+            );
         }
         Instruction::Mod(dst, lhs, rhs) => {
-            if is_float_register(func, dst.0, types) {
-                let (lv, rv) = load_float_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
-                let r = builder
-                    .build_float_rem(lv, rv, "frem")
-                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-                store(builder, register_allocas, dst.0, r)?;
-            } else {
-                let (lv, rv) = load_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
-                let r = builder
-                    .build_int_signed_rem(lv, rv, "srem")
-                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
-                store(builder, register_allocas, dst.0, r)?;
-            }
+            emit_arith!(
+                dst,
+                lhs,
+                rhs,
+                build_float_rem,
+                "frem",
+                build_int_signed_rem,
+                "srem"
+            );
         }
         Instruction::Shl(dst, lhs, rhs) => {
             let (lv, rv) = load_binop(context, builder, register_allocas, lhs.0, rhs.0)?;
@@ -381,142 +393,58 @@ pub(super) fn emit_instruction<'ctx>(
 
         // Comparisons
         Instruction::Eq(dst, lhs, rhs) => {
-            if is_float_register(func, lhs.0, types) {
-                emit_fcmp(
-                    context,
-                    builder,
-                    register_allocas,
-                    dst.0,
-                    lhs.0,
-                    rhs.0,
-                    FloatPredicate::OEQ,
-                )?;
-            } else {
-                emit_icmp(
-                    context,
-                    builder,
-                    register_allocas,
-                    dst.0,
-                    lhs.0,
-                    rhs.0,
-                    inkwell::IntPredicate::EQ,
-                )?;
-            }
+            emit_cmp!(
+                dst,
+                lhs,
+                rhs,
+                FloatPredicate::OEQ,
+                inkwell::IntPredicate::EQ
+            );
         }
         Instruction::Ne(dst, lhs, rhs) => {
-            if is_float_register(func, lhs.0, types) {
-                emit_fcmp(
-                    context,
-                    builder,
-                    register_allocas,
-                    dst.0,
-                    lhs.0,
-                    rhs.0,
-                    FloatPredicate::ONE,
-                )?;
-            } else {
-                emit_icmp(
-                    context,
-                    builder,
-                    register_allocas,
-                    dst.0,
-                    lhs.0,
-                    rhs.0,
-                    inkwell::IntPredicate::NE,
-                )?;
-            }
+            emit_cmp!(
+                dst,
+                lhs,
+                rhs,
+                FloatPredicate::ONE,
+                inkwell::IntPredicate::NE
+            );
         }
         Instruction::Lt(dst, lhs, rhs) => {
-            if is_float_register(func, lhs.0, types) {
-                emit_fcmp(
-                    context,
-                    builder,
-                    register_allocas,
-                    dst.0,
-                    lhs.0,
-                    rhs.0,
-                    FloatPredicate::OLT,
-                )?;
-            } else {
-                emit_icmp(
-                    context,
-                    builder,
-                    register_allocas,
-                    dst.0,
-                    lhs.0,
-                    rhs.0,
-                    inkwell::IntPredicate::SLT,
-                )?;
-            }
+            emit_cmp!(
+                dst,
+                lhs,
+                rhs,
+                FloatPredicate::OLT,
+                inkwell::IntPredicate::SLT
+            );
         }
         Instruction::Le(dst, lhs, rhs) => {
-            if is_float_register(func, lhs.0, types) {
-                emit_fcmp(
-                    context,
-                    builder,
-                    register_allocas,
-                    dst.0,
-                    lhs.0,
-                    rhs.0,
-                    FloatPredicate::OLE,
-                )?;
-            } else {
-                emit_icmp(
-                    context,
-                    builder,
-                    register_allocas,
-                    dst.0,
-                    lhs.0,
-                    rhs.0,
-                    inkwell::IntPredicate::SLE,
-                )?;
-            }
+            emit_cmp!(
+                dst,
+                lhs,
+                rhs,
+                FloatPredicate::OLE,
+                inkwell::IntPredicate::SLE
+            );
         }
         Instruction::Gt(dst, lhs, rhs) => {
-            if is_float_register(func, lhs.0, types) {
-                emit_fcmp(
-                    context,
-                    builder,
-                    register_allocas,
-                    dst.0,
-                    lhs.0,
-                    rhs.0,
-                    FloatPredicate::OGT,
-                )?;
-            } else {
-                emit_icmp(
-                    context,
-                    builder,
-                    register_allocas,
-                    dst.0,
-                    lhs.0,
-                    rhs.0,
-                    inkwell::IntPredicate::SGT,
-                )?;
-            }
+            emit_cmp!(
+                dst,
+                lhs,
+                rhs,
+                FloatPredicate::OGT,
+                inkwell::IntPredicate::SGT
+            );
         }
         Instruction::Ge(dst, lhs, rhs) => {
-            if is_float_register(func, lhs.0, types) {
-                emit_fcmp(
-                    context,
-                    builder,
-                    register_allocas,
-                    dst.0,
-                    lhs.0,
-                    rhs.0,
-                    FloatPredicate::OGE,
-                )?;
-            } else {
-                emit_icmp(
-                    context,
-                    builder,
-                    register_allocas,
-                    dst.0,
-                    lhs.0,
-                    rhs.0,
-                    inkwell::IntPredicate::SGE,
-                )?;
-            }
+            emit_cmp!(
+                dst,
+                lhs,
+                rhs,
+                FloatPredicate::OGE,
+                inkwell::IntPredicate::SGE
+            );
         }
 
         // Cast
@@ -669,7 +597,7 @@ pub(super) fn emit_instruction<'ctx>(
         Instruction::Load(dst, ptr_reg, offset) => {
             let obj_ptr = load_ptr(context, builder, register_allocas, ptr_reg.0)?;
             // Compute field address: ptr + 16 (header) + offset * 8
-            let byte_offset = 16u64 + (*offset as u64) * 8;
+            let byte_offset = ARC_HEADER_SIZE + (*offset as u64) * FIELD_SIZE;
             let field_ptr = unsafe {
                 builder
                     .build_gep(
@@ -688,7 +616,7 @@ pub(super) fn emit_instruction<'ctx>(
         }
         Instruction::Store(ptr_reg, offset, src) => {
             let obj_ptr = load_ptr(context, builder, register_allocas, ptr_reg.0)?;
-            let byte_offset = 16u64 + (*offset as u64) * 8;
+            let byte_offset = ARC_HEADER_SIZE + (*offset as u64) * FIELD_SIZE;
             let field_ptr = unsafe {
                 builder
                     .build_gep(
@@ -814,7 +742,7 @@ pub(super) fn emit_instruction<'ctx>(
         }
         Instruction::TupleLoad(dst, ptr_reg, offset) => {
             let obj_ptr = load_ptr(context, builder, register_allocas, ptr_reg.0)?;
-            let byte_offset = 16u64 + (*offset as u64) * 8;
+            let byte_offset = ARC_HEADER_SIZE + (*offset as u64) * FIELD_SIZE;
             let field_ptr = unsafe {
                 builder
                     .build_gep(
@@ -855,7 +783,7 @@ pub(super) fn emit_instruction<'ctx>(
         }
         Instruction::TupleStore(ptr_reg, offset, src) => {
             let obj_ptr = load_ptr(context, builder, register_allocas, ptr_reg.0)?;
-            let byte_offset = 16u64 + (*offset as u64) * 8;
+            let byte_offset = ARC_HEADER_SIZE + (*offset as u64) * FIELD_SIZE;
             let field_ptr = unsafe {
                 builder
                     .build_gep(
@@ -910,8 +838,8 @@ pub(super) fn emit_instruction<'ctx>(
             let obj_ptr = load_ptr(context, builder, register_allocas, ptr_reg.0)?;
             let idx_val = load_i64(context, builder, register_allocas, idx_reg.0)?;
             // Compute byte offset: 16 (header) + idx * 8
-            let eight = context.i64_type().const_int(8, false);
-            let sixteen = context.i64_type().const_int(16, false);
+            let eight = context.i64_type().const_int(FIELD_SIZE, false);
+            let sixteen = context.i64_type().const_int(ARC_HEADER_SIZE, false);
             let idx_offset = builder
                 .build_int_mul(idx_val, eight, "idx_offset")
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?;
@@ -952,8 +880,8 @@ pub(super) fn emit_instruction<'ctx>(
         Instruction::IndexStore(ptr_reg, idx_reg, src) => {
             let obj_ptr = load_ptr(context, builder, register_allocas, ptr_reg.0)?;
             let idx_val = load_i64(context, builder, register_allocas, idx_reg.0)?;
-            let eight = context.i64_type().const_int(8, false);
-            let sixteen = context.i64_type().const_int(16, false);
+            let eight = context.i64_type().const_int(FIELD_SIZE, false);
+            let sixteen = context.i64_type().const_int(ARC_HEADER_SIZE, false);
             let idx_offset = builder
                 .build_int_mul(idx_val, eight, "idx_offset")
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?;
@@ -1063,12 +991,13 @@ pub(super) fn emit_instruction<'ctx>(
             } else {
                 i64_ty.const_zero()
             };
+            // Store fn_ptr at ARC_HEADER_SIZE (first field after header)
             let fn_ptr_field = unsafe {
                 builder
                     .build_gep(
                         context.i8_type(),
                         closure_ptr,
-                        &[i64_ty.const_int(16, false)],
+                        &[i64_ty.const_int(ARC_HEADER_SIZE, false)],
                         "fn_ptr_field",
                     )
                     .map_err(|e| BackendError::LlvmError(e.to_string()))?
@@ -1077,13 +1006,13 @@ pub(super) fn emit_instruction<'ctx>(
                 .build_store(fn_ptr_field, fn_ptr_val)
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?;
 
-            // Store env_ptr at offset 24
+            // Store env_ptr at ARC_HEADER_SIZE + FIELD_SIZE (second field)
             let env_ptr_field = unsafe {
                 builder
                     .build_gep(
                         context.i8_type(),
                         closure_ptr,
-                        &[i64_ty.const_int(24, false)],
+                        &[i64_ty.const_int(ARC_HEADER_SIZE + FIELD_SIZE, false)],
                         "env_ptr_field",
                     )
                     .map_err(|e| BackendError::LlvmError(e.to_string()))?
@@ -1106,13 +1035,13 @@ pub(super) fn emit_instruction<'ctx>(
             // Load closure pointer
             let closure_ptr = load_ptr(context, builder, register_allocas, closure_reg.0)?;
 
-            // Load env_ptr from offset 24
+            // Load env_ptr from ARC_HEADER_SIZE + FIELD_SIZE (second field)
             let env_ptr_field = unsafe {
                 builder
                     .build_gep(
                         context.i8_type(),
                         closure_ptr,
-                        &[i64_ty.const_int(24, false)],
+                        &[i64_ty.const_int(ARC_HEADER_SIZE + FIELD_SIZE, false)],
                         "env_ptr_field",
                     )
                     .map_err(|e| BackendError::LlvmError(e.to_string()))?
@@ -1121,13 +1050,13 @@ pub(super) fn emit_instruction<'ctx>(
                 .build_load(i64_ty, env_ptr_field, "env_ptr")
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?;
 
-            // Load fn_ptr from offset 16 (stored as i64, convert to function pointer)
+            // Load fn_ptr from ARC_HEADER_SIZE (first field, stored as i64, convert to function pointer)
             let fn_ptr_field = unsafe {
                 builder
                     .build_gep(
                         context.i8_type(),
                         closure_ptr,
-                        &[i64_ty.const_int(16, false)],
+                        &[i64_ty.const_int(ARC_HEADER_SIZE, false)],
                         "fn_ptr_field",
                     )
                     .map_err(|e| BackendError::LlvmError(e.to_string()))?
@@ -1437,7 +1366,42 @@ pub(super) fn emit_instruction<'ctx>(
             });
             let arr_ptr = load_ptr(context, builder, register_allocas, arr_reg.0)?;
             let idx = load_i64(context, builder, register_allocas, idx_reg.0)?;
-            let val = load_i64(context, builder, register_allocas, val_reg.0)?;
+
+            // Check if the value being set is a string — same as DynArrayPush.
+            // String literals need a heap copy via __nudl_str_alloc.
+            let val_is_string = reg_string_info.contains_key(&val_reg.0);
+            let val = if val_is_string {
+                let (s_ptr, s_len) = load_string_arg(
+                    context,
+                    builder,
+                    reg_string_info,
+                    string_constants,
+                    str_ptr_allocas,
+                    str_len_allocas,
+                    val_reg.0,
+                )?;
+                let str_alloc = module.get_function("__nudl_str_alloc").unwrap_or_else(|| {
+                    let fn_ty = ptr_ty.fn_type(&[ptr_ty.into(), i64_ty.into()], false);
+                    module.add_function(
+                        "__nudl_str_alloc",
+                        fn_ty,
+                        Some(inkwell::module::Linkage::External),
+                    )
+                });
+                let call_result = builder
+                    .build_direct_call(str_alloc, &[s_ptr.into(), s_len.into()], "str_heap_copy")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                let heap_ptr = call_result
+                    .try_as_basic_value()
+                    .basic()
+                    .expect("str_alloc returns ptr")
+                    .into_pointer_value();
+                builder
+                    .build_ptr_to_int(heap_ptr, i64_ty, "str_heap_i64")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            } else {
+                load_i64(context, builder, register_allocas, val_reg.0)?
+            };
             builder
                 .build_direct_call(
                     array_set,

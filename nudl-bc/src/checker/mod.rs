@@ -85,8 +85,8 @@ pub struct CheckedModule {
     pub enums: HashMap<String, TypeId>,
     pub interfaces: HashMap<String, TypeId>,
     pub types: TypeInterner,
-    /// Bodies for monomorphized functions: mangled_name -> (params, body)
-    pub mono_fn_bodies: HashMap<String, (Vec<Param>, Spanned<Block>)>,
+    /// Bodies for monomorphized functions: mangled_name -> (params, body, type_param_subst)
+    pub mono_fn_bodies: HashMap<String, (Vec<Param>, Spanned<Block>, HashMap<String, TypeId>)>,
     /// Generic call site -> mangled function name
     pub call_resolutions: HashMap<Span, String>,
     /// Generic struct literal -> mangled struct name
@@ -138,8 +138,9 @@ pub struct Checker {
     pub(super) struct_resolutions: HashMap<Span, String>,
     /// Generic enum constructor -> mangled enum name
     pub(super) enum_resolutions: HashMap<Span, String>,
-    /// Bodies for monomorphized functions
-    pub(super) mono_fn_bodies: HashMap<String, (Vec<Param>, Spanned<Block>)>,
+    /// Bodies for monomorphized functions (with type param substitution maps)
+    pub(super) mono_fn_bodies:
+        HashMap<String, (Vec<Param>, Spanned<Block>, HashMap<String, TypeId>)>,
     /// Reverse mapping: mangled type name -> (base_name, concrete type args)
     /// Used during type inference to extract type args from monomorphized generic types.
     pub(super) mono_type_args: HashMap<String, (String, Vec<TypeId>)>,

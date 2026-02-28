@@ -52,14 +52,8 @@ impl<'a> FunctionLowerCtx<'a> {
                                 self.current_span = call_span;
                                 // Caller-retain for reference-typed args (except String)
                                 for (i, pty) in param_types.iter().enumerate() {
-                                    if self.types.is_reference_type(*pty)
-                                        && !matches!(
-                                            self.types.resolve(*pty),
-                                            nudl_core::types::TypeKind::String
-                                        )
-                                        && i < arg_regs.len()
-                                    {
-                                        self.push_inst(Instruction::Retain(arg_regs[i]));
+                                    if i < arg_regs.len() {
+                                        self.emit_retain_for_type(arg_regs[i], *pty);
                                     }
                                 }
                                 let dst = self.alloc_typed_register(ret);
@@ -634,18 +628,22 @@ impl<'a> FunctionLowerCtx<'a> {
             Expr::Assign { target, value } => {
                 let val_reg = self.lower_expr(value);
                 if let Expr::Ident(name) = &target.node {
-                    // Release old value if reassigning a struct-typed variable
+                    // Release old value if reassigning a reference-typed variable
                     if let Some(&type_id) = self.local_types.get(name) {
-                        if self.types.is_struct(type_id) {
-                            if let Some(&old_reg) = self.locals.get(name) {
-                                self.push_inst(Instruction::Release(old_reg, Some(type_id)));
-                            }
+                        if let Some(&old_reg) = self.locals.get(name) {
+                            self.emit_release_for_type(old_reg, type_id);
                         }
                     }
                     self.locals.update(name, val_reg);
                 } else if let Expr::FieldAccess { object, field } = &target.node {
                     let obj_reg = self.lower_expr(object);
                     let field_idx = self.resolve_field_index(object, field);
+                    // Release old field value if reference-typed
+                    if let Some(ft) = self.infer_field_type(object, field) {
+                        let old_val = self.alloc_typed_register(ft);
+                        self.push_inst(Instruction::Load(old_val, obj_reg, field_idx));
+                        self.emit_release_for_type(old_val, ft);
+                    }
                     self.push_inst(Instruction::Store(obj_reg, field_idx, val_reg));
                 } else if let Expr::IndexAccess { object, index } = &target.node {
                     let obj_type = self.infer_expr_type(object);
@@ -657,6 +655,29 @@ impl<'a> FunctionLowerCtx<'a> {
                     });
                     let obj_reg = self.lower_expr(object);
                     let idx_reg = self.lower_expr(index);
+                    // Release old element value if reference-typed
+                    if let Some(obj_tid) = obj_type {
+                        let elem_ty = match self.types.resolve(obj_tid) {
+                            nudl_core::types::TypeKind::DynamicArray { element } => Some(*element),
+                            nudl_core::types::TypeKind::FixedArray { element, .. } => {
+                                Some(*element)
+                            }
+                            _ => None,
+                        };
+                        if let Some(et) = elem_ty {
+                            let old_elem = self.alloc_typed_register(et);
+                            if is_dynamic {
+                                self.push_inst(Instruction::DynArrayGet(
+                                    old_elem, obj_reg, idx_reg,
+                                ));
+                            } else {
+                                self.push_inst(Instruction::IndexLoad(
+                                    old_elem, obj_reg, idx_reg, et,
+                                ));
+                            }
+                            self.emit_release_for_type(old_elem, et);
+                        }
+                    }
                     if is_dynamic {
                         self.push_inst(Instruction::DynArraySet(obj_reg, idx_reg, val_reg));
                     } else {

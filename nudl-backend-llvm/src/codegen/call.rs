@@ -72,13 +72,13 @@ pub(super) fn extract_heap_string<'ctx>(
     let i8_ty = context.i8_type();
     let i64_ty = context.i64_type();
 
-    // GEP to offset 16 to load the length field
+    // GEP to STRING_LEN_OFFSET to load the length field
     let len_field_ptr = unsafe {
         builder
             .build_gep(
                 i8_ty,
                 heap_ptr,
-                &[i64_ty.const_int(16, false)],
+                &[i64_ty.const_int(STRING_LEN_OFFSET, false)],
                 "heap_str_len_ptr",
             )
             .map_err(|e| BackendError::LlvmError(e.to_string()))?
@@ -88,13 +88,13 @@ pub(super) fn extract_heap_string<'ctx>(
         .map_err(|e| BackendError::LlvmError(e.to_string()))?
         .into_int_value();
 
-    // GEP to offset 24 to get the data pointer
+    // GEP to STRING_DATA_OFFSET to get the data pointer
     let data_ptr = unsafe {
         builder
             .build_gep(
                 i8_ty,
                 heap_ptr,
-                &[i64_ty.const_int(24, false)],
+                &[i64_ty.const_int(STRING_DATA_OFFSET, false)],
                 "heap_str_data",
             )
             .map_err(|e| BackendError::LlvmError(e.to_string()))?
@@ -133,14 +133,16 @@ pub(super) fn store_string_result<'ctx>(
         }),
     );
 
-    // Compute the ARC heap object pointer (data_ptr - 24) and store in the
+    // Compute the ARC heap object pointer (data_ptr - STRING_DATA_OFFSET) and store in the
     // register alloca. This is needed by DynArrayPush, ARC retain/release,
     // and any code that reads the register as an i64.
     let i8_ty = context.i8_type();
-    let neg_24 = context.i64_type().const_int((-24i64) as u64, true);
+    let neg_offset = context
+        .i64_type()
+        .const_int(-(STRING_DATA_OFFSET as i64) as u64, true);
     let heap_ptr = unsafe {
         builder
-            .build_gep(i8_ty, data_ptr, &[neg_24], "str_arc_ptr")
+            .build_gep(i8_ty, data_ptr, &[neg_offset], "str_arc_ptr")
             .map_err(|e| BackendError::LlvmError(e.to_string()))?
     };
     let heap_as_i64 = builder

@@ -4,6 +4,21 @@ use nudl_core::types::TypeKind;
 use super::context::FunctionLowerCtx;
 
 impl<'a> FunctionLowerCtx<'a> {
+    /// Infer the type of a struct field for a given object expression and field name.
+    pub(super) fn infer_field_type(
+        &mut self,
+        object: &nudl_core::span::Spanned<Expr>,
+        field: &str,
+    ) -> Option<nudl_core::types::TypeId> {
+        let type_id = self.infer_expr_type(object)?;
+        match self.types.resolve(type_id) {
+            nudl_core::types::TypeKind::Struct { fields, .. } => {
+                fields.iter().find(|(n, _)| n == field).map(|(_, tid)| *tid)
+            }
+            _ => None,
+        }
+    }
+
     /// Resolve the field index for a field access expression.
     pub(super) fn resolve_field_index(
         &mut self,
@@ -41,12 +56,19 @@ impl<'a> FunctionLowerCtx<'a> {
                 "char" => self.types.char_type(),
                 "string" => self.types.string(),
                 _ => {
-                    if let Some(&tid) = self.struct_defs.get(name.as_str()) {
+                    // Check type parameter substitution map first (for monomorphized functions)
+                    if let Some(&tid) = self.type_param_subst.get(name.as_str()) {
+                        tid
+                    } else if let Some(&tid) = self.struct_defs.get(name.as_str()) {
                         tid
                     } else if let Some(&tid) = self.enum_defs.get(name.as_str()) {
                         tid
                     } else {
-                        self.types.i64() // fallback
+                        self.lowering_warnings.push(format!(
+                            "unresolved named type '{}', falling back to i64",
+                            name
+                        ));
+                        self.types.i64()
                     }
                 }
             },
@@ -74,13 +96,27 @@ impl<'a> FunctionLowerCtx<'a> {
                             .intern(nudl_core::types::TypeKind::Map { key, value })
                     }
                     _ => {
-                        // Try struct or enum
-                        if let Some(&tid) = self.struct_defs.get(name.as_str()) {
+                        // Resolve generic args and construct mangled name for lookup
+                        let resolved_args: Vec<nudl_core::types::TypeId> = args
+                            .iter()
+                            .map(|a| self.resolve_type_expr(&a.node))
+                            .collect();
+                        let mangled = self.mangle_type_name(name, &resolved_args);
+                        // Try struct or enum with mangled name
+                        if let Some(&tid) = self.struct_defs.get(&mangled) {
+                            tid
+                        } else if let Some(&tid) = self.enum_defs.get(&mangled) {
+                            tid
+                        } else if let Some(&tid) = self.struct_defs.get(name.as_str()) {
                             tid
                         } else if let Some(&tid) = self.enum_defs.get(name.as_str()) {
                             tid
                         } else {
-                            self.types.i64() // fallback
+                            self.lowering_warnings.push(format!(
+                                "unresolved generic type '{}', falling back to i64",
+                                name
+                            ));
+                            self.types.i64()
                         }
                     }
                 }
@@ -353,7 +389,9 @@ impl<'a> FunctionLowerCtx<'a> {
                 _ => {}
             }
         }
-        self.types.i64() // fallback
+        self.lowering_warnings
+            .push("could not infer index element type, falling back to i64".to_string());
+        self.types.i64()
     }
 
     /// Infer the type name of the receiver expression for method resolution.

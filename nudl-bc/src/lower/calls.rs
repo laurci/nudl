@@ -123,11 +123,8 @@ impl<'a> FunctionLowerCtx<'a> {
         if !is_extern {
             if let Some(sig) = self.function_sigs.get(name).cloned() {
                 for (i, (_pname, pty)) in sig.params.iter().enumerate() {
-                    if self.types.is_reference_type(*pty)
-                        && !matches!(self.types.resolve(*pty), TypeKind::String)
-                        && i < arg_regs.len()
-                    {
-                        self.push_inst(Instruction::Retain(arg_regs[i]));
+                    if i < arg_regs.len() {
+                        self.emit_retain_for_type(arg_regs[i], *pty);
                     }
                 }
             }
@@ -277,11 +274,8 @@ impl<'a> FunctionLowerCtx<'a> {
         // Caller-retain for reference-typed args (except String)
         if !is_extern {
             for (i, (_pname, pty)) in sig.params[skip_params..].iter().enumerate() {
-                if self.types.is_reference_type(*pty)
-                    && !matches!(self.types.resolve(*pty), TypeKind::String)
-                    && i < arg_regs.len()
-                {
-                    self.push_inst(Instruction::Retain(arg_regs[i]));
+                if i < arg_regs.len() {
+                    self.emit_retain_for_type(arg_regs[i], *pty);
                 }
             }
         }
@@ -317,11 +311,8 @@ impl<'a> FunctionLowerCtx<'a> {
 
         // Caller-retain for reference-typed args (except String)
         for (i, (_pname, pty)) in sig.params.iter().enumerate() {
-            if self.types.is_reference_type(*pty)
-                && !matches!(self.types.resolve(*pty), TypeKind::String)
-                && i < arg_regs.len()
-            {
-                self.push_inst(Instruction::Retain(arg_regs[i]));
+            if i < arg_regs.len() {
+                self.emit_retain_for_type(arg_regs[i], *pty);
             }
         }
 

@@ -50,6 +50,10 @@ pub struct FunctionLowerCtx<'a> {
     pub(super) struct_resolutions: &'a HashMap<Span, String>,
     /// Generic enum constructor -> mangled enum name
     pub(super) enum_resolutions: &'a HashMap<Span, String>,
+    /// Accumulated warnings from type resolution fallbacks (internal bugs)
+    pub(super) lowering_warnings: Vec<String>,
+    /// Type parameter substitution map for monomorphized functions (e.g., "T" -> i32)
+    pub(super) type_param_subst: HashMap<String, nudl_core::types::TypeId>,
 }
 
 impl<'a> FunctionLowerCtx<'a> {
@@ -100,6 +104,122 @@ impl<'a> FunctionLowerCtx<'a> {
     pub(super) fn push_inst(&mut self, inst: Instruction) {
         self.current_instructions.push(inst);
         self.current_spans.push(self.current_span);
+    }
+
+    /// Emit Release instructions for any type that requires ARC management.
+    /// Handles reference types (excluding String at SSA level) and fixed arrays of reference-typed elements.
+    pub(super) fn emit_release_for_type(
+        &mut self,
+        reg: Register,
+        type_id: nudl_core::types::TypeId,
+    ) {
+        if self.types.is_reference_type(type_id)
+            && !matches!(
+                self.types.resolve(type_id),
+                nudl_core::types::TypeKind::String
+            )
+        {
+            self.push_inst(Instruction::Release(reg, Some(type_id)));
+        } else if let nudl_core::types::TypeKind::FixedArray { element, length } =
+            self.types.resolve(type_id)
+        {
+            let elem = *element;
+            let len = *length;
+            if self.types.is_reference_type(elem)
+                && !matches!(self.types.resolve(elem), nudl_core::types::TypeKind::String)
+            {
+                for idx in 0..len {
+                    let idx_reg = self.alloc_register();
+                    self.push_inst(Instruction::Const(idx_reg, ConstValue::I32(idx as i32)));
+                    let elem_reg = self.alloc_register();
+                    self.push_inst(Instruction::IndexLoad(elem_reg, reg, idx_reg, elem));
+                    self.push_inst(Instruction::Release(elem_reg, Some(elem)));
+                }
+            }
+        }
+    }
+
+    /// Emit Retain instruction for reference types (excluding String at SSA level).
+    pub(super) fn emit_retain_for_type(
+        &mut self,
+        reg: Register,
+        type_id: nudl_core::types::TypeId,
+    ) {
+        if self.types.is_reference_type(type_id)
+            && !matches!(
+                self.types.resolve(type_id),
+                nudl_core::types::TypeKind::String
+            )
+        {
+            self.push_inst(Instruction::Retain(reg));
+        }
+    }
+
+    /// Construct a mangled type name for generic type lookup (mirrors checker's mangle_name).
+    pub(super) fn mangle_type_name(
+        &self,
+        base: &str,
+        type_args: &[nudl_core::types::TypeId],
+    ) -> String {
+        let mut name = base.to_string();
+        for &ty in type_args {
+            name.push('$');
+            name.push_str(&self.type_name_for_mangle(ty));
+        }
+        name
+    }
+
+    /// Convert a TypeId to its string name for mangling (mirrors checker's type_name).
+    fn type_name_for_mangle(&self, ty: nudl_core::types::TypeId) -> String {
+        use nudl_core::types::{PrimitiveType, TypeKind};
+        match self.types.resolve(ty) {
+            TypeKind::Primitive(p) => match p {
+                PrimitiveType::Char => "char".into(),
+                p => format!("{:?}", p).to_lowercase(),
+            },
+            TypeKind::String => "string".into(),
+            TypeKind::Struct { name, .. } | TypeKind::Enum { name, .. } => name.clone(),
+            TypeKind::Tuple(elements) => {
+                let parts: Vec<String> = elements
+                    .iter()
+                    .map(|e| self.type_name_for_mangle(*e))
+                    .collect();
+                format!("({})", parts.join(", "))
+            }
+            TypeKind::FixedArray { element, length } => {
+                format!("[{}; {}]", self.type_name_for_mangle(*element), length)
+            }
+            TypeKind::DynamicArray { element } => {
+                format!("{}[]", self.type_name_for_mangle(*element))
+            }
+            TypeKind::Map { key, value } => {
+                format!(
+                    "Map<{}, {}>",
+                    self.type_name_for_mangle(*key),
+                    self.type_name_for_mangle(*value)
+                )
+            }
+            TypeKind::Function { params, ret } => {
+                let param_strs: Vec<String> = params
+                    .iter()
+                    .map(|p| self.type_name_for_mangle(*p))
+                    .collect();
+                let is_unit = matches!(
+                    self.types.resolve(*ret),
+                    TypeKind::Primitive(PrimitiveType::Unit)
+                );
+                if is_unit {
+                    format!("|{}|", param_strs.join(", "))
+                } else {
+                    format!(
+                        "|{}| -> {}",
+                        param_strs.join(", "),
+                        self.type_name_for_mangle(*ret)
+                    )
+                }
+            }
+            _ => "i64".into(),
+        }
     }
 
     /// Allocate a new function ID for a closure thunk

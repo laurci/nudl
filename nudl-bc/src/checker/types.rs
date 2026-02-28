@@ -824,7 +824,11 @@ impl Checker {
             self.mono_cache.insert(mangled_method.clone());
             self.mono_fn_bodies.insert(
                 mangled_method.clone(),
-                (method.ast_params.clone(), method.ast_body.clone()),
+                (
+                    method.ast_params.clone(),
+                    method.ast_body.clone(),
+                    subst.clone(),
+                ),
             );
             self.pending_mono_checks.push((
                 mangled_method,
@@ -913,7 +917,11 @@ impl Checker {
         self.mono_cache.insert(mangled.clone());
         self.mono_fn_bodies.insert(
             mangled.clone(),
-            (generic_def.ast_params.clone(), generic_def.ast_body.clone()),
+            (
+                generic_def.ast_params.clone(),
+                generic_def.ast_body.clone(),
+                subst.clone(),
+            ),
         );
         self.pending_mono_checks.push((
             mangled.clone(),

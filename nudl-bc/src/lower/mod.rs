@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 use nudl_core::intern::StringInterner;
 use nudl_core::span::Span;
-use nudl_core::types::{TypeInterner, TypeKind};
+use nudl_core::types::TypeInterner;
 
 use nudl_ast::ast::*;
 
@@ -55,8 +55,15 @@ pub struct Lowerer {
     pub(super) param_defaults: HashMap<String, Vec<Option<SpannedExpr>>>,
     /// Closures that need to be lowered as separate functions after the current function.
     pub(super) pending_closures: Vec<PendingClosure>,
-    /// Monomorphized function bodies from the checker
-    pub(super) mono_fn_bodies: HashMap<String, (Vec<Param>, nudl_core::span::Spanned<Block>)>,
+    /// Monomorphized function bodies from the checker (with type param substitution maps)
+    pub(super) mono_fn_bodies: HashMap<
+        String,
+        (
+            Vec<Param>,
+            nudl_core::span::Spanned<Block>,
+            HashMap<String, nudl_core::types::TypeId>,
+        ),
+    >,
     /// Generic call site -> mangled function name
     pub(super) call_resolutions: HashMap<Span, String>,
     /// Generic struct literal -> mangled struct name
@@ -205,14 +212,19 @@ impl Lowerer {
         }
 
         // Pass 2.5: Lower monomorphized function bodies
-        let mono_bodies: Vec<(String, Vec<Param>, nudl_core::span::Spanned<Block>)> = self
+        let mono_bodies: Vec<(
+            String,
+            Vec<Param>,
+            nudl_core::span::Spanned<Block>,
+            HashMap<String, nudl_core::types::TypeId>,
+        )> = self
             .mono_fn_bodies
             .drain()
-            .map(|(name, (params, body))| (name, params, body))
+            .map(|(name, (params, body, subst))| (name, params, body, subst))
             .collect();
-        for (name, params, body) in &mono_bodies {
+        for (name, params, body, subst) in &mono_bodies {
             if self.function_sigs.contains_key(name) {
-                let func = self.lower_function(name, params, body);
+                let func = self.lower_function_with_subst(name, params, body, subst);
                 self.functions.push(func);
             }
         }
@@ -270,6 +282,17 @@ impl Lowerer {
         params: &[Param],
         body: &nudl_core::span::Spanned<Block>,
     ) -> Function {
+        let empty_subst = HashMap::new();
+        self.lower_function_with_subst(name, params, body, &empty_subst)
+    }
+
+    fn lower_function_with_subst(
+        &mut self,
+        name: &str,
+        params: &[Param],
+        body: &nudl_core::span::Spanned<Block>,
+        type_param_subst: &HashMap<String, nudl_core::types::TypeId>,
+    ) -> Function {
         let id = FunctionId(self.next_function_id);
         self.next_function_id += 1;
         let name_sym = self.interner.intern(name);
@@ -325,6 +348,8 @@ impl Lowerer {
             call_resolutions: &self.call_resolutions,
             struct_resolutions: &self.struct_resolutions,
             enum_resolutions: &self.enum_resolutions,
+            lowering_warnings: Vec::new(),
+            type_param_subst: type_param_subst.clone(),
         };
 
         // Lower body — returns the register holding the result
@@ -336,31 +361,37 @@ impl Lowerer {
             ctx.lower_block_expr(&block);
         }
 
-        // Callee-release: emit Release for reference-typed params at function exit.
-        // This balances the caller's Retain before the call.
-        for (i, (_pname, pty)) in sig.params.iter().enumerate() {
-            let param_reg = Register(i as u32);
-            if ctx.types.is_reference_type(*pty)
-                && !matches!(ctx.types.resolve(*pty), TypeKind::String)
-            {
-                ctx.push_inst(Instruction::Release(param_reg, Some(*pty)));
-            } else if let TypeKind::FixedArray { element, length } = ctx.types.resolve(*pty) {
-                let elem = *element;
-                let len = *length;
-                if ctx.types.is_reference_type(elem) {
-                    for idx in 0..len {
-                        let idx_reg = ctx.alloc_register();
-                        ctx.push_inst(Instruction::Const(idx_reg, ConstValue::I32(idx as i32)));
-                        let elem_reg = ctx.alloc_register();
-                        ctx.push_inst(Instruction::IndexLoad(elem_reg, param_reg, idx_reg, elem));
-                        ctx.push_inst(Instruction::Release(elem_reg, Some(elem)));
-                    }
+        // If the return value register matches a callee-released param or is reference-typed,
+        // retain it before callee-release to prevent premature deallocation when a function
+        // returns one of its own parameters (aliasing: new value == old value).
+        if ctx.types.is_reference_type(sig.return_type)
+            && !matches!(
+                ctx.types.resolve(sig.return_type),
+                nudl_core::types::TypeKind::String
+            )
+        {
+            for (i, (_pname, _pty)) in sig.params.iter().enumerate() {
+                if Register(i as u32) == result_reg {
+                    ctx.emit_retain_for_type(result_reg, sig.return_type);
+                    break;
                 }
             }
         }
 
+        // Callee-release: emit Release for reference-typed params at function exit.
+        // This balances the caller's Retain before the call.
+        for (i, (_pname, pty)) in sig.params.iter().enumerate() {
+            let param_reg = Register(i as u32);
+            ctx.emit_release_for_type(param_reg, *pty);
+        }
+
         // Finish the last block with a return
         ctx.finish_block(Terminator::Return(result_reg));
+
+        // Report any lowering warnings (type resolution fallbacks)
+        for warning in &ctx.lowering_warnings {
+            eprintln!("[lowering warning] in {}: {}", name, warning);
+        }
 
         let register_count = ctx.next_register;
         let register_types = ctx.register_types;
@@ -444,6 +475,8 @@ impl Lowerer {
             call_resolutions: &self.call_resolutions,
             struct_resolutions: &self.struct_resolutions,
             enum_resolutions: &self.enum_resolutions,
+            lowering_warnings: Vec::new(),
+            type_param_subst: HashMap::new(),
         };
 
         // Load captured variables from the env pointer
@@ -459,11 +492,7 @@ impl Lowerer {
             ctx.push_inst(Instruction::Load(cap_reg, env_reg, i as u32));
             // Retain reference-typed captures so the Release at closure exit is balanced.
             // The env struct owns one reference; this creates a second one for the local.
-            if ctx.types.is_reference_type(*cap_type)
-                && !matches!(ctx.types.resolve(*cap_type), TypeKind::String)
-            {
-                ctx.push_inst(Instruction::Retain(cap_reg));
-            }
+            ctx.emit_retain_for_type(cap_reg, *cap_type);
             ctx.locals.insert(cap_name.clone(), cap_reg);
             ctx.local_types.insert(cap_name.clone(), *cap_type);
         }
@@ -471,30 +500,45 @@ impl Lowerer {
         // Lower the closure body
         let result_reg = ctx.lower_expr(&closure.body);
 
+        // If the return value register matches a callee-released param or capture,
+        // retain it before callee-release to prevent premature deallocation when a
+        // closure returns one of its own parameters (aliasing: new value == old value).
+        if ctx.types.is_reference_type(closure.return_type)
+            && !matches!(
+                ctx.types.resolve(closure.return_type),
+                nudl_core::types::TypeKind::String
+            )
+        {
+            let mut needs_retain = false;
+            for (pname, _pty) in &closure.params {
+                if let Some(&param_reg) = ctx.locals.get(pname) {
+                    if param_reg == result_reg {
+                        needs_retain = true;
+                        break;
+                    }
+                }
+            }
+            if !needs_retain {
+                for cap_name in &closure.capture_names {
+                    if let Some(&cap_reg) = ctx.locals.get(cap_name) {
+                        if cap_reg == result_reg {
+                            needs_retain = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if needs_retain {
+                ctx.emit_retain_for_type(result_reg, closure.return_type);
+            }
+        }
+
         // Callee-release: emit Release for reference-typed closure params at function exit.
         // This balances the caller's Retain before ClosureCall.
         // Skip __env (register 0) — it's handled separately by the closure runtime.
         for (pname, pty) in &closure.params {
             if let Some(&param_reg) = ctx.locals.get(pname) {
-                if ctx.types.is_reference_type(*pty)
-                    && !matches!(ctx.types.resolve(*pty), TypeKind::String)
-                {
-                    ctx.push_inst(Instruction::Release(param_reg, Some(*pty)));
-                } else if let TypeKind::FixedArray { element, length } = ctx.types.resolve(*pty) {
-                    let elem = *element;
-                    let len = *length;
-                    if ctx.types.is_reference_type(elem) {
-                        for idx in 0..len {
-                            let idx_reg = ctx.alloc_register();
-                            ctx.push_inst(Instruction::Const(idx_reg, ConstValue::I32(idx as i32)));
-                            let elem_reg = ctx.alloc_register();
-                            ctx.push_inst(Instruction::IndexLoad(
-                                elem_reg, param_reg, idx_reg, elem,
-                            ));
-                            ctx.push_inst(Instruction::Release(elem_reg, Some(elem)));
-                        }
-                    }
-                }
+                ctx.emit_release_for_type(param_reg, *pty);
             }
         }
 
@@ -505,16 +549,17 @@ impl Lowerer {
             .zip(closure.capture_types.iter())
         {
             if let Some(&cap_reg) = ctx.locals.get(cap_name) {
-                if ctx.types.is_reference_type(*cap_type)
-                    && !matches!(ctx.types.resolve(*cap_type), TypeKind::String)
-                {
-                    ctx.push_inst(Instruction::Release(cap_reg, Some(*cap_type)));
-                }
+                ctx.emit_release_for_type(cap_reg, *cap_type);
             }
         }
 
         // Finish with return
         ctx.finish_block(Terminator::Return(result_reg));
+
+        // Report any lowering warnings
+        for warning in &ctx.lowering_warnings {
+            eprintln!("[lowering warning] in {}: {}", thunk_name, warning);
+        }
 
         let register_count = ctx.next_register;
         let register_types = ctx.register_types;
