@@ -780,26 +780,85 @@ impl<'a> FunctionLowerCtx<'a> {
             }
 
             Expr::CompoundAssign { op, target, value } => {
-                // target = target op value
-                let target_reg = self.lower_expr(target);
                 let val_reg = self.lower_expr(value);
-                let result_reg = self.alloc_register();
-                let inst = match op {
-                    BinOp::Add => Instruction::Add(result_reg, target_reg, val_reg),
-                    BinOp::Sub => Instruction::Sub(result_reg, target_reg, val_reg),
-                    BinOp::Mul => Instruction::Mul(result_reg, target_reg, val_reg),
-                    BinOp::Div => Instruction::Div(result_reg, target_reg, val_reg),
-                    BinOp::Mod => Instruction::Mod(result_reg, target_reg, val_reg),
-                    BinOp::Shl => Instruction::Shl(result_reg, target_reg, val_reg),
-                    BinOp::Shr => Instruction::Shr(result_reg, target_reg, val_reg),
-                    BinOp::BitAnd => Instruction::BitAnd(result_reg, target_reg, val_reg),
-                    BinOp::BitOr => Instruction::BitOr(result_reg, target_reg, val_reg),
-                    BinOp::BitXor => Instruction::BitXor(result_reg, target_reg, val_reg),
-                    _ => unreachable!(),
+
+                // Helper: emit the arithmetic instruction for the compound op
+                let emit_op = |this: &mut Self, result: Register, lhs: Register, rhs: Register| {
+                    let inst = match op {
+                        BinOp::Add => Instruction::Add(result, lhs, rhs),
+                        BinOp::Sub => Instruction::Sub(result, lhs, rhs),
+                        BinOp::Mul => Instruction::Mul(result, lhs, rhs),
+                        BinOp::Div => Instruction::Div(result, lhs, rhs),
+                        BinOp::Mod => Instruction::Mod(result, lhs, rhs),
+                        BinOp::Shl => Instruction::Shl(result, lhs, rhs),
+                        BinOp::Shr => Instruction::Shr(result, lhs, rhs),
+                        BinOp::BitAnd => Instruction::BitAnd(result, lhs, rhs),
+                        BinOp::BitOr => Instruction::BitOr(result, lhs, rhs),
+                        BinOp::BitXor => Instruction::BitXor(result, lhs, rhs),
+                        _ => unreachable!(),
+                    };
+                    this.push_inst(inst);
                 };
-                self.push_inst(inst);
+
                 if let Expr::Ident(name) = &target.node {
+                    let target_reg = self.lower_expr(target);
+                    let result_reg = self.alloc_register();
+                    emit_op(self, result_reg, target_reg, val_reg);
                     self.locals.update(name, result_reg);
+                } else if let Expr::FieldAccess { object, field } = &target.node {
+                    let obj_reg = self.lower_expr(object);
+                    let field_idx = self.resolve_field_index(object, field);
+                    // Load current field value
+                    let old_reg = self.alloc_register();
+                    let obj_type = self.infer_expr_type(object);
+                    let is_extern_struct =
+                        obj_type.map_or(false, |tid| self.types.is_extern_struct(tid));
+                    if is_extern_struct {
+                        self.push_inst(Instruction::TupleLoad(old_reg, obj_reg, field_idx));
+                    } else {
+                        self.push_inst(Instruction::Load(old_reg, obj_reg, field_idx));
+                    }
+                    // Compute new value
+                    let result_reg = self.alloc_register();
+                    emit_op(self, result_reg, old_reg, val_reg);
+                    // Store back
+                    if is_extern_struct {
+                        self.push_inst(Instruction::TupleStore(obj_reg, field_idx, result_reg));
+                    } else {
+                        self.push_inst(Instruction::Store(obj_reg, field_idx, result_reg));
+                    }
+                } else if let Expr::IndexAccess { object, index } = &target.node {
+                    let obj_type = self.infer_expr_type(object);
+                    let is_dynamic = obj_type.map_or(false, |tid| {
+                        matches!(
+                            self.types.resolve(tid),
+                            nudl_core::types::TypeKind::DynamicArray { .. }
+                        )
+                    });
+                    let elem_ty = obj_type.and_then(|tid| match self.types.resolve(tid) {
+                        nudl_core::types::TypeKind::DynamicArray { element } => Some(*element),
+                        nudl_core::types::TypeKind::FixedArray { element, .. } => Some(*element),
+                        _ => None,
+                    });
+                    let obj_reg = self.lower_expr(object);
+                    let idx_reg = self.lower_expr(index);
+                    // Load current element
+                    let old_reg = self.alloc_register();
+                    if is_dynamic {
+                        self.push_inst(Instruction::DynArrayGet(old_reg, obj_reg, idx_reg));
+                    } else {
+                        let et = elem_ty.unwrap_or(self.types.i64());
+                        self.push_inst(Instruction::IndexLoad(old_reg, obj_reg, idx_reg, et));
+                    }
+                    // Compute new value
+                    let result_reg = self.alloc_register();
+                    emit_op(self, result_reg, old_reg, val_reg);
+                    // Store back
+                    if is_dynamic {
+                        self.push_inst(Instruction::DynArraySet(obj_reg, idx_reg, result_reg));
+                    } else {
+                        self.push_inst(Instruction::IndexStore(obj_reg, idx_reg, result_reg));
+                    }
                 }
                 let unit_reg = self.alloc_register();
                 self.push_inst(Instruction::ConstUnit(unit_reg));
@@ -1165,8 +1224,31 @@ impl<'a> FunctionLowerCtx<'a> {
                         inclusive,
                     } => self.lower_for_range(binding, start, end, *inclusive, &body.node),
                     _ => {
-                        // Array iteration
-                        self.lower_for_array(binding, iter, &body.node)
+                        let iter_ty = self.infer_expr_type(iter);
+                        let is_string = iter_ty.is_some_and(|tid| {
+                            matches!(self.types.resolve(tid), nudl_core::types::TypeKind::String)
+                        });
+                        let is_iterable = if !is_string {
+                            iter_ty.is_some_and(|tid| {
+                                let type_name = crate::lower::type_resolve::type_kind_to_name(
+                                    self.types.resolve(tid),
+                                );
+                                type_name.is_some_and(|tn| {
+                                    self.interface_impls
+                                        .get("Iterable")
+                                        .map_or(false, |impls| impls.contains(&tn))
+                                })
+                            })
+                        } else {
+                            false
+                        };
+                        if is_string {
+                            self.lower_for_string(binding, iter, &body.node)
+                        } else if is_iterable {
+                            self.lower_for_iterable(binding, iter, &body.node)
+                        } else {
+                            self.lower_for_array(binding, iter, &body.node)
+                        }
                     }
                 }
             }

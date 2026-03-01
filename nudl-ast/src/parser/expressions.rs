@@ -355,7 +355,10 @@ impl Parser {
             }
             TokenKind::Ident => {
                 // Lookahead: if followed by `{` and (`ident :` or `ident ,` or `ident }` or `}`), parse as struct literal
-                if self.peek_nth(1).kind == TokenKind::LBrace
+                // Skip when inhibit_trailing_lambda is set — we're inside a condition/iterator
+                // of if/while/for where `{` starts a block body, not a struct literal.
+                if !self.inhibit_trailing_lambda
+                    && self.peek_nth(1).kind == TokenKind::LBrace
                     && (self.peek_nth(2).kind == TokenKind::RBrace
                         || (self.peek_nth(2).kind == TokenKind::Ident
                             && (self.peek_nth(3).kind == TokenKind::Colon

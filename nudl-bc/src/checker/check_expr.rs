@@ -1123,6 +1123,39 @@ impl Checker {
 
             Expr::CompoundAssign { op, target, value } => {
                 let val_ty = self.check_expr(value, locals);
+
+                // Helper closure to validate the target type for compound assignment
+                let validate_compound_target = |this: &mut Self, target_ty: TypeId, span: Span| {
+                    let is_valid = if this.is_type_var(target_ty) {
+                        true
+                    } else {
+                        match op {
+                            BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor => {
+                                this.is_integer_type(target_ty)
+                            }
+                            _ => this.is_numeric(target_ty),
+                        }
+                    };
+                    if !is_valid && target_ty != this.types.error() {
+                        this.diagnostics
+                            .add(&CheckerDiagnostic::InvalidOperatorType {
+                                span,
+                                op: format!("{:?}", op).to_lowercase(),
+                                ty: this.type_name(target_ty),
+                            });
+                    }
+                    if val_ty != target_ty
+                        && val_ty != this.types.error()
+                        && target_ty != this.types.error()
+                    {
+                        this.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                            span: value.span,
+                            expected: this.type_name(target_ty),
+                            found: this.type_name(val_ty),
+                        });
+                    }
+                };
+
                 if let Expr::Ident(name) = &target.node {
                     if let Some(info) = locals.get(name) {
                         if !info.is_mut {
@@ -1132,41 +1165,58 @@ impl Checker {
                                     name: name.clone(),
                                 });
                         }
-                        let target_ty = info.ty;
-                        // TypeVar: skip numeric validation
-                        let is_valid = if self.is_type_var(target_ty) {
-                            true
-                        } else {
-                            match op {
-                                BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor => {
-                                    self.is_integer_type(target_ty)
-                                }
-                                _ => self.is_numeric(target_ty),
-                            }
-                        };
-                        if !is_valid && target_ty != self.types.error() {
-                            self.diagnostics
-                                .add(&CheckerDiagnostic::InvalidOperatorType {
-                                    span: expr.span,
-                                    op: format!("{:?}", op).to_lowercase(),
-                                    ty: self.type_name(target_ty),
-                                });
-                        }
-                        if val_ty != target_ty
-                            && val_ty != self.types.error()
-                            && target_ty != self.types.error()
-                        {
-                            self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
-                                span: value.span,
-                                expected: self.type_name(target_ty),
-                                found: self.type_name(val_ty),
-                            });
-                        }
+                        validate_compound_target(self, info.ty, expr.span);
                     } else {
                         self.diagnostics.add(&CheckerDiagnostic::UndefinedVariable {
                             span: target.span,
                             name: name.clone(),
                         });
+                    }
+                } else if let Expr::FieldAccess { object, field } = &target.node {
+                    let obj_ty = self.check_expr(object, locals);
+                    if obj_ty != self.types.error() {
+                        match self.types.resolve(obj_ty).clone() {
+                            TypeKind::Struct { name, fields, .. } => {
+                                if let Some((_, field_ty)) = fields.iter().find(|(n, _)| n == field)
+                                {
+                                    validate_compound_target(self, *field_ty, expr.span);
+                                } else {
+                                    self.diagnostics.add(&CheckerDiagnostic::UnknownField {
+                                        span: target.span,
+                                        name: name.clone(),
+                                        field: field.clone(),
+                                    });
+                                }
+                            }
+                            TypeKind::TypeVar { .. } => {}
+                            _ => {
+                                self.diagnostics
+                                    .add(&CheckerDiagnostic::FieldAccessOnNonStruct {
+                                        span: target.span,
+                                        ty: self.type_name(obj_ty),
+                                    });
+                            }
+                        }
+                    }
+                } else if let Expr::IndexAccess { object, index } = &target.node {
+                    let obj_ty = self.check_expr(object, locals);
+                    let idx_ty = self.check_expr(index, locals);
+                    if obj_ty != self.types.error() && idx_ty != self.types.error() {
+                        match self.types.resolve(obj_ty).clone() {
+                            TypeKind::FixedArray { element, .. }
+                            | TypeKind::DynamicArray { element } => {
+                                validate_compound_target(self, element, expr.span);
+                            }
+                            TypeKind::TypeVar { .. } => {}
+                            _ => {
+                                self.diagnostics
+                                    .add(&CheckerDiagnostic::InvalidOperatorType {
+                                        span: target.span,
+                                        op: "index".into(),
+                                        ty: self.type_name(obj_ty),
+                                    });
+                            }
+                        }
                     }
                 }
                 self.types.unit()
@@ -1684,16 +1734,46 @@ impl Checker {
                             match self.types.resolve(iter_ty).clone() {
                                 TypeKind::FixedArray { element, .. } => element,
                                 TypeKind::DynamicArray { element } => element,
+                                TypeKind::String => self.types.char_type(),
                                 // TypeVar: can't iterate over bare type variable
                                 TypeKind::TypeVar { .. } => self.types.error(),
                                 _ => {
-                                    self.diagnostics
-                                        .add(&CheckerDiagnostic::InvalidOperatorType {
-                                            span: iter.span,
-                                            op: "for-in".into(),
-                                            ty: self.type_name(iter_ty),
-                                        });
-                                    self.types.error()
+                                    // Check if the type implements Iterable<T>
+                                    let type_name = self.type_name(iter_ty);
+                                    let implements_iterable = self
+                                        .interface_impls
+                                        .get("Iterable")
+                                        .map_or(false, |impls| impls.contains(&type_name));
+                                    if implements_iterable {
+                                        // Extract T from the return type of TypeName__next -> Option<T>
+                                        let next_name = format!("{}__{}", type_name, "next");
+                                        if let Some(sig) = self.functions.get(&next_name) {
+                                            let ret_ty = sig.return_type;
+                                            match self.types.resolve(ret_ty).clone() {
+                                                TypeKind::Enum { variants, .. } => {
+                                                    // Extract T from Some(T) variant
+                                                    variants
+                                                        .iter()
+                                                        .find(|v| v.name == "Some")
+                                                        .and_then(|v| v.fields.first())
+                                                        .map(|(_, ty)| *ty)
+                                                        .unwrap_or(self.types.error())
+                                                }
+                                                _ => self.types.error(),
+                                            }
+                                        } else {
+                                            self.types.error()
+                                        }
+                                    } else {
+                                        self.diagnostics.add(
+                                            &CheckerDiagnostic::InvalidOperatorType {
+                                                span: iter.span,
+                                                op: "for-in".into(),
+                                                ty: self.type_name(iter_ty),
+                                            },
+                                        );
+                                        self.types.error()
+                                    }
                                 }
                             }
                         } else {

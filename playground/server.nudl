@@ -66,7 +66,7 @@ fn main() {
     let buf = malloc(1024u64);
 
     let body = "<html><body><h1>Hello from nudl!</h1><p>This server is written entirely in nudl using raw POSIX sockets.</p></body></html>";
-    let response = `HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\nContent-Length: {str_len(body)}\r\n\r\n{body}`;
+    let response = `HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\nContent-Length: {body.len()}\r\n\r\n{body}`;
 
     while true {
         let client = accept(fd, 0i64, 0i64);

@@ -1,64 +1,69 @@
 // nudl standard library: string module
 // String utility functions backed by C runtime builtins.
 
+// ================================================================
+// Core string methods
+// ================================================================
+
+impl string {
+    // Find index of needle in self. Returns -1 if not found.
+    pub fn indexof(self, needle: string) -> i64 {
+        __str_indexof(self, needle)
+    }
+
+    // Trim leading and trailing whitespace.
+    pub fn trim(self) -> string {
+        __str_trim(self)
+    }
+
+    // Check if self contains needle.
+    pub fn contains(self, needle: string) -> bool {
+        __str_contains(self, needle) != 0i64
+    }
+
+    // Check if string starts with prefix.
+    pub fn starts_with(self, prefix: string) -> bool {
+        __str_starts_with(self, prefix) != 0i64
+    }
+
+    // Check if string ends with suffix.
+    pub fn ends_with(self, suffix: string) -> bool {
+        __str_ends_with(self, suffix) != 0i64
+    }
+
+    // Convert ASCII string to uppercase.
+    pub fn to_upper(self) -> string {
+        __str_to_upper(self)
+    }
+
+    // Convert ASCII string to lowercase.
+    pub fn to_lower(self) -> string {
+        __str_to_lower(self)
+    }
+
+    // Replace all occurrences of old with new_str.
+    pub fn replace(self, old: string, new_str: string) -> string {
+        __str_replace(self, old, new_str)
+    }
+
+    // Repeat string count times.
+    pub fn repeat(self, count: i64) -> string {
+        __str_repeat(self, count)
+    }
+
+    // Check if a string is empty (length == 0).
+    pub fn is_empty(self) -> bool {
+        __str_len(self) == 0u64
+    }
+}
+
+// ================================================================
+// Utility functions (kept as free functions)
+// ================================================================
+
 // Substring extraction: s[start..end]
 pub fn substr(s: string, start: i64, end: i64) -> string {
     __str_substr(s, start, end)
-}
-
-// Find index of needle in haystack. Returns -1 if not found.
-pub fn indexof(haystack: string, needle: string) -> i64 {
-    __str_indexof(haystack, needle)
-}
-
-// Trim leading and trailing whitespace.
-pub fn trim(s: string) -> string {
-    __str_trim(s)
-}
-
-// Check if haystack contains needle.
-pub fn contains(haystack: string, needle: string) -> bool {
-    __str_contains(haystack, needle) != 0i64
-}
-
-// Check if string starts with prefix.
-pub fn starts_with(s: string, prefix: string) -> bool {
-    __str_starts_with(s, prefix) != 0i64
-}
-
-// Check if string ends with suffix.
-pub fn ends_with(s: string, suffix: string) -> bool {
-    __str_ends_with(s, suffix) != 0i64
-}
-
-// Convert ASCII string to uppercase.
-pub fn to_upper(s: string) -> string {
-    __str_to_upper(s)
-}
-
-// Convert ASCII string to lowercase.
-pub fn to_lower(s: string) -> string {
-    __str_to_lower(s)
-}
-
-// Replace all occurrences of old with new_str.
-pub fn replace(s: string, old: string, new_str: string) -> string {
-    __str_replace(s, old, new_str)
-}
-
-// Repeat string count times.
-pub fn str_repeat(s: string, count: i64) -> string {
-    __str_repeat(s, count)
-}
-
-// Check if a string is empty (length == 0).
-pub fn is_empty(s: string) -> bool {
-    __str_len(s) == 0u64
-}
-
-// Get string length.
-pub fn str_len(s: string) -> u64 {
-    __str_len(s)
 }
 
 // Split string by separator. Implemented in pure nudl using indexof + substr.

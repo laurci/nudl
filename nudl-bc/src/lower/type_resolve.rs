@@ -4,7 +4,7 @@ use nudl_core::types::{PrimitiveType, TypeKind};
 use super::context::FunctionLowerCtx;
 
 /// Extract a type name from any TypeKind (structs, enums, primitives, string).
-fn type_kind_to_name(kind: &TypeKind) -> Option<String> {
+pub(crate) fn type_kind_to_name(kind: &TypeKind) -> Option<String> {
     match kind {
         TypeKind::Struct { name, .. } | TypeKind::Enum { name, .. } => Some(name.clone()),
         TypeKind::Primitive(p) => Some(

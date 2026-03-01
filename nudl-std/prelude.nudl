@@ -159,6 +159,10 @@ pub interface Clone {
     fn clone(self) -> Self;
 }
 
+pub interface Iterable<T> {
+    fn next(mut self) -> Option<T>;
+}
+
 // ================================================================
 // I/O: print / println
 // ================================================================
