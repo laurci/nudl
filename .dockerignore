@@ -1,0 +1,6 @@
+target
+tmp
+.git
+.claude
+*.md
+!nudl-std/**
