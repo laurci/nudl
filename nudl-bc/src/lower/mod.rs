@@ -38,6 +38,8 @@ pub(super) struct PendingClosure {
     pub(super) return_type: nudl_core::types::TypeId,
     /// Span
     pub(super) span: Span,
+    /// The enclosing function name (for call_resolutions key matching with checker)
+    pub(super) enclosing_fn_name: String,
 }
 
 /// Lowers AST to SSA bytecode. Consumes CheckedModule for function signatures.
@@ -64,16 +66,57 @@ pub struct Lowerer {
             HashMap<String, nudl_core::types::TypeId>,
         ),
     >,
-    /// Generic call site -> mangled function name
-    pub(super) call_resolutions: HashMap<Span, String>,
+    /// Generic call site -> mangled function name (keyed by (current_fn_name, call_span))
+    pub(super) call_resolutions: HashMap<(String, Span), String>,
     /// Generic struct literal -> mangled struct name
     pub(super) struct_resolutions: HashMap<Span, String>,
     /// Generic enum constructor -> mangled enum name
     pub(super) enum_resolutions: HashMap<Span, String>,
+    /// Vtable entries for dynamic dispatch
+    pub(super) vtables: Vec<VtableEntry>,
+    /// Interface definitions for vtable building: interface_name -> list of method names
+    pub(super) interface_methods: HashMap<String, Vec<String>>,
+    /// Map from interface name -> set of implementing type names
+    pub(super) interface_impls: HashMap<String, Vec<String>>,
+    /// Dynamic dispatch call resolutions from checker: span → (interface_name, method_index)
+    pub(super) dyn_call_resolutions: HashMap<Span, (String, usize)>,
+    /// Vtable lookup: (concrete_type, interface_name) → vtable_index
+    pub(super) vtable_lookup: HashMap<(String, String), u32>,
 }
 
 impl Lowerer {
     pub fn new(checked: CheckedModule) -> Self {
+        let interface_methods: HashMap<String, Vec<String>> = checked
+            .interface_method_defs
+            .into_iter()
+            .map(|(name, defs)| {
+                let method_names: Vec<String> = defs.iter().map(|d| d.name.clone()).collect();
+                (name, method_names)
+            })
+            .collect();
+        let interface_impls = checked.interface_impls;
+
+        // Build vtables: for each (interface, concrete_type) pair, create a VtableEntry
+        let mut vtables = Vec::new();
+        let mut vtable_lookup = HashMap::new();
+        for (iface_name, concrete_types) in &interface_impls {
+            if let Some(methods) = interface_methods.get(iface_name) {
+                for concrete_type in concrete_types {
+                    let vtable_idx = vtables.len() as u32;
+                    let method_names: Vec<String> = methods
+                        .iter()
+                        .map(|m| format!("{}__{}", concrete_type, m))
+                        .collect();
+                    vtables.push(VtableEntry {
+                        concrete_type: concrete_type.clone(),
+                        interface_name: iface_name.clone(),
+                        method_names,
+                    });
+                    vtable_lookup.insert((concrete_type.clone(), iface_name.clone()), vtable_idx);
+                }
+            }
+        }
+
         Self {
             interner: StringInterner::new(),
             types: checked.types,
@@ -89,6 +132,11 @@ impl Lowerer {
             call_resolutions: checked.call_resolutions,
             struct_resolutions: checked.struct_resolutions,
             enum_resolutions: checked.enum_resolutions,
+            vtables,
+            interface_methods,
+            interface_impls,
+            dyn_call_resolutions: checked.dyn_call_resolutions,
+            vtable_lookup,
         }
     }
 
@@ -246,6 +294,7 @@ impl Lowerer {
             interner: self.interner,
             types: self.types,
             source_map: None,
+            vtables: self.vtables,
         }
     }
 
@@ -345,11 +394,16 @@ impl Lowerer {
             next_function_id: &mut self.next_function_id,
             return_type: sig.return_type,
             closure_type_hint: None,
+            current_fn_name: name.to_string(),
             call_resolutions: &self.call_resolutions,
             struct_resolutions: &self.struct_resolutions,
             enum_resolutions: &self.enum_resolutions,
             lowering_warnings: Vec::new(),
             type_param_subst: type_param_subst.clone(),
+            interface_methods: &self.interface_methods,
+            interface_impls: &self.interface_impls,
+            dyn_call_resolutions: &self.dyn_call_resolutions,
+            vtable_lookup: &self.vtable_lookup,
         };
 
         // Lower body — returns the register holding the result.
@@ -468,11 +522,16 @@ impl Lowerer {
             next_function_id: &mut self.next_function_id,
             return_type: closure.return_type,
             closure_type_hint: None,
+            current_fn_name: closure.enclosing_fn_name.clone(),
             call_resolutions: &self.call_resolutions,
             struct_resolutions: &self.struct_resolutions,
             enum_resolutions: &self.enum_resolutions,
             lowering_warnings: Vec::new(),
             type_param_subst: HashMap::new(),
+            interface_methods: &self.interface_methods,
+            interface_impls: &self.interface_impls,
+            dyn_call_resolutions: &self.dyn_call_resolutions,
+            vtable_lookup: &self.vtable_lookup,
         };
 
         // Load captured variables from the env pointer

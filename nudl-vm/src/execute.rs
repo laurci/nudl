@@ -793,6 +793,49 @@ impl Vm {
                     .unwrap_or(false);
                 registers[dst.0 as usize] = Value::Bool(found);
             }
+            Instruction::DynWrap(dst, src, vtable_idx) => {
+                let inner = registers[src.0 as usize].clone();
+                registers[dst.0 as usize] = Value::Dyn(Box::new(inner), *vtable_idx);
+            }
+            Instruction::DynCall(dst, dyn_reg, method_idx, args, _ret_ty) => {
+                // Extract the inner value and vtable index from the Dyn wrapper
+                if let Value::Dyn(inner_val, vtable_idx) = &registers[dyn_reg.0 as usize] {
+                    let vtable_idx = *vtable_idx as usize;
+                    let inner_clone = (**inner_val).clone();
+                    if let Some(vtable_entry) = program.vtables.get(vtable_idx) {
+                        if let Some(method_name) =
+                            vtable_entry.method_names.get(*method_idx as usize)
+                        {
+                            // Look up the function by name in func_map
+                            let target_idx = func_map.iter().find_map(|(sym, &idx)| {
+                                if program.interner.resolve(*sym) == method_name {
+                                    Some(idx)
+                                } else {
+                                    None
+                                }
+                            });
+                            if let Some(func_idx) = target_idx {
+                                // Build argument list: self (inner value) + other args
+                                let mut call_args = vec![inner_clone];
+                                for arg_reg in args {
+                                    call_args.push(registers[arg_reg.0 as usize].clone());
+                                }
+                                let result =
+                                    self.execute_function(program, func_map, func_idx, call_args)?;
+                                registers[dst.0 as usize] = result;
+                            } else {
+                                registers[dst.0 as usize] = Value::Unit;
+                            }
+                        } else {
+                            registers[dst.0 as usize] = Value::Unit;
+                        }
+                    } else {
+                        registers[dst.0 as usize] = Value::Unit;
+                    }
+                } else {
+                    registers[dst.0 as usize] = Value::Unit;
+                }
+            }
         }
 
         Ok(())

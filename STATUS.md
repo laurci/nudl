@@ -93,13 +93,13 @@
 - [x] Tuple patterns — `(a, b, c)` patterns in match arms; lowered via TupleLoad to extract elements and bind to variables (`tests/pattern-matching/tuple_patterns.nudl`)
 - [x] Struct patterns — `Struct { field, .. }` patterns in let destructuring and match arms; parse_pattern() now checks for uppercase+LBrace to dispatch to parse_struct_pattern(); lowered via Load to extract fields by index (`tests/pattern-matching/struct_patterns.nudl`)
 - [x] Enum patterns — `Enum::Variant(binding)` with tag comparison and field extraction; unqualified variant patterns `Some(v)` / `None` supported (`tests/pattern-matching/enum_patterns.nudl`)
-- [ ] Nested patterns (`tests/pattern-matching/nested_patterns.nudl`)
-- [ ] Or patterns (`tests/pattern-matching/or_patterns.nudl`)
+- [~] Nested patterns — parsing supports arbitrary nesting; lowering handles nested enum/tuple patterns (`tests/pattern-matching/nested_patterns.nudl`)
+- [x] Or patterns — `p1 | p2 | p3` syntax parsed; checker validates all alternatives produce same bindings; lowered as multiple match attempts jumping to shared body block (`tests/pattern-matching/or_patterns.nudl`)
 - [x] Binding patterns — `name` binds the scrutinee to a variable in the arm body (`tests/pattern-matching/binding_patterns.nudl`)
 - [x] Wildcard patterns — `_` matches anything (`tests/pattern-matching/wildcard_patterns.nudl`)
-- [ ] Range patterns (`tests/pattern-matching/range_patterns.nudl`)
+- [x] Range patterns — `start..end` and `start..=end` in match arms; parsed for int/char literals (including negative); lowered to range comparison (ge + lt/le) (`tests/pattern-matching/range_patterns.nudl`)
 - [x] Guard clauses — `pattern if condition => body` in match arms; guard evaluated after pattern match, branches to next arm on failure (`tests/pattern-matching/guard_clauses.nudl`)
-- [ ] Exhaustiveness checking (`tests/pattern-matching/exhaustiveness.nudl`)
+- [~] Exhaustiveness checking — basic algorithm implemented: tracks enum variant coverage, bool true/false, wildcards/bindings; warns on non-exhaustive match; or-pattern and range coverage tracked (`tests/pattern-matching/exhaustiveness.nudl`)
 
 ## 8. Generics
 - [x] Generic functions — type parameters `<T>` parsed; checker-phase monomorphization with type inference from call arguments; mangled names `base$type1$type2`; works end-to-end (`tests/generics/generic_fn.nudl`)
@@ -107,18 +107,19 @@
 - [x] Generic enums — type parameters parsed; monomorphized when variant constructor called with concrete args; variants resolved via substitution (`tests/generics/generic_enum.nudl`)
 - [x] Generic impl blocks — `impl Wrapper<T>` methods stored as templates; instantiated per struct/enum monomorphization with correct self type and substituted params/return types (`tests/generics/generic_impl.nudl`)
 - [x] Monomorphization — checker-phase: generic defs stored as templates, concrete copies created on use with mangled names; resolution maps bridge checker to lowerer; pending mono body loop handles recursive monomorphization (`tests/generics/generic_combined.nudl`)
-- [~] Bounds — `<T: Bound>` syntax parsed on type parameters; bounds stored; shallow body checking validates binary ops against required bounds (Add, Eq, Ord); `BoundNotSatisfied` diagnostic emitted when missing; full enforcement deferred to monomorphization (`tests/generics/bounds.nudl`)
+- [x] Bounds — `<T: Bound>` syntax parsed on type parameters; bounds stored; shallow body checking validates binary ops against required bounds (Add, Eq, Ord); `BoundNotSatisfied` diagnostic emitted when missing; enforcement at monomorphization for structs/enums; multi-bound params `T: Ord + Clone` supported (`tests/generics/bounds.nudl`)
 - [x] Generic body shallow checking — generic function and impl method bodies are shallow-checked at definition time using TypeVar placeholders; catches undefined variables, undefined functions, return type mismatches, and other obvious errors without requiring monomorphization
-- [ ] Where clauses (`tests/generics/where_clauses.nudl`)
-- [ ] Turbofish syntax — `::<T>` explicit type args not yet parsed (`tests/generics/turbofish.nudl`)
+- [x] Where clauses — `where T: Bound1 + Bound2` parsed after function signature and impl block header; bounds merged into type params during collection; works with existing bounds enforcement (`tests/generics/where_clauses.nudl`)
+- [x] Turbofish syntax — `::<T>` explicit type args parsed on function calls, method calls, and static calls; checker resolves type args directly instead of inferring; validates arg count matches generic definition (`tests/generics/turbofish.nudl`)
 
 ## 9. Interfaces
 - [x] Declaration — `interface Name { fn method(self) -> T; }` parsed and type-checked; interface types registered in type system (`tests/interfaces/declaration.nudl`)
-- [~] Implementation — `impl Interface for Type { ... }` parsed and type-checked; interface impls tracked; no vtable dispatch yet (`tests/interfaces/implementation.nudl`)
+- [x] Implementation — `impl Interface for Type { ... }` parsed, type-checked, validated (all required methods checked with correct Self type resolution); default method bodies from interface defs auto-generated when impl doesn't override (`tests/interfaces/implementation.nudl`)
 - [x] Inherent methods — impl blocks without interface work for both structs and enums (`tests/interfaces/inherent_methods.nudl`)
-- [ ] Generic interfaces (`tests/interfaces/generic_interfaces.nudl`)
-- [~] Dynamic dispatch (dyn) — `dyn Interface` type parsed and in type system; no vtable codegen yet (`tests/interfaces/dynamic_dispatch.nudl`)
-- [x] Method resolution — methods resolved via mangled names `Type__method` for both structs and enums (`tests/interfaces/method_resolution.nudl`)
+- [~] Generic interfaces — `impl Iterator<i32> for RangeIter` parsed with interface type args; checker substitutes interface type params into method signatures; `impl Trait` in function params desugared to hidden type params with interface bounds; full lowering/codegen not yet tested end-to-end (`tests/interfaces/generic_interfaces.nudl`)
+- [x] Dynamic dispatch (dyn) — full pipeline: `as Interface` casts produce DynWrap with vtable index; method calls on `dyn Interface` emit DynCall with vtable lookup; lowerer builds VtableEntry per (concrete_type, interface) pair; LLVM backend emits vtable globals as function pointer arrays, DynWrap allocates ARC fat-pointer (data_ptr + vtable_ptr), DynCall does indirect call via vtable GEP; VM supports DynWrap/DynCall for comptime; parser treats `(dyn T)` as grouping not tuple (`tests/interfaces/dyn_basic.nudl`)
+- [x] Primitive impl blocks — `impl` blocks for primitive types (i32, i64, f64, bool, char, string); enables methods on primitives via standard `Type__method` mangled name resolution; method calls lowered for all types including primitives and string
+- [x] Method resolution — methods resolved via mangled names `Type__method` for structs, enums, and primitive types (`tests/interfaces/method_resolution.nudl`)
 - [x] Operator overloading — binary operators (+, -, *, /, %, ==, !=, <, <=, >, >=) dispatch to interface methods (add, sub, mul, div, rem, eq, ne, lt, le, gt, ge) via mangled `Type__method` lookup; prelude defines Add, Sub, Mul, Div, Rem, Eq, Ord, Neg interfaces (`tests/interfaces/operator_overloading.nudl`)
 
 ## 10. Error Handling
@@ -182,7 +183,7 @@
 - [ ] Derive macros
 - [ ] Build scripts (build.nudl)
 - [ ] Package/dependency management (nudl.toml)
-- [x] Standard library — nudl-std/ with auto-imported prelude: generic Option<T>/Result<T,E> with methods, print/println via extern write, operator interfaces (Add, Sub, Mul, Div, Rem, Eq, Ord, Neg), core interfaces (Printable, Drop, Clone), generic collection functions (each, map, filter, fold, find, any, all, enumerate, reverse), min/max/clamp; string module with builtins: substr, indexof, trim, contains, starts_with, ends_with, to_upper, to_lower, replace, repeat, split, join; math module (PI, E, abs, pow, gcd, lcm); ffi module (cstr, cstr_len); io module with file operations (open, close_fd, read, file_write, read_file, write_file, append_file)
+- [x] Standard library — nudl-std/ with auto-imported prelude: generic Option<T>/Result<T,E> with methods, print/println<T: Printable> via extern write (generic over any Printable type), operator interfaces (Add, Sub, Mul, Div, Rem, Eq, Ord, Neg), core interfaces (Printable, Drop, Clone), Printable impls for i32/i64/f64/bool/char/string, `impl string { fn len() }`, generic collection functions (each, map, filter, fold, find, any, all, enumerate, reverse), min/max/clamp; string module with builtins: substr, indexof, trim, contains, starts_with, ends_with, to_upper, to_lower, replace, repeat, split, join; math module (PI, E, abs, pow, gcd, lcm); ffi module (cstr, cstr_len); io module with file operations (open, close_fd, read, file_write, read_file, write_file, append_file)
 - [x] Null-terminated strings — all heap strings and string literal globals are null-terminated for C FFI compatibility; length field unchanged
 - [x] Extern string returns — extern functions returning string now return ptr (ARC heap string), extracted via extract_heap_string in codegen
 - [x] Extern structs — `extern struct` syntax for C-compatible value-type structs: stack-allocated, no ARC, native field sizes (i8/i16/i32/i64/f32/f64); passed by value to extern functions with correct C struct layout; field access via TupleLoad/TupleStore; extern functions can return extern structs; no drop functions generated

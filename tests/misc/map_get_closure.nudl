@@ -9,7 +9,7 @@ fn main() {
     let c2 = target.get(4).unwrap_or(0);
     println(`standalone 4 = {c2}`);
 
-    println();
+    println("");
 
     // Inside a map closure - this is where the crash happens
     let search: i64[] = [3i64, 4i64, 2i64, 1i64, 3i64, 3i64];
@@ -19,7 +19,7 @@ fn main() {
         it * count
     };
 
-    println();
+    println("");
     println(`results len = {results.len()}`);
 
     let total = results |> fold(initial: 0i64) |item, acc| { acc + item };

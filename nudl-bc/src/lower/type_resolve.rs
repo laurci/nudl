@@ -1,7 +1,34 @@
 use nudl_ast::ast::*;
-use nudl_core::types::TypeKind;
+use nudl_core::types::{PrimitiveType, TypeKind};
 
 use super::context::FunctionLowerCtx;
+
+/// Extract a type name from any TypeKind (structs, enums, primitives, string).
+fn type_kind_to_name(kind: &TypeKind) -> Option<String> {
+    match kind {
+        TypeKind::Struct { name, .. } | TypeKind::Enum { name, .. } => Some(name.clone()),
+        TypeKind::Primitive(p) => Some(
+            match p {
+                PrimitiveType::I8 => "i8",
+                PrimitiveType::I16 => "i16",
+                PrimitiveType::I32 => "i32",
+                PrimitiveType::I64 => "i64",
+                PrimitiveType::U8 => "u8",
+                PrimitiveType::U16 => "u16",
+                PrimitiveType::U32 => "u32",
+                PrimitiveType::U64 => "u64",
+                PrimitiveType::F32 => "f32",
+                PrimitiveType::F64 => "f64",
+                PrimitiveType::Bool => "bool",
+                PrimitiveType::Char => "char",
+                PrimitiveType::Unit => return None,
+            }
+            .into(),
+        ),
+        TypeKind::String => Some("string".into()),
+        _ => None,
+    }
+}
 
 impl<'a> FunctionLowerCtx<'a> {
     /// Infer the type of a struct field for a given object expression and field name.
@@ -63,6 +90,10 @@ impl<'a> FunctionLowerCtx<'a> {
                         tid
                     } else if let Some(&tid) = self.enum_defs.get(name.as_str()) {
                         tid
+                    } else if self.interface_methods.contains_key(name.as_str()) {
+                        // Interface name used as a type → DynInterface
+                        self.types
+                            .intern(nudl_core::types::TypeKind::DynInterface { name: name.clone() })
                     } else {
                         self.lowering_warnings.push(format!(
                             "unresolved named type '{}', falling back to i64",
@@ -143,6 +174,10 @@ impl<'a> FunctionLowerCtx<'a> {
                     ret,
                 })
             }
+            TypeExpr::ImplInterface { .. } => {
+                // impl Trait should be desugared before lowering
+                self.types.error()
+            }
         }
     }
 
@@ -190,9 +225,10 @@ impl<'a> FunctionLowerCtx<'a> {
             Expr::Call { callee, .. } => {
                 if let Expr::Ident(name) = &callee.node {
                     // Check if this call was resolved to a monomorphized function
+                    let key = (self.current_fn_name.clone(), expr.span);
                     let resolved_name = self
                         .call_resolutions
-                        .get(&expr.span)
+                        .get(&key)
                         .map(|s| s.as_str())
                         .unwrap_or(name.as_str());
                     if let Some(sig) = self.function_sigs.get(resolved_name) {
@@ -273,9 +309,10 @@ impl<'a> FunctionLowerCtx<'a> {
                     }));
                 }
                 // Check call_resolutions for monomorphized static methods
+                let key = (self.current_fn_name.clone(), expr.span);
                 let mangled = self
                     .call_resolutions
-                    .get(&expr.span)
+                    .get(&key)
                     .cloned()
                     .unwrap_or_else(|| format!("{}__{}", type_name, method));
                 self.function_sigs.get(&mangled).map(|sig| sig.return_type)
@@ -445,10 +482,8 @@ impl<'a> FunctionLowerCtx<'a> {
         match &expr.node {
             Expr::Ident(name) => {
                 if let Some(ty_id) = self.local_types.get(name) {
-                    match self.types.resolve(*ty_id) {
-                        TypeKind::Struct { name, .. } => return Some(name.clone()),
-                        TypeKind::Enum { name, .. } => return Some(name.clone()),
-                        _ => {}
+                    if let Some(n) = type_kind_to_name(self.types.resolve(*ty_id)) {
+                        return Some(n);
                     }
                 }
                 None
@@ -481,10 +516,8 @@ impl<'a> FunctionLowerCtx<'a> {
                 }
                 let mangled = format!("{}__{}", type_name, method);
                 if let Some(sig) = self.function_sigs.get(&mangled) {
-                    match self.types.resolve(sig.return_type) {
-                        TypeKind::Struct { name, .. } => return Some(name.clone()),
-                        TypeKind::Enum { name, .. } => return Some(name.clone()),
-                        _ => {}
+                    if let Some(n) = type_kind_to_name(self.types.resolve(sig.return_type)) {
+                        return Some(n);
                     }
                 }
                 None
@@ -492,10 +525,8 @@ impl<'a> FunctionLowerCtx<'a> {
             Expr::Call { callee, .. } => {
                 if let Expr::Ident(fn_name) = &callee.node {
                     if let Some(sig) = self.function_sigs.get(fn_name.as_str()) {
-                        match self.types.resolve(sig.return_type) {
-                            TypeKind::Struct { name, .. } => return Some(name.clone()),
-                            TypeKind::Enum { name, .. } => return Some(name.clone()),
-                            _ => {}
+                        if let Some(n) = type_kind_to_name(self.types.resolve(sig.return_type)) {
+                            return Some(n);
                         }
                     }
                 }
@@ -524,10 +555,8 @@ impl<'a> FunctionLowerCtx<'a> {
                 if let Some(type_name) = self.infer_receiver_type_name(object) {
                     let mangled = format!("{}__{}", type_name, method);
                     if let Some(sig) = self.function_sigs.get(&mangled) {
-                        match self.types.resolve(sig.return_type) {
-                            TypeKind::Struct { name, .. } => return Some(name.clone()),
-                            TypeKind::Enum { name, .. } => return Some(name.clone()),
-                            _ => {}
+                        if let Some(n) = type_kind_to_name(self.types.resolve(sig.return_type)) {
+                            return Some(n);
                         }
                     }
                 }
@@ -563,17 +592,51 @@ impl<'a> FunctionLowerCtx<'a> {
                         _ => None,
                     };
                     if let Some(fty) = field_ty {
-                        match self.types.resolve(fty) {
-                            TypeKind::Struct { name, .. } => return Some(name.clone()),
-                            TypeKind::Enum { name, .. } => return Some(name.clone()),
-                            _ => {}
+                        if let Some(n) = type_kind_to_name(self.types.resolve(fty)) {
+                            return Some(n);
                         }
                     }
                 }
                 None
             }
+            Expr::Literal(lit) => match lit {
+                Literal::Int(_, Some(suffix)) => Some(
+                    match suffix {
+                        IntSuffix::I8 => "i8",
+                        IntSuffix::I16 => "i16",
+                        IntSuffix::I32 => "i32",
+                        IntSuffix::I64 => "i64",
+                        IntSuffix::U8 => "u8",
+                        IntSuffix::U16 => "u16",
+                        IntSuffix::U32 => "u32",
+                        IntSuffix::U64 => "u64",
+                    }
+                    .into(),
+                ),
+                Literal::Int(_, None) => Some("i32".into()),
+                Literal::Float(_) => Some("f64".into()),
+                Literal::Bool(_) => Some("bool".into()),
+                Literal::Char(_) => Some("char".into()),
+                Literal::String(_) | Literal::TemplateString { .. } => Some("string".into()),
+            },
             _ => None,
         }
+    }
+
+    /// Resolve the return type for a DynCall from interface method signatures.
+    /// Looks up the interface method defs via dyn_call_resolutions and resolves the return type.
+    pub(super) fn infer_dyn_call_return_type(
+        &mut self,
+        span: &nudl_core::span::Span,
+    ) -> Option<nudl_core::types::TypeId> {
+        let (iface_name, method_idx) = self.dyn_call_resolutions.get(span)?.clone();
+        let methods = self.interface_methods.get(&iface_name)?;
+        let _method_name = methods.get(method_idx)?;
+        // Find any concrete implementation to get the return type from its function signature
+        let impls = self.interface_impls.get(&iface_name)?;
+        let first_concrete = impls.first()?;
+        let mangled = format!("{}__{}", first_concrete, _method_name);
+        self.function_sigs.get(&mangled).map(|sig| sig.return_type)
     }
 
     /// Find the monomorphized Option<V> enum type for a given value type.

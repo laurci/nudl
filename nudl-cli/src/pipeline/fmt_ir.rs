@@ -310,6 +310,23 @@ fn fmt_instruction(
         Instruction::MapContains(dst, map, key) => {
             out.push_str(&format!("r{} = MapContains(r{}, r{})", dst.0, map.0, key.0));
         }
+        Instruction::DynWrap(dst, src, vtable_idx) => {
+            out.push_str(&format!(
+                "r{} = DynWrap(r{}, vtable={})",
+                dst.0, src.0, vtable_idx
+            ));
+        }
+        Instruction::DynCall(dst, dyn_reg, method_idx, args, ret_ty) => {
+            let args_str: Vec<String> = args.iter().map(|r| format!("r{}", r.0)).collect();
+            out.push_str(&format!(
+                "r{} = DynCall(r{}, method={}, [{}], ret={:?})",
+                dst.0,
+                dyn_reg.0,
+                method_idx,
+                args_str.join(", "),
+                ret_ty
+            ));
+        }
     }
 }
 

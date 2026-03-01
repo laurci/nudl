@@ -71,6 +71,15 @@ pub struct GenericEnumDef {
     pub span: Span,
 }
 
+/// Template for a generic interface (has type parameters like Iterator<T>)
+#[derive(Debug, Clone)]
+pub struct GenericInterfaceDef {
+    pub name: String,
+    pub type_params: Vec<TypeParam>,
+    pub methods: Vec<InterfaceMethodDef>,
+    pub span: Span,
+}
+
 /// Template for a generic impl method
 #[derive(Debug, Clone)]
 pub struct GenericImplMethod {
@@ -91,12 +100,18 @@ pub struct CheckedModule {
     pub types: TypeInterner,
     /// Bodies for monomorphized functions: mangled_name -> (params, body, type_param_subst)
     pub mono_fn_bodies: HashMap<String, (Vec<Param>, Spanned<Block>, HashMap<String, TypeId>)>,
-    /// Generic call site -> mangled function name
-    pub call_resolutions: HashMap<Span, String>,
+    /// Generic call site -> mangled function name (keyed by (current_fn_name, call_span))
+    pub call_resolutions: HashMap<(String, Span), String>,
     /// Generic struct literal -> mangled struct name
     pub struct_resolutions: HashMap<Span, String>,
     /// Generic enum constructor -> mangled enum name
     pub enum_resolutions: HashMap<Span, String>,
+    /// Map from interface name → set of type names that implement it
+    pub interface_impls: HashMap<String, Vec<String>>,
+    /// Interface AST method defs for vtable building
+    pub interface_method_defs: HashMap<String, Vec<InterfaceMethodDef>>,
+    /// Dynamic dispatch call resolutions: span → (interface_name, method_index)
+    pub dyn_call_resolutions: HashMap<Span, (String, usize)>,
 }
 
 #[derive(Debug, Clone)]
@@ -133,6 +148,10 @@ pub struct Checker {
     pub(super) generic_structs: HashMap<String, GenericStructDef>,
     /// Generic enum templates (not yet monomorphized)
     pub(super) generic_enums: HashMap<String, GenericEnumDef>,
+    /// Generic interface templates (interfaces with type params, like Iterator<T>)
+    pub(super) generic_interfaces: HashMap<String, GenericInterfaceDef>,
+    /// Interface AST method definitions (for default method bodies)
+    pub(super) interface_method_defs: HashMap<String, Vec<InterfaceMethodDef>>,
     /// Generic impl methods keyed by base type name
     pub(super) generic_impl_methods: HashMap<String, Vec<GenericImplMethod>>,
     /// Already-instantiated mangled names (prevents duplicate monomorphization)
@@ -142,8 +161,10 @@ pub struct Checker {
         Vec<(String, Vec<Param>, Spanned<Block>, HashMap<String, TypeId>)>,
     /// Type parameter scope: "T" -> TypeVar TypeId (during bound checking)
     pub(super) type_param_scope: HashMap<String, TypeId>,
-    /// Generic call site -> mangled function name
-    pub(super) call_resolutions: HashMap<Span, String>,
+    /// Name of the function currently being type-checked (for call resolution context)
+    pub(super) current_fn_name: String,
+    /// Generic call site -> mangled function name (keyed by (current_fn_name, call_span))
+    pub(super) call_resolutions: HashMap<(String, Span), String>,
     /// Generic struct literal -> mangled struct name
     pub(super) struct_resolutions: HashMap<Span, String>,
     /// Generic enum constructor -> mangled enum name
@@ -154,6 +175,8 @@ pub struct Checker {
     /// Reverse mapping: mangled type name -> (base_name, concrete type args)
     /// Used during type inference to extract type args from monomorphized generic types.
     pub(super) mono_type_args: HashMap<String, (String, Vec<TypeId>)>,
+    /// Dynamic dispatch call resolutions: span → (interface_name, method_index)
+    pub(super) dyn_call_resolutions: HashMap<Span, (String, usize)>,
 }
 
 impl Checker {
@@ -175,15 +198,19 @@ impl Checker {
             field_visibility: HashMap::new(),
             generic_structs: HashMap::new(),
             generic_enums: HashMap::new(),
+            generic_interfaces: HashMap::new(),
+            interface_method_defs: HashMap::new(),
             generic_impl_methods: HashMap::new(),
             mono_cache: HashSet::new(),
             pending_mono_checks: Vec::new(),
             type_param_scope: HashMap::new(),
+            current_fn_name: String::new(),
             call_resolutions: HashMap::new(),
             struct_resolutions: HashMap::new(),
             enum_resolutions: HashMap::new(),
             mono_fn_bodies: HashMap::new(),
             mono_type_args: HashMap::new(),
+            dyn_call_resolutions: HashMap::new(),
         }
     }
 
@@ -242,6 +269,9 @@ impl Checker {
             call_resolutions: self.call_resolutions,
             struct_resolutions: self.struct_resolutions,
             enum_resolutions: self.enum_resolutions,
+            interface_impls: self.interface_impls,
+            interface_method_defs: self.interface_method_defs,
+            dyn_call_resolutions: self.dyn_call_resolutions,
         };
         (checked, self.diagnostics)
     }

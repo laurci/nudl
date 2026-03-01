@@ -292,6 +292,112 @@ pub(super) fn build_module<'ctx>(
         }
     }
 
+    // Build vtable globals for dynamic dispatch
+    let vtable_globals: Vec<GlobalValue<'ctx>> = program
+        .vtables
+        .iter()
+        .enumerate()
+        .map(|(vtable_idx, entry)| {
+            let ptr_ty = context.ptr_type(AddressSpace::default());
+            let method_ptrs: Vec<inkwell::values::PointerValue<'ctx>> = entry
+                .method_names
+                .iter()
+                .map(|method_name| {
+                    // Find the function by name in the program
+                    let fn_id = program
+                        .functions
+                        .iter()
+                        .find(|f| program.interner.resolve(f.name) == method_name)
+                        .map(|f| f.id.0);
+                    if let Some(fid) = fn_id {
+                        if let Some(fn_val) = function_map.get(&fid) {
+                            fn_val.as_global_value().as_pointer_value()
+                        } else {
+                            ptr_ty.const_null()
+                        }
+                    } else {
+                        ptr_ty.const_null()
+                    }
+                })
+                .collect();
+            let arr_ty = ptr_ty.array_type(method_ptrs.len() as u32);
+            let arr_val = ptr_ty.const_array(&method_ptrs);
+            let global = module.add_global(
+                arr_ty,
+                Some(AddressSpace::default()),
+                &format!("__vtable_{}", vtable_idx),
+            );
+            global.set_initializer(&arr_val);
+            global.set_constant(true);
+            global.set_linkage(inkwell::module::Linkage::Private);
+            global
+        })
+        .collect();
+
+    // Generate dyn wrapper drop functions that release the inner data_ptr
+    {
+        let ptr_ty = context.ptr_type(AddressSpace::default());
+        let i64_ty = context.i64_type();
+        let void_ty = context.void_type();
+        let drop_fn_ty = void_ty.fn_type(&[ptr_ty.into()], false);
+
+        // Collect DynInterface types
+        let dyn_iface_types: Vec<nudl_core::types::TypeId> = types
+            .iter_types()
+            .filter_map(|(type_id, kind)| {
+                if matches!(kind, TypeKind::DynInterface { .. }) {
+                    Some(type_id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for type_id in &dyn_iface_types {
+            let drop_fn = module.add_function(
+                &format!("__nudl_drop_dyn_{}", type_id.0),
+                drop_fn_ty,
+                Some(inkwell::module::Linkage::Internal),
+            );
+            let bb = context.append_basic_block(drop_fn, "entry");
+            let b = context.create_builder();
+            b.position_at_end(bb);
+
+            // The dyn wrapper has layout: [header(16)] [data_ptr(8)] [vtable_ptr(8)]
+            // Load data_ptr from offset 16 and release it
+            let wrapper_ptr = drop_fn.get_nth_param(0).unwrap().into_pointer_value();
+            let data_ptr_gep = unsafe {
+                b.build_in_bounds_gep(
+                    i64_ty,
+                    wrapper_ptr,
+                    &[i64_ty.const_int(2, false)],
+                    "data_ptr_addr",
+                )
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            };
+            let data_ptr_i64 = b
+                .build_load(i64_ty, data_ptr_gep, "data_ptr")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                .into_int_value();
+            let data_ptr = b
+                .build_int_to_ptr(data_ptr_i64, ptr_ty, "data_ptr_as_ptr")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+            // Call arc_release on the inner data pointer (with null drop fn)
+            b.build_direct_call(
+                arc.arc_release,
+                &[data_ptr.into(), ptr_ty.const_null().into()],
+                "",
+            )
+            .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+            b.build_return(None)
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+            drop_fns.insert(*type_id, drop_fn);
+        }
+    }
+
     // Build per-file DIFile map so functions from different source files
     // get correct file references in DWARF debug info.
     let mut di_files: HashMap<u32, DIFile<'ctx>> = HashMap::new();
@@ -331,6 +437,7 @@ pub(super) fn build_module<'ctx>(
             &arc,
             &string_builtins,
             &drop_fns,
+            &vtable_globals,
             is_entry,
             optimized,
             &dibuilder,

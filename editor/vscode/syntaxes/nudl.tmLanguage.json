@@ -3,23 +3,57 @@
 	"name": "nudl",
 	"scopeName": "source.nudl",
 	"patterns": [
-		{ "include": "#comments" },
-		{ "include": "#attributes" },
-		{ "include": "#template-strings" },
-		{ "include": "#strings" },
-		{ "include": "#char-literals" },
-		{ "include": "#labels" },
-		{ "include": "#numbers" },
-		{ "include": "#comptime-splice" },
-		{ "include": "#import" },
-		{ "include": "#declarations" },
-		{ "include": "#constants" },
-		{ "include": "#self-keywords" },
-		{ "include": "#keywords" },
-		{ "include": "#built-in-types" },
-		{ "include": "#operators" },
-		{ "include": "#function-call" },
-		{ "include": "#type-names" }
+		{
+			"include": "#comments"
+		},
+		{
+			"include": "#attributes"
+		},
+		{
+			"include": "#template-strings"
+		},
+		{
+			"include": "#strings"
+		},
+		{
+			"include": "#char-literals"
+		},
+		{
+			"include": "#labels"
+		},
+		{
+			"include": "#numbers"
+		},
+		{
+			"include": "#comptime-splice"
+		},
+		{
+			"include": "#import"
+		},
+		{
+			"include": "#declarations"
+		},
+		{
+			"include": "#constants"
+		},
+		{
+			"include": "#self-keywords"
+		},
+		{
+			"include": "#keywords"
+		},
+		{
+			"include": "#built-in-types"
+		},
+		{
+			"include": "#operators"
+		},
+		{
+			"include": "#function-call"
+		},
+		{
+			"include": "#type-names"
+		}
 	],
 	"repository": {
 		"comments": {
@@ -33,7 +67,9 @@
 					"begin": "/\\*",
 					"end": "\\*/",
 					"patterns": [
-						{ "include": "#block-comment-nested" }
+						{
+							"include": "#block-comment-nested"
+						}
 					]
 				}
 			]
@@ -43,7 +79,9 @@
 			"begin": "/\\*",
 			"end": "\\*/",
 			"patterns": [
-				{ "include": "#block-comment-nested" }
+				{
+					"include": "#block-comment-nested"
+				}
 			]
 		},
 		"attributes": {
@@ -51,15 +89,25 @@
 			"begin": "#\\[",
 			"end": "\\]",
 			"beginCaptures": {
-				"0": { "name": "punctuation.definition.attribute.begin.nudl" }
+				"0": {
+					"name": "punctuation.definition.attribute.begin.nudl"
+				}
 			},
 			"endCaptures": {
-				"0": { "name": "punctuation.definition.attribute.end.nudl" }
+				"0": {
+					"name": "punctuation.definition.attribute.end.nudl"
+				}
 			},
 			"patterns": [
-				{ "include": "#strings" },
-				{ "include": "#numbers" },
-				{ "include": "#constants" },
+				{
+					"include": "#strings"
+				},
+				{
+					"include": "#numbers"
+				},
+				{
+					"include": "#constants"
+				},
 				{
 					"name": "entity.other.attribute-name.nudl",
 					"match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
@@ -71,10 +119,14 @@
 			"begin": "`",
 			"end": "`",
 			"beginCaptures": {
-				"0": { "name": "punctuation.definition.string.begin.nudl" }
+				"0": {
+					"name": "punctuation.definition.string.begin.nudl"
+				}
 			},
 			"endCaptures": {
-				"0": { "name": "punctuation.definition.string.end.nudl" }
+				"0": {
+					"name": "punctuation.definition.string.end.nudl"
+				}
 			},
 			"patterns": [
 				{
@@ -86,13 +138,19 @@
 					"begin": "(?<!\\\\)\\{",
 					"end": "\\}",
 					"beginCaptures": {
-						"0": { "name": "punctuation.section.interpolation.begin.nudl" }
+						"0": {
+							"name": "punctuation.section.interpolation.begin.nudl"
+						}
 					},
 					"endCaptures": {
-						"0": { "name": "punctuation.section.interpolation.end.nudl" }
+						"0": {
+							"name": "punctuation.section.interpolation.end.nudl"
+						}
 					},
 					"patterns": [
-						{ "include": "source.nudl" }
+						{
+							"include": "source.nudl"
+						}
 					]
 				}
 			]
@@ -102,20 +160,28 @@
 			"begin": "\"",
 			"end": "\"",
 			"beginCaptures": {
-				"0": { "name": "punctuation.definition.string.begin.nudl" }
+				"0": {
+					"name": "punctuation.definition.string.begin.nudl"
+				}
 			},
 			"endCaptures": {
-				"0": { "name": "punctuation.definition.string.end.nudl" }
+				"0": {
+					"name": "punctuation.definition.string.end.nudl"
+				}
 			},
 			"patterns": [
-				{ "include": "#escape-sequences" }
+				{
+					"include": "#escape-sequences"
+				}
 			]
 		},
 		"char-literals": {
 			"name": "string.quoted.single.nudl",
 			"match": "'(?:[^'\\\\]|\\\\(?:[nrt0\\\\'\"]|x[0-9a-fA-F]{2}|u\\{[0-9a-fA-F]{1,6}\\}))'",
 			"captures": {
-				"0": { "name": "string.quoted.single.nudl" }
+				"0": {
+					"name": "string.quoted.single.nudl"
+				}
 			}
 		},
 		"escape-sequences": {
@@ -128,14 +194,18 @@
 					"comment": "Label definition: 'name:",
 					"match": "'([a-zA-Z_][a-zA-Z0-9_]*)\\s*:",
 					"captures": {
-						"1": { "name": "entity.name.label.nudl" }
+						"1": {
+							"name": "entity.name.label.nudl"
+						}
 					}
 				},
 				{
 					"comment": "Label reference: break 'name, continue 'name",
 					"match": "(?<=\\bbreak\\s|\\bcontinue\\s)\\s*'([a-zA-Z_][a-zA-Z0-9_]*)",
 					"captures": {
-						"1": { "name": "entity.name.label.nudl" }
+						"1": {
+							"name": "entity.name.label.nudl"
+						}
 					}
 				}
 			]
@@ -177,20 +247,30 @@
 			"begin": "\\$\\{",
 			"end": "\\}",
 			"beginCaptures": {
-				"0": { "name": "punctuation.definition.splice.begin.nudl" }
+				"0": {
+					"name": "punctuation.definition.splice.begin.nudl"
+				}
 			},
 			"endCaptures": {
-				"0": { "name": "punctuation.definition.splice.end.nudl" }
+				"0": {
+					"name": "punctuation.definition.splice.end.nudl"
+				}
 			},
 			"patterns": [
-				{ "include": "source.nudl" }
+				{
+					"include": "source.nudl"
+				}
 			]
 		},
 		"import": {
 			"match": "\\b(import)\\s+([a-zA-Z_][a-zA-Z0-9_]*(?:::[a-zA-Z_][a-zA-Z0-9_]*)*(?:::\\*)?)",
 			"captures": {
-				"1": { "name": "keyword.control.import.nudl" },
-				"2": { "name": "entity.name.namespace.nudl" }
+				"1": {
+					"name": "keyword.control.import.nudl"
+				},
+				"2": {
+					"name": "entity.name.namespace.nudl"
+				}
 			}
 		},
 		"declarations": {
@@ -199,73 +279,123 @@
 					"comment": "Function declaration",
 					"match": "\\b(fn)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
 					"captures": {
-						"1": { "name": "keyword.other.fn.nudl" },
-						"2": { "name": "entity.name.function.nudl" }
+						"1": {
+							"name": "keyword.other.fn.nudl"
+						},
+						"2": {
+							"name": "entity.name.function.nudl"
+						}
 					}
 				},
 				{
 					"comment": "Struct declaration",
 					"match": "\\b(struct)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
 					"captures": {
-						"1": { "name": "keyword.other.struct.nudl" },
-						"2": { "name": "entity.name.type.struct.nudl" }
+						"1": {
+							"name": "keyword.other.struct.nudl"
+						},
+						"2": {
+							"name": "entity.name.type.struct.nudl"
+						}
 					}
 				},
 				{
 					"comment": "Enum declaration",
 					"match": "\\b(enum)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
 					"captures": {
-						"1": { "name": "keyword.other.enum.nudl" },
-						"2": { "name": "entity.name.type.enum.nudl" }
+						"1": {
+							"name": "keyword.other.enum.nudl"
+						},
+						"2": {
+							"name": "entity.name.type.enum.nudl"
+						}
 					}
 				},
 				{
 					"comment": "Interface declaration",
 					"match": "\\b(interface)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
 					"captures": {
-						"1": { "name": "keyword.other.interface.nudl" },
-						"2": { "name": "entity.name.type.interface.nudl" }
+						"1": {
+							"name": "keyword.other.interface.nudl"
+						},
+						"2": {
+							"name": "entity.name.type.interface.nudl"
+						}
 					}
 				},
 				{
 					"comment": "Actor declaration",
 					"match": "\\b(actor)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
 					"captures": {
-						"1": { "name": "keyword.other.actor.nudl" },
-						"2": { "name": "entity.name.type.actor.nudl" }
+						"1": {
+							"name": "keyword.other.actor.nudl"
+						},
+						"2": {
+							"name": "entity.name.type.actor.nudl"
+						}
 					}
 				},
 				{
-					"comment": "Impl block: impl Interface for Type",
-					"match": "\\b(impl)(?:\\s+([A-Z][a-zA-Z0-9_]*)\\s+(for)\\s+([A-Z][a-zA-Z0-9_]*))?",
+					"comment": "impl Trait in type position (parameter types)",
+					"match": "(?<=[:,]\\s{0,4}|->\\s{0,4})\\b(impl)\\s+([A-Z][a-zA-Z0-9_]*)",
 					"captures": {
-						"1": { "name": "keyword.other.impl.nudl" },
-						"2": { "name": "entity.name.type.interface.nudl" },
-						"3": { "name": "keyword.other.for.nudl" },
-						"4": { "name": "entity.name.type.nudl" }
+						"1": {
+							"name": "keyword.other.impl.nudl"
+						},
+						"2": {
+							"name": "entity.name.type.interface.nudl"
+						}
+					}
+				},
+				{
+					"comment": "Impl block: impl Interface for Type (with optional generic args)",
+					"match": "\\b(impl)(?:\\s+([A-Z][a-zA-Z0-9_]*)(?:<[^>]*>)?\\s+(for)\\s+([A-Z][a-zA-Z0-9_]*))?",
+					"captures": {
+						"1": {
+							"name": "keyword.other.impl.nudl"
+						},
+						"2": {
+							"name": "entity.name.type.interface.nudl"
+						},
+						"3": {
+							"name": "keyword.other.for.nudl"
+						},
+						"4": {
+							"name": "entity.name.type.nudl"
+						}
 					}
 				},
 				{
 					"comment": "Type alias",
 					"match": "\\b(type)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
 					"captures": {
-						"1": { "name": "keyword.other.type.nudl" },
-						"2": { "name": "entity.name.type.alias.nudl" }
+						"1": {
+							"name": "keyword.other.type.nudl"
+						},
+						"2": {
+							"name": "entity.name.type.alias.nudl"
+						}
 					}
 				},
 				{
 					"comment": "Extern block",
 					"match": "\\b(extern)\\b",
 					"captures": {
-						"1": { "name": "keyword.other.extern.nudl" }
+						"1": {
+							"name": "keyword.other.extern.nudl"
+						}
 					}
 				},
 				{
 					"comment": "Module declaration",
 					"match": "\\b(mod)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
 					"captures": {
-						"1": { "name": "keyword.other.mod.nudl" },
-						"2": { "name": "entity.name.namespace.nudl" }
+						"1": {
+							"name": "keyword.other.mod.nudl"
+						},
+						"2": {
+							"name": "entity.name.namespace.nudl"
+						}
 					}
 				}
 			]
@@ -308,7 +438,9 @@
 					"comment": "Postfix await after dot",
 					"match": "(?<=\\.)\\b(await)\\b",
 					"captures": {
-						"1": { "name": "keyword.control.await.nudl" }
+						"1": {
+							"name": "keyword.control.await.nudl"
+						}
 					}
 				},
 				{
@@ -373,7 +505,7 @@
 				},
 				{
 					"name": "keyword.operator.assignment.compound.nudl",
-					"match": "\\+=|-=|\\*=|/=|%="
+					"match": "<<=|>>=|&=|\\|=|\\^=|\\+=|-=|\\*=|/=|%="
 				},
 				{
 					"name": "keyword.operator.assignment.nudl",
@@ -398,15 +530,19 @@
 			]
 		},
 		"function-call": {
-			"match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(?=\\()",
+			"match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(?=(?:::<[^>]*>)?\\()",
 			"captures": {
-				"1": { "name": "entity.name.function.nudl" }
+				"1": {
+					"name": "entity.name.function.nudl"
+				}
 			}
 		},
 		"type-names": {
 			"match": "\\b([A-Z][a-zA-Z0-9_]*)\\b",
 			"captures": {
-				"1": { "name": "entity.name.type.nudl" }
+				"1": {
+					"name": "entity.name.type.nudl"
+				}
 			}
 		}
 	}

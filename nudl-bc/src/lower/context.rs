@@ -44,8 +44,10 @@ pub struct FunctionLowerCtx<'a> {
     pub(super) return_type: nudl_core::types::TypeId,
     /// Hint for inferring closure parameter types from the expected function type.
     pub(super) closure_type_hint: Option<nudl_core::types::TypeId>,
-    /// Generic call site -> mangled function name
-    pub(super) call_resolutions: &'a HashMap<Span, String>,
+    /// Name of the function currently being lowered (for call resolution context)
+    pub(super) current_fn_name: String,
+    /// Generic call site -> mangled function name (keyed by (current_fn_name, call_span))
+    pub(super) call_resolutions: &'a HashMap<(String, Span), String>,
     /// Generic struct literal -> mangled struct name
     pub(super) struct_resolutions: &'a HashMap<Span, String>,
     /// Generic enum constructor -> mangled enum name
@@ -54,6 +56,14 @@ pub struct FunctionLowerCtx<'a> {
     pub(super) lowering_warnings: Vec<String>,
     /// Type parameter substitution map for monomorphized functions (e.g., "T" -> i32)
     pub(super) type_param_subst: HashMap<String, nudl_core::types::TypeId>,
+    /// Interface method names for vtable building: interface_name -> list of method names
+    pub(super) interface_methods: &'a HashMap<String, Vec<String>>,
+    /// Map from interface name -> set of implementing type names
+    pub(super) interface_impls: &'a HashMap<String, Vec<String>>,
+    /// Dynamic dispatch call resolutions: span → (interface_name, method_index)
+    pub(super) dyn_call_resolutions: &'a HashMap<Span, (String, usize)>,
+    /// Vtable lookup: (concrete_type, interface_name) → vtable_index
+    pub(super) vtable_lookup: &'a HashMap<(String, String), u32>,
 }
 
 impl<'a> FunctionLowerCtx<'a> {
@@ -280,7 +290,7 @@ impl<'a> FunctionLowerCtx<'a> {
             Expr::Unary { operand, .. } => {
                 self.collect_captures_inner(&operand.node, param_names, captures, seen);
             }
-            Expr::Call { callee, args } => {
+            Expr::Call { callee, args, .. } => {
                 self.collect_captures_inner(&callee.node, param_names, captures, seen);
                 for arg in args {
                     self.collect_captures_inner(&arg.value.node, param_names, captures, seen);

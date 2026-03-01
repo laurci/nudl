@@ -58,6 +58,9 @@ impl Parser {
             None
         };
 
+        // Parse optional where clause
+        let where_clauses = self.parse_where_clause();
+
         let body = self.parse_block()?;
         let end = body.span;
 
@@ -67,6 +70,7 @@ impl Parser {
                 type_params,
                 params,
                 return_type,
+                where_clauses,
                 body,
                 is_pub,
             },
@@ -276,15 +280,22 @@ impl Parser {
                 None
             };
 
+            // Check for default method body
+            let body = if self.peek_kind() == TokenKind::LBrace {
+                Some(self.parse_block()?)
+            } else {
+                self.eat(TokenKind::Semi);
+                None
+            };
+
             let method_end = self.prev_span();
             methods.push(InterfaceMethodDef {
                 name: method_name,
                 params,
                 return_type,
+                body,
                 span: method_start.merge(method_end),
             });
-
-            self.eat(TokenKind::Semi);
         }
 
         let end = self.expect(TokenKind::RBrace)?.span;
@@ -302,24 +313,38 @@ impl Parser {
     fn parse_impl_block(&mut self) -> Option<SpannedItem> {
         let start = self.expect(TokenKind::Impl)?.span;
 
+        // Parse optional type params: `impl<T>`
+        let impl_type_params = self.parse_optional_type_params();
+
         // Parse the first identifier (could be interface name or type name)
         let first_name = self.expect(TokenKind::Ident)?.text.clone();
 
-        // Check for `impl Interface for Type`
-        let (interface_name, type_name) = if self.peek_kind() == TokenKind::For {
-            self.advance();
-            let tn = self.expect(TokenKind::Ident)?.text.clone();
-            (Some(first_name), tn)
-        } else {
-            (None, first_name)
-        };
-
-        // Parse optional type arguments on the type: `impl Foo<i32>`
-        let type_args = if self.peek_kind() == TokenKind::Lt {
+        // Check for interface type args: `impl Iterator<i32> for RangeIter`
+        let first_type_args = if self.peek_kind() == TokenKind::Lt {
             self.parse_type_args()
         } else {
             Vec::new()
         };
+
+        // Check for `impl Interface for Type` or `impl Interface<T> for Type`
+        let (interface_name, interface_type_args, type_name, type_args) =
+            if self.peek_kind() == TokenKind::For {
+                self.advance();
+                let tn = self.expect(TokenKind::Ident)?.text.clone();
+                // Parse optional type arguments on the implementing type
+                let ta = if self.peek_kind() == TokenKind::Lt {
+                    self.parse_type_args()
+                } else {
+                    Vec::new()
+                };
+                (Some(first_name), first_type_args, tn, ta)
+            } else {
+                // No interface — first_type_args are the type's own type args
+                (None, Vec::new(), first_name, first_type_args)
+            };
+
+        // Parse optional where clause
+        let where_clauses = self.parse_where_clause();
 
         self.expect(TokenKind::LBrace)?;
 
@@ -334,11 +359,17 @@ impl Parser {
         }
 
         let end = self.expect(TokenKind::RBrace)?.span;
+
+        // Merge impl_type_params into type_args for backward compatibility
+        let _ = impl_type_params; // tracked via type_args
+
         Some(Spanned::new(
             Item::ImplBlock {
                 type_name,
                 type_args,
                 interface_name,
+                interface_type_args,
+                where_clauses,
                 methods,
             },
             start.merge(end),
@@ -505,7 +536,7 @@ impl Parser {
     }
 
     /// Parse type arguments: `<i32, string>`
-    fn parse_type_args(&mut self) -> Vec<Spanned<TypeExpr>> {
+    pub(crate) fn parse_type_args(&mut self) -> Vec<Spanned<TypeExpr>> {
         if self.peek_kind() != TokenKind::Lt {
             return Vec::new();
         }
@@ -556,6 +587,23 @@ impl Parser {
             ));
         }
 
+        // impl Interface in parameter position: `impl Iterator<T>`
+        if self.peek_kind() == TokenKind::Impl {
+            let start = self.advance().span;
+            let name_tok = self.expect(TokenKind::Ident)?;
+            let name = name_tok.text.clone();
+            let type_args = if self.peek_kind() == TokenKind::Lt {
+                self.parse_type_args()
+            } else {
+                Vec::new()
+            };
+            let end = self.prev_span();
+            return Some(Spanned::new(
+                TypeExpr::ImplInterface { name, type_args },
+                start.merge(end),
+            ));
+        }
+
         // dyn Interface
         if self.peek_kind() == TokenKind::Dyn {
             let start = self.advance().span;
@@ -586,7 +634,12 @@ impl Parser {
                     elements.push(self.parse_type()?);
                 }
                 let end = self.expect(TokenKind::RParen)?.span;
-                Some(Spanned::new(TypeExpr::Tuple(elements), start.merge(end)))
+                // Single element without comma is just grouping: (T) == T
+                if elements.len() == 1 {
+                    Some(Spanned::new(elements.pop().unwrap().node, start.merge(end)))
+                } else {
+                    Some(Spanned::new(TypeExpr::Tuple(elements), start.merge(end)))
+                }
             }
         } else if self.peek_kind() == TokenKind::LBracket {
             // Fixed array type: [T; N]
@@ -679,8 +732,27 @@ impl Parser {
         Some(base)
     }
 
-    /// Parse a pattern for match arms and if-let
+    /// Parse a pattern for match arms and if-let (supports or-patterns: `p1 | p2`)
     pub(super) fn parse_pattern(&mut self) -> Option<Spanned<Pattern>> {
+        let first = self.parse_single_pattern()?;
+
+        // Check for or-pattern: `p1 | p2 | p3`
+        if self.peek_kind() == TokenKind::Pipe {
+            let start = first.span;
+            let mut alternatives = vec![first];
+            while self.peek_kind() == TokenKind::Pipe {
+                self.advance(); // consume '|'
+                alternatives.push(self.parse_single_pattern()?);
+            }
+            let end = alternatives.last().unwrap().span;
+            return Some(Spanned::new(Pattern::Or(alternatives), start.merge(end)));
+        }
+
+        Some(first)
+    }
+
+    /// Parse a single pattern (without or-pattern support)
+    fn parse_single_pattern(&mut self) -> Option<Spanned<Pattern>> {
         let start = self.peek().span;
 
         // Wildcard: _
@@ -689,14 +761,106 @@ impl Parser {
             return Some(Spanned::new(Pattern::Wildcard, tok.span));
         }
 
+        // Negative number pattern: -42
+        if self.peek_kind() == TokenKind::Minus && self.peek_nth(1).kind == TokenKind::IntLiteral {
+            let minus_tok = self.advance().clone();
+            let num_tok = self.advance().clone();
+            let neg_value = format!("-{}", num_tok.text);
+            let start_lit = Literal::Int(neg_value.clone(), None);
+            let span = minus_tok.span.merge(num_tok.span);
+
+            // Check for range pattern: -42..=0, -42..0
+            if self.peek_kind() == TokenKind::DotDotEq || self.peek_kind() == TokenKind::DotDot {
+                let inclusive = self.peek_kind() == TokenKind::DotDotEq;
+                self.advance(); // consume ..= or ..
+
+                // Parse end: possibly negative
+                let end_lit = if self.peek_kind() == TokenKind::Minus
+                    && self.peek_nth(1).kind == TokenKind::IntLiteral
+                {
+                    self.advance(); // consume '-'
+                    let end_tok = self.advance().clone();
+                    Literal::Int(format!("-{}", end_tok.text), None)
+                } else if self.peek_kind() == TokenKind::IntLiteral {
+                    let end_tok = self.advance().clone();
+                    Literal::Int(end_tok.text.clone(), None)
+                } else {
+                    return None;
+                };
+                let end_span = self.prev_span();
+                return Some(Spanned::new(
+                    Pattern::Range {
+                        start: start_lit,
+                        end: end_lit,
+                        inclusive,
+                    },
+                    span.merge(end_span),
+                ));
+            }
+
+            return Some(Spanned::new(Pattern::Literal(start_lit), span));
+        }
+
         // Literal patterns
         match self.peek_kind() {
             TokenKind::IntLiteral => {
                 let tok = self.advance().clone();
-                return Some(Spanned::new(
-                    Pattern::Literal(Literal::Int(tok.text.clone(), None)),
-                    tok.span,
-                ));
+                let lit = Literal::Int(tok.text.clone(), None);
+                // Check for range pattern: 0..=100, 0..100
+                if self.peek_kind() == TokenKind::DotDotEq || self.peek_kind() == TokenKind::DotDot
+                {
+                    let inclusive = self.peek_kind() == TokenKind::DotDotEq;
+                    self.advance(); // consume ..= or ..
+
+                    // Parse end: possibly negative
+                    let end_lit = if self.peek_kind() == TokenKind::Minus
+                        && self.peek_nth(1).kind == TokenKind::IntLiteral
+                    {
+                        self.advance(); // consume '-'
+                        let end_tok = self.advance().clone();
+                        Literal::Int(format!("-{}", end_tok.text), None)
+                    } else if self.peek_kind() == TokenKind::IntLiteral {
+                        let end_tok = self.advance().clone();
+                        Literal::Int(end_tok.text.clone(), None)
+                    } else {
+                        return None;
+                    };
+                    let end_span = self.prev_span();
+                    return Some(Spanned::new(
+                        Pattern::Range {
+                            start: lit,
+                            end: end_lit,
+                            inclusive,
+                        },
+                        tok.span.merge(end_span),
+                    ));
+                }
+                return Some(Spanned::new(Pattern::Literal(lit), tok.span));
+            }
+            TokenKind::CharLiteral => {
+                let tok = self.advance().clone();
+                let ch = tok.text.chars().next().unwrap_or('\0');
+                let lit = Literal::Char(ch);
+                // Check for range pattern: 'a'..='z'
+                if self.peek_kind() == TokenKind::DotDotEq || self.peek_kind() == TokenKind::DotDot
+                {
+                    let inclusive = self.peek_kind() == TokenKind::DotDotEq;
+                    self.advance(); // consume ..= or ..
+                    if self.peek_kind() == TokenKind::CharLiteral {
+                        let end_tok = self.advance().clone();
+                        let end_ch = end_tok.text.chars().next().unwrap_or('\0');
+                        let end_span = end_tok.span;
+                        return Some(Spanned::new(
+                            Pattern::Range {
+                                start: lit,
+                                end: Literal::Char(end_ch),
+                                inclusive,
+                            },
+                            tok.span.merge(end_span),
+                        ));
+                    }
+                }
+                return Some(Spanned::new(Pattern::Literal(lit), tok.span));
             }
             TokenKind::BoolLiteral | TokenKind::True | TokenKind::False => {
                 let tok = self.advance().clone();
@@ -987,6 +1151,54 @@ impl Parser {
             },
             start.merge(end),
         ))
+    }
+
+    /// Parse optional where clause: `where T: Clone + Display, U: Printable`
+    fn parse_where_clause(&mut self) -> Vec<WherePredicate> {
+        if self.peek_kind() != TokenKind::Where {
+            return Vec::new();
+        }
+        self.advance(); // consume 'where'
+
+        let mut predicates = Vec::new();
+        loop {
+            if self.peek_kind() == TokenKind::LBrace || self.at_eof() {
+                break;
+            }
+            let name_tok = match self.expect(TokenKind::Ident) {
+                Some(t) => t,
+                None => break,
+            };
+            let start = name_tok.span;
+            let type_name = name_tok.text.clone();
+
+            if !self.eat(TokenKind::Colon) {
+                break;
+            }
+
+            let mut bounds = Vec::new();
+            if let Some(bt) = self.expect(TokenKind::Ident) {
+                bounds.push(bt.text.clone());
+            }
+            while self.eat(TokenKind::Plus) {
+                if let Some(bt) = self.expect(TokenKind::Ident) {
+                    bounds.push(bt.text.clone());
+                }
+            }
+
+            let end = self.prev_span();
+            predicates.push(WherePredicate {
+                type_name,
+                bounds,
+                span: start.merge(end),
+            });
+
+            if !self.eat(TokenKind::Comma) {
+                break;
+            }
+        }
+
+        predicates
     }
 
     fn parse_type_alias(&mut self, is_pub: bool) -> Option<SpannedItem> {

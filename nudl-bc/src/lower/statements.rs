@@ -313,6 +313,13 @@ impl<'a> FunctionLowerCtx<'a> {
                     }
                 }
             }
+            nudl_ast::ast::Pattern::Or(_) => {
+                // Or-patterns not allowed in let-destructuring
+                // Just skip (error should have been reported by checker)
+            }
+            nudl_ast::ast::Pattern::Range { .. } => {
+                // Range patterns not allowed in let-destructuring
+            }
         }
     }
 }

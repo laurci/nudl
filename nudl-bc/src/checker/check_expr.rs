@@ -44,7 +44,11 @@ impl Checker {
                 }
             }
 
-            Expr::Call { callee, args } => {
+            Expr::Call {
+                callee,
+                args,
+                type_args: explicit_type_args,
+            } => {
                 if let Expr::Ident(name) = &callee.node {
                     let sig = self.functions.get(name).cloned();
                     if let Some(sig) = sig {
@@ -58,8 +62,32 @@ impl Checker {
                         }
                         // Check if this is a generic function that needs monomorphization
                         if let Some(generic_def) = sig.generic_def.clone() {
-                            // Infer type arguments from call arguments
-                            let type_args = self.infer_type_args(&generic_def, args, locals);
+                            // Use explicit turbofish type args if provided, otherwise infer
+                            let type_args = if !explicit_type_args.is_empty() {
+                                // Validate count matches
+                                if explicit_type_args.len() != generic_def.type_params.len() {
+                                    self.diagnostics.add(
+                                        &CheckerDiagnostic::ArgumentCountMismatch {
+                                            span: expr.span,
+                                            expected: generic_def.type_params.len().to_string(),
+                                            found: explicit_type_args.len().to_string(),
+                                        },
+                                    );
+                                    for arg in args {
+                                        self.check_expr(&arg.value, locals);
+                                    }
+                                    return self.types.error();
+                                }
+                                // Resolve explicit type args
+                                let resolved: Vec<TypeId> = explicit_type_args
+                                    .iter()
+                                    .map(|ta| self.resolve_type(ta))
+                                    .collect();
+                                Some(resolved)
+                            } else {
+                                // Infer type arguments from call arguments
+                                self.infer_type_args(&generic_def, args, locals)
+                            };
                             if let Some(type_args) = type_args {
                                 // Check if any inferred type arg is a TypeVar (generic-to-generic call)
                                 let has_typevar_args = !self.type_param_scope.is_empty()
@@ -127,7 +155,10 @@ impl Checker {
                                     &type_args,
                                     expr.span,
                                 ) {
-                                    self.call_resolutions.insert(expr.span, mangled.clone());
+                                    self.call_resolutions.insert(
+                                        (self.current_fn_name.clone(), expr.span),
+                                        mangled.clone(),
+                                    );
                                     let mono_sig = self.functions.get(&mangled).cloned().unwrap();
                                     // Validate argument types against the concrete monomorphized signature
                                     self.check_call_args(expr.span, &mono_sig, args, locals, 0);
@@ -242,6 +273,7 @@ impl Checker {
                 object,
                 method,
                 args,
+                ..
             } => {
                 let obj_ty = self.check_expr(object, locals);
                 if obj_ty == self.types.error() {
@@ -257,6 +289,61 @@ impl Checker {
                         self.check_expr(&arg.value, locals);
                     }
                     return self.types.error();
+                }
+
+                // Dynamic dispatch: method calls on `dyn Interface` types
+                if let TypeKind::DynInterface { name: iface_name } =
+                    self.types.resolve(obj_ty).clone()
+                {
+                    if let Some(method_defs) = self.interface_method_defs.get(&iface_name).cloned()
+                    {
+                        if let Some((method_idx, method_def)) = method_defs
+                            .iter()
+                            .enumerate()
+                            .find(|(_, m)| m.name == *method)
+                        {
+                            // Store the dyn call resolution for the lowerer
+                            self.dyn_call_resolutions
+                                .insert(expr.span, (iface_name.clone(), method_idx));
+
+                            // Type-check args against the interface method signature
+                            // (skip self param at index 0)
+                            for (i, arg) in args.iter().enumerate() {
+                                let arg_ty = self.check_expr(&arg.value, locals);
+                                if let Some(param) = method_def.params.get(i + 1) {
+                                    let expected = self.resolve_type(&param.ty);
+                                    if arg_ty != expected
+                                        && arg_ty != self.types.error()
+                                        && expected != self.types.error()
+                                    {
+                                        self.diagnostics.add(&CheckerDiagnostic::TypeMismatch {
+                                            span: arg.value.span,
+                                            expected: self.type_name(expected),
+                                            found: self.type_name(arg_ty),
+                                        });
+                                    }
+                                }
+                            }
+
+                            // Resolve return type from the interface method def
+                            let ret_ty = if let Some(ref rt) = method_def.return_type {
+                                self.resolve_type(rt)
+                            } else {
+                                self.types.unit()
+                            };
+                            return ret_ty;
+                        } else {
+                            self.diagnostics.add(&CheckerDiagnostic::UndefinedMethod {
+                                span: expr.span,
+                                ty: format!("dyn {}", iface_name),
+                                method: method.clone(),
+                            });
+                            for arg in args {
+                                self.check_expr(&arg.value, locals);
+                            }
+                            return self.types.error();
+                        }
+                    }
                 }
 
                 let type_name = self.type_name(obj_ty);
@@ -390,6 +477,7 @@ impl Checker {
                 type_name,
                 method,
                 args,
+                ..
             } => {
                 // Check type visibility
                 if let Some((is_type_pub, file_id)) = self.type_visibility.get(type_name.as_str()) {
@@ -614,7 +702,10 @@ impl Checker {
                                     let mangled_method = format!("{}__{}", mangled, method);
                                     if let Some(sig) = self.functions.get(&mangled_method).cloned()
                                     {
-                                        self.call_resolutions.insert(expr.span, mangled_method);
+                                        self.call_resolutions.insert(
+                                            (self.current_fn_name.clone(), expr.span),
+                                            mangled_method,
+                                        );
                                         return self
                                             .check_call_args(expr.span, &sig, args, locals, 0);
                                     }
@@ -627,7 +718,10 @@ impl Checker {
                                     let mangled_method = format!("{}__{}", mangled, method);
                                     if let Some(sig) = self.functions.get(&mangled_method).cloned()
                                     {
-                                        self.call_resolutions.insert(expr.span, mangled_method);
+                                        self.call_resolutions.insert(
+                                            (self.current_fn_name.clone(), expr.span),
+                                            mangled_method,
+                                        );
                                         return self
                                             .check_call_args(expr.span, &sig, args, locals, 0);
                                     }
@@ -1140,7 +1234,8 @@ impl Checker {
                     || (src_ty == self.types.raw_ptr() && dst_ty == self.types.mut_raw_ptr())
                     || (src_ty == self.types.mut_raw_ptr() && dst_ty == self.types.raw_ptr())
                     || (src_ty == self.types.raw_ptr() && dst_ty == self.types.cstr())
-                    || (src_ty == self.types.cstr() && dst_ty == self.types.raw_ptr());
+                    || (src_ty == self.types.cstr() && dst_ty == self.types.raw_ptr())
+                    || self.is_valid_dyn_cast(src_ty, dst_ty);
                 if !is_valid {
                     self.diagnostics
                         .add(&CheckerDiagnostic::InvalidOperatorType {
@@ -1150,7 +1245,12 @@ impl Checker {
                         });
                     return self.types.error();
                 }
-                dst_ty
+                // If cast target is an Interface type, return DynInterface instead
+                if let TypeKind::Interface { name, .. } = self.types.resolve(dst_ty).clone() {
+                    self.types.intern(TypeKind::DynInterface { name })
+                } else {
+                    dst_ty
+                }
             }
 
             Expr::While {
@@ -2115,6 +2215,15 @@ impl Checker {
                 for pat in prefix.iter().chain(suffix.iter()) {
                     self.check_pattern(pat, elem_ty, locals);
                 }
+            }
+            Pattern::Or(alternatives) => {
+                // All alternatives must bind same names with same types
+                for alt in alternatives {
+                    self.check_pattern(alt, scrutinee_ty, locals);
+                }
+            }
+            Pattern::Range { .. } => {
+                // Range patterns match against int/char types - no bindings introduced
             }
         }
     }

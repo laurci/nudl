@@ -115,6 +115,15 @@ pub enum Instruction {
     MapGet(Register, Register, Register),      // dst, map, key — get value (0 if not found)
     MapLen(Register, Register),                // dst, map — get entry count
     MapContains(Register, Register, Register), // dst, map, key — bool: contains key?
+
+    // Dynamic dispatch operations
+    /// Wrap a concrete value into a fat pointer (data_ptr, vtable_ptr):
+    /// dst = DynWrap(src_value, interface_name_index, concrete_type_id)
+    /// interface_name_index: index into vtables list for the right vtable
+    DynWrap(Register, Register, u32),
+    /// Call a method through a vtable:
+    /// dst = dyn_reg.vtable[method_index](dyn_reg.data_ptr, args...)
+    DynCall(Register, Register, u32, Vec<Register>, TypeId),
 }
 
 #[derive(Debug, Clone)]
@@ -148,6 +157,17 @@ pub struct Function {
     pub span: Span,
 }
 
+/// A vtable entry: maps (concrete_type, interface) → method function names
+#[derive(Debug, Clone)]
+pub struct VtableEntry {
+    /// The concrete type name (e.g., "Circle")
+    pub concrete_type: String,
+    /// The interface name (e.g., "Shape")
+    pub interface_name: String,
+    /// Method function names in interface-declaration order
+    pub method_names: Vec<String>,
+}
+
 #[derive(Debug)]
 pub struct Program {
     pub functions: Vec<Function>,
@@ -157,4 +177,6 @@ pub struct Program {
     pub interner: StringInterner,
     pub types: TypeInterner,
     pub source_map: Option<SourceMap>,
+    /// Vtable entries for dynamic dispatch
+    pub vtables: Vec<VtableEntry>,
 }

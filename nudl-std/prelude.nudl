@@ -123,6 +123,34 @@ pub interface Printable {
     fn to_string(self) -> string;
 }
 
+impl Printable for i32 {
+    fn to_string(self) -> string { __i32_to_str(self) }
+}
+
+impl Printable for i64 {
+    fn to_string(self) -> string { __i64_to_str(self) }
+}
+
+impl Printable for f64 {
+    fn to_string(self) -> string { __f64_to_str(self) }
+}
+
+impl Printable for bool {
+    fn to_string(self) -> string { __bool_to_str(self) }
+}
+
+impl Printable for char {
+    fn to_string(self) -> string { __char_to_str(self) }
+}
+
+impl Printable for string {
+    fn to_string(self) -> string { self }
+}
+
+impl string {
+    pub fn len(self) -> u64 { __str_len(self) }
+}
+
 pub interface Drop {
     fn drop(mut self);
 }
@@ -139,11 +167,12 @@ extern {
     fn write(fd: i32, buf: RawPtr, count: u64) -> i64;
 }
 
-pub fn print(s: string) {
-    write(1, __str_ptr(s), __str_len(s));
+pub fn print<T: Printable>(s: T) {
+    let str = s.to_string();
+    write(1, __str_ptr(str), __str_len(str));
 }
 
-pub fn println(s: string = "") {
+pub fn println<T: Printable>(s: T) {
     print(s);
     print("\n");
 }

@@ -16,6 +16,7 @@ pub enum Item {
         type_params: Vec<TypeParam>,
         params: Vec<Param>,
         return_type: Option<Spanned<TypeExpr>>,
+        where_clauses: Vec<WherePredicate>,
         body: Spanned<Block>,
         is_pub: bool,
     },
@@ -42,6 +43,8 @@ pub enum Item {
         type_name: String,
         type_args: Vec<Spanned<TypeExpr>>,
         interface_name: Option<String>,
+        interface_type_args: Vec<Spanned<TypeExpr>>,
+        where_clauses: Vec<WherePredicate>,
         methods: Vec<SpannedItem>,
     },
     ExternBlock {
@@ -70,6 +73,13 @@ pub struct TypeParam {
 }
 
 #[derive(Debug, Clone)]
+pub struct WherePredicate {
+    pub type_name: String,
+    pub bounds: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
 pub struct EnumVariantDef {
     pub name: String,
     pub kind: VariantKind,
@@ -88,6 +98,7 @@ pub struct InterfaceMethodDef {
     pub name: String,
     pub params: Vec<Param>,
     pub return_type: Option<Spanned<TypeExpr>>,
+    pub body: Option<Spanned<Block>>,
     pub span: Span,
 }
 
@@ -157,6 +168,7 @@ pub enum Expr {
     Call {
         callee: Box<SpannedExpr>,
         args: Vec<CallArg>,
+        type_args: Vec<Spanned<TypeExpr>>,
     },
     Block(Block),
     Return(Option<Box<SpannedExpr>>),
@@ -216,11 +228,13 @@ pub enum Expr {
         object: Box<SpannedExpr>,
         method: String,
         args: Vec<CallArg>,
+        type_args: Vec<Spanned<TypeExpr>>,
     },
     StaticCall {
         type_name: String,
         method: String,
         args: Vec<CallArg>,
+        type_args: Vec<Spanned<TypeExpr>>,
     },
     TupleLiteral(Vec<SpannedExpr>),
     ArrayLiteral(Vec<SpannedExpr>),
@@ -368,6 +382,14 @@ pub enum Pattern {
         suffix: Vec<Spanned<Pattern>>, // elements after .. (empty if no ..)
         has_rest: bool,                // whether .. is present
     },
+    /// Or-pattern: `p1 | p2 | p3`
+    Or(Vec<Spanned<Pattern>>),
+    /// Range pattern: `0..=100`, `'a'..='z'`
+    Range {
+        start: Literal,
+        end: Literal,
+        inclusive: bool,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -396,5 +418,10 @@ pub enum TypeExpr {
     FnType {
         params: Vec<Spanned<TypeExpr>>,
         return_type: Box<Spanned<TypeExpr>>,
+    },
+    /// `impl Interface` in parameter position (desugared to hidden type param)
+    ImplInterface {
+        name: String,
+        type_args: Vec<Spanned<TypeExpr>>,
     },
 }

@@ -9,12 +9,12 @@ impl<'a> FunctionLowerCtx<'a> {
     pub(super) fn lower_expr(&mut self, expr: &nudl_core::span::Spanned<Expr>) -> Register {
         self.current_span = expr.span;
         match &expr.node {
-            Expr::Call { callee, args } => {
+            Expr::Call { callee, args, .. } => {
                 if let Expr::Ident(name) = &callee.node {
                     // Check if this call was resolved to a monomorphized function
                     let resolved_name = self
                         .call_resolutions
-                        .get(&expr.span)
+                        .get(&(self.current_fn_name.clone(), expr.span))
                         .cloned()
                         .unwrap_or_else(|| name.clone());
 
@@ -101,7 +101,39 @@ impl<'a> FunctionLowerCtx<'a> {
                 object,
                 method,
                 args,
+                ..
             } => {
+                // Dynamic dispatch: method calls on `dyn Interface` types
+                if let Some(obj_type) = self.infer_expr_type(object) {
+                    if let nudl_core::types::TypeKind::DynInterface { .. } =
+                        self.types.resolve(obj_type).clone()
+                    {
+                        // Look up the dyn call resolution from the checker
+                        if let Some((_, method_idx)) =
+                            self.dyn_call_resolutions.get(&expr.span).cloned()
+                        {
+                            let dyn_reg = self.lower_expr(object);
+                            let call_span = self.current_span;
+                            let arg_regs: Vec<Register> =
+                                args.iter().map(|a| self.lower_expr(&a.value)).collect();
+                            self.current_span = call_span;
+                            // Resolve return type from the interface method signature
+                            let ret_ty = self
+                                .infer_dyn_call_return_type(&expr.span)
+                                .unwrap_or_else(|| self.types.i64());
+                            let dst = self.alloc_typed_register(ret_ty);
+                            self.push_inst(Instruction::DynCall(
+                                dst,
+                                dyn_reg,
+                                method_idx as u32,
+                                arg_regs,
+                                ret_ty,
+                            ));
+                            return dst;
+                        }
+                    }
+                }
+
                 // First, infer receiver type name for mangled lookup
                 let type_name = self.infer_receiver_type_name(object);
                 if let Some(type_name) = type_name {
@@ -300,6 +332,7 @@ impl<'a> FunctionLowerCtx<'a> {
                 type_name,
                 method,
                 args,
+                ..
             } => {
                 // Check if this call was resolved to a monomorphized enum
                 let resolved_enum_name = self.enum_resolutions.get(&expr.span).cloned();
@@ -346,7 +379,7 @@ impl<'a> FunctionLowerCtx<'a> {
                 // Check if this was resolved to a monomorphized static method
                 let mangled_name = self
                     .call_resolutions
-                    .get(&expr.span)
+                    .get(&(self.current_fn_name.clone(), expr.span))
                     .cloned()
                     .unwrap_or_else(|| format!("{}__{}", type_name, method));
                 if let Some(sig) = self.function_sigs.get(&mangled_name).cloned() {
@@ -849,11 +882,32 @@ impl<'a> FunctionLowerCtx<'a> {
             }
 
             Expr::Cast { expr, target_type } => {
-                let src = self.lower_expr(expr);
                 let target_id = self.resolve_type_expr(&target_type.node);
-                let dst = self.alloc_typed_register(target_id);
-                self.push_inst(Instruction::Cast(dst, src, target_id));
-                dst
+                // Check if this is a concrete→dyn interface cast
+                if let nudl_core::types::TypeKind::DynInterface { name: iface_name } =
+                    self.types.resolve(target_id).clone()
+                {
+                    let src = self.lower_expr(expr);
+                    // Look up the vtable index for (concrete_type, interface)
+                    let concrete_type_name = self
+                        .infer_receiver_type_name(expr)
+                        .unwrap_or_else(|| "unknown".to_string());
+                    let vtable_idx = self
+                        .vtable_lookup
+                        .get(&(concrete_type_name, iface_name))
+                        .copied()
+                        .unwrap_or(0);
+                    // Retain the concrete object (dyn holds a reference to it)
+                    self.emit_retain_for_type(src, self.register_types[src.0 as usize]);
+                    let dst = self.alloc_typed_register(target_id);
+                    self.push_inst(Instruction::DynWrap(dst, src, vtable_idx));
+                    dst
+                } else {
+                    let src = self.lower_expr(expr);
+                    let dst = self.alloc_typed_register(target_id);
+                    self.push_inst(Instruction::Cast(dst, src, target_id));
+                    dst
+                }
             }
 
             Expr::While {
@@ -1252,6 +1306,7 @@ impl<'a> FunctionLowerCtx<'a> {
                     body: (**body).clone(),
                     return_type: ret_ty,
                     span: expr.span,
+                    enclosing_fn_name: self.current_fn_name.clone(),
                 });
 
                 dst
@@ -1819,6 +1874,299 @@ impl<'a> FunctionLowerCtx<'a> {
                     merge_block,
                 );
             }
+
+            Pattern::Or(alternatives) => {
+                // Desugar or-pattern: try each alternative, jump to body on first match
+                let body_block = self.new_block_id();
+                let next_block = self.new_block_id();
+
+                // For each alternative, generate a match attempt
+                for alt in alternatives {
+                    let alt_arm = MatchArm {
+                        pattern: alt.clone(),
+                        guard: arm.guard.clone(),
+                        body: arm.body.clone(),
+                    };
+                    let indexed_arm = (0usize, &alt_arm);
+                    // Create a temporary arms slice for each alternative
+                    // We use lower_match_arms with just this arm + rest
+                    // But we can't easily do this with the recursive structure,
+                    // so instead we inline the check:
+                    let _ = indexed_arm; // not used directly
+                    let alt_next_block = self.new_block_id();
+
+                    // Check if this alternative matches
+                    self.locals.push_scope();
+                    self.local_types.push_scope();
+                    match &alt.node {
+                        Pattern::Wildcard | Pattern::Binding(_) => {
+                            if let Pattern::Binding(name) = &alt.node {
+                                self.locals.insert(name.clone(), scrutinee_reg);
+                                if let Some(ty) = scrutinee_ty {
+                                    self.local_types.insert(name.clone(), ty);
+                                }
+                            }
+                            // Always matches - jump to body
+                            self.locals.pop_scope();
+                            self.local_types.pop_scope();
+                            self.finish_block(Terminator::Jump(body_block));
+                            // Start body block for final alternative (will be used for body)
+                            break;
+                        }
+                        Pattern::Literal(lit) => {
+                            let lit_reg = self.lower_literal_pattern(lit);
+                            let cmp_reg = self.alloc_register();
+                            self.push_inst(Instruction::Eq(cmp_reg, scrutinee_reg, lit_reg));
+                            self.locals.pop_scope();
+                            self.local_types.pop_scope();
+                            self.finish_block(Terminator::Branch(
+                                cmp_reg,
+                                body_block,
+                                alt_next_block,
+                            ));
+                            self.start_block(alt_next_block);
+                        }
+                        Pattern::Enum {
+                            variant, fields, ..
+                        } => {
+                            // Compare tag
+                            if let Some(sty) = scrutinee_ty {
+                                if let nudl_core::types::TypeKind::Enum { variants, .. } =
+                                    self.types.resolve(sty).clone()
+                                {
+                                    let tag_val = variants
+                                        .iter()
+                                        .position(|v| v.name == *variant)
+                                        .unwrap_or(0);
+                                    let expected_tag = self.alloc_register();
+                                    self.push_inst(Instruction::Const(
+                                        expected_tag,
+                                        ConstValue::I64(tag_val as i64),
+                                    ));
+                                    let tag_match = self.alloc_register();
+                                    let tag = tag_reg.unwrap_or(scrutinee_reg);
+                                    self.push_inst(Instruction::Eq(tag_match, tag, expected_tag));
+                                    // If tag matches, bind fields and jump to body
+                                    let bind_block = self.new_block_id();
+                                    self.locals.pop_scope();
+                                    self.local_types.pop_scope();
+                                    self.finish_block(Terminator::Branch(
+                                        tag_match,
+                                        bind_block,
+                                        alt_next_block,
+                                    ));
+                                    self.start_block(bind_block);
+                                    // Bind fields
+                                    self.locals.push_scope();
+                                    self.local_types.push_scope();
+                                    if let Some(var) = variants.iter().find(|v| v.name == *variant)
+                                    {
+                                        for (i, pat) in fields.iter().enumerate() {
+                                            let field_ty = var.fields.get(i).map(|(_, ty)| *ty);
+                                            let field_reg = if let Some(fty) = field_ty {
+                                                self.alloc_typed_register(fty)
+                                            } else {
+                                                self.alloc_register()
+                                            };
+                                            self.push_inst(Instruction::Load(
+                                                field_reg,
+                                                scrutinee_reg,
+                                                (i + 1) as u32,
+                                            ));
+                                            self.lower_pattern_binding(
+                                                &pat.node, field_reg, field_ty,
+                                            );
+                                        }
+                                    }
+                                    self.locals.pop_scope();
+                                    self.local_types.pop_scope();
+                                    self.finish_block(Terminator::Jump(body_block));
+                                    self.start_block(alt_next_block);
+                                    continue;
+                                }
+                            }
+                            self.locals.pop_scope();
+                            self.local_types.pop_scope();
+                            self.finish_block(Terminator::Jump(alt_next_block));
+                            self.start_block(alt_next_block);
+                        }
+                        Pattern::Range {
+                            start,
+                            end,
+                            inclusive,
+                        } => {
+                            let start_reg = self.lower_literal_pattern(start);
+                            let end_reg = self.lower_literal_pattern(end);
+                            let ge_reg = self.alloc_register();
+                            self.push_inst(Instruction::Ge(ge_reg, scrutinee_reg, start_reg));
+                            let le_reg = self.alloc_register();
+                            if *inclusive {
+                                self.push_inst(Instruction::Le(le_reg, scrutinee_reg, end_reg));
+                            } else {
+                                self.push_inst(Instruction::Lt(le_reg, scrutinee_reg, end_reg));
+                            }
+                            let in_range = self.alloc_register();
+                            self.push_inst(Instruction::BitAnd(in_range, ge_reg, le_reg));
+                            self.locals.pop_scope();
+                            self.local_types.pop_scope();
+                            self.finish_block(Terminator::Branch(
+                                in_range,
+                                body_block,
+                                alt_next_block,
+                            ));
+                            self.start_block(alt_next_block);
+                        }
+                        _ => {
+                            // For other pattern types in or-patterns, just fall through
+                            self.locals.pop_scope();
+                            self.local_types.pop_scope();
+                            self.finish_block(Terminator::Jump(alt_next_block));
+                            self.start_block(alt_next_block);
+                        }
+                    }
+                }
+
+                // If no alternative matched, go to next arm
+                self.finish_block(Terminator::Jump(next_block));
+
+                // Body block - execute arm body
+                self.start_block(body_block);
+                self.locals.push_scope();
+                self.local_types.push_scope();
+                // Re-bind variables from the or-pattern (use first alternative's bindings)
+                // For or-patterns, all alternatives must bind same variables, so use scrutinee
+                self.collect_or_pattern_bindings(&arm.pattern.node, scrutinee_reg, scrutinee_ty);
+                let body_result = self.lower_expr(&arm.body);
+                self.push_inst(Instruction::Copy(result_reg, body_result));
+                self.local_types.pop_scope();
+                self.locals.pop_scope();
+                self.finish_block(Terminator::Jump(merge_block));
+
+                self.start_block(next_block);
+                self.lower_match_arms(
+                    rest,
+                    scrutinee_reg,
+                    scrutinee_ty,
+                    tag_reg,
+                    result_reg,
+                    merge_block,
+                );
+            }
+
+            Pattern::Range {
+                start,
+                end,
+                inclusive,
+            } => {
+                let next_block = self.new_block_id();
+
+                self.locals.push_scope();
+                self.local_types.push_scope();
+
+                let start_reg = self.lower_literal_pattern(start);
+                let end_reg = self.lower_literal_pattern(end);
+
+                // Check: scrutinee >= start
+                let ge_reg = self.alloc_register();
+                self.push_inst(Instruction::Ge(ge_reg, scrutinee_reg, start_reg));
+
+                // Check: scrutinee <= end (inclusive) or scrutinee < end (exclusive)
+                let le_reg = self.alloc_register();
+                if *inclusive {
+                    self.push_inst(Instruction::Le(le_reg, scrutinee_reg, end_reg));
+                } else {
+                    self.push_inst(Instruction::Lt(le_reg, scrutinee_reg, end_reg));
+                }
+
+                // Combine: in_range = ge && le
+                let in_range = self.alloc_register();
+                self.push_inst(Instruction::BitAnd(in_range, ge_reg, le_reg));
+
+                // Guard clause
+                if let Some(guard_expr) = &arm.guard {
+                    let guard_block = self.new_block_id();
+                    let body_block = self.new_block_id();
+                    self.finish_block(Terminator::Branch(in_range, guard_block, next_block));
+                    self.start_block(guard_block);
+                    let guard_reg = self.lower_expr(guard_expr);
+                    self.finish_block(Terminator::Branch(guard_reg, body_block, next_block));
+                    self.start_block(body_block);
+                } else {
+                    let body_block = self.new_block_id();
+                    self.finish_block(Terminator::Branch(in_range, body_block, next_block));
+                    self.start_block(body_block);
+                }
+
+                let body_result = self.lower_expr(&arm.body);
+                self.push_inst(Instruction::Copy(result_reg, body_result));
+                self.local_types.pop_scope();
+                self.locals.pop_scope();
+                self.finish_block(Terminator::Jump(merge_block));
+
+                self.start_block(next_block);
+                self.lower_match_arms(
+                    rest,
+                    scrutinee_reg,
+                    scrutinee_ty,
+                    tag_reg,
+                    result_reg,
+                    merge_block,
+                );
+            }
+        }
+    }
+
+    /// Collect bindings from an or-pattern for use in the body block.
+    /// For or-patterns, we bind using the first alternative's variable names.
+    fn collect_or_pattern_bindings(
+        &mut self,
+        pattern: &Pattern,
+        scrutinee_reg: Register,
+        scrutinee_ty: Option<nudl_core::types::TypeId>,
+    ) {
+        match pattern {
+            Pattern::Or(alts) => {
+                if let Some(first) = alts.first() {
+                    self.collect_or_pattern_bindings(&first.node, scrutinee_reg, scrutinee_ty);
+                }
+            }
+            Pattern::Binding(name) => {
+                self.locals.insert(name.clone(), scrutinee_reg);
+                if let Some(ty) = scrutinee_ty {
+                    self.local_types.insert(name.clone(), ty);
+                }
+            }
+            Pattern::Enum {
+                fields, variant, ..
+            } => {
+                if let Some(sty) = scrutinee_ty {
+                    if let nudl_core::types::TypeKind::Enum { variants, .. } =
+                        self.types.resolve(sty).clone()
+                    {
+                        if let Some(var) = variants.iter().find(|v| v.name == *variant) {
+                            for (i, pat) in fields.iter().enumerate() {
+                                let field_ty = var.fields.get(i).map(|(_, ty)| *ty);
+                                let field_reg = if let Some(fty) = field_ty {
+                                    self.alloc_typed_register(fty)
+                                } else {
+                                    self.alloc_register()
+                                };
+                                self.push_inst(Instruction::Load(
+                                    field_reg,
+                                    scrutinee_reg,
+                                    (i + 1) as u32,
+                                ));
+                                self.collect_or_pattern_bindings(
+                                    &pat.node,
+                                    field_reg,
+                                    var.fields.get(i).map(|(_, ty)| *ty),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
         }
     }
 

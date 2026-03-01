@@ -13,6 +13,7 @@ pub(super) fn emit_function<'ctx>(
     arc: &ArcIntrinsics<'ctx>,
     string_builtins: &StringBuiltins<'ctx>,
     drop_fns: &HashMap<nudl_core::types::TypeId, FunctionValue<'ctx>>,
+    vtable_globals: &[GlobalValue<'ctx>],
     is_entry: bool,
     optimized: bool,
     dibuilder: &DebugInfoBuilder<'ctx>,
@@ -182,6 +183,7 @@ pub(super) fn emit_function<'ctx>(
                 arc,
                 string_builtins,
                 drop_fns,
+                vtable_globals,
             )?;
         }
 

@@ -48,7 +48,16 @@ impl Parser {
                     );
                 } else {
                     let field_tok = self.expect(TokenKind::Ident)?;
-                    // Check for method call: `obj.method(args)`
+                    // Check for turbofish method call: `obj.method::<T>(args)`
+                    let method_type_args = if self.peek_kind() == TokenKind::ColonColon
+                        && self.peek_nth(1).kind == TokenKind::Lt
+                    {
+                        self.advance(); // consume '::'
+                        self.parse_type_args()
+                    } else {
+                        Vec::new()
+                    };
+                    // Check for method call: `obj.method(args)` or `obj.method::<T>(args)`
                     if self.peek_kind() == TokenKind::LParen {
                         let start = lhs.span;
                         self.advance(); // consume '('
@@ -67,6 +76,7 @@ impl Parser {
                                 object: Box::new(lhs),
                                 method: field_tok.text.clone(),
                                 args,
+                                type_args: method_type_args,
                             },
                             start.merge(end),
                         );
@@ -133,6 +143,7 @@ impl Parser {
                     Expr::Call {
                         callee: Box::new(lhs),
                         args,
+                        type_args: Vec::new(),
                     },
                     start.merge(end),
                 );
@@ -231,7 +242,11 @@ impl Parser {
                     let span = lhs.span.merge(rhs.span);
                     lhs = match rhs.node {
                         // `x |> f(y, z)` → `f(x, y, z)` — prepend lhs as first arg
-                        Expr::Call { callee, mut args } => {
+                        Expr::Call {
+                            callee,
+                            mut args,
+                            type_args,
+                        } => {
                             args.insert(
                                 0,
                                 CallArg {
@@ -239,7 +254,14 @@ impl Parser {
                                     value: lhs,
                                 },
                             );
-                            Spanned::new(Expr::Call { callee, args }, span)
+                            Spanned::new(
+                                Expr::Call {
+                                    callee,
+                                    args,
+                                    type_args,
+                                },
+                                span,
+                            )
                         }
                         // `x |> f` → `f(x)` — wrap in call
                         _ => Spanned::new(
@@ -249,6 +271,7 @@ impl Parser {
                                     name: None,
                                     value: lhs,
                                 }],
+                                type_args: Vec::new(),
                             },
                             span,
                         ),
@@ -350,6 +373,16 @@ impl Parser {
                     self.advance(); // consume '::'
                     let member_tok = self.advance().clone();
 
+                    // Check for turbofish: Type::method::<T>(args)
+                    let static_type_args = if self.peek_kind() == TokenKind::ColonColon
+                        && self.peek_nth(1).kind == TokenKind::Lt
+                    {
+                        self.advance(); // consume '::'
+                        self.parse_type_args()
+                    } else {
+                        Vec::new()
+                    };
+
                     if self.peek_kind() == TokenKind::LParen {
                         // Call: Type::method(args) or Enum::Variant(args)
                         self.advance(); // consume '('
@@ -368,6 +401,7 @@ impl Parser {
                                 type_name: type_tok.text.clone(),
                                 method: member_tok.text.clone(),
                                 args,
+                                type_args: static_type_args,
                             },
                             start.merge(end),
                         ));
@@ -419,6 +453,40 @@ impl Parser {
                             start.merge(end),
                         ));
                     }
+                }
+                // Turbofish on plain function call: func::<T>(args)
+                if self.peek_nth(1).kind == TokenKind::ColonColon
+                    && self.peek_nth(2).kind == TokenKind::Lt
+                {
+                    let tok = self.advance().clone();
+                    let start = tok.span;
+                    self.advance(); // consume '::'
+                    let turbo_type_args = self.parse_type_args();
+                    if self.peek_kind() == TokenKind::LParen {
+                        self.advance(); // consume '('
+                        let mut args = self.parse_call_args();
+                        let mut end = self.expect(TokenKind::RParen)?.span;
+                        if let Some(trailing) = self.try_parse_trailing_lambda() {
+                            end = trailing.span;
+                            args.push(CallArg {
+                                name: None,
+                                value: trailing,
+                            });
+                        }
+                        return Some(Spanned::new(
+                            Expr::Call {
+                                callee: Box::new(Spanned::new(
+                                    Expr::Ident(tok.text.clone()),
+                                    tok.span,
+                                )),
+                                args,
+                                type_args: turbo_type_args,
+                            },
+                            start.merge(end),
+                        ));
+                    }
+                    // If no parens after turbofish, fall back to just ident
+                    return Some(Spanned::new(Expr::Ident(tok.text.clone()), tok.span));
                 }
                 let tok = self.advance().clone();
                 Some(Spanned::new(Expr::Ident(tok.text.clone()), tok.span))

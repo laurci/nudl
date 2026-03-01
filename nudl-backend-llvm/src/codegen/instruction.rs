@@ -26,6 +26,7 @@ pub(super) fn emit_instruction<'ctx>(
     arc: &ArcIntrinsics<'ctx>,
     string_builtins: &StringBuiltins<'ctx>,
     drop_fns: &HashMap<nudl_core::types::TypeId, FunctionValue<'ctx>>,
+    vtable_globals: &[GlobalValue<'ctx>],
 ) -> Result<(), BackendError> {
     // Macro for arithmetic ops with float/int dispatch
     macro_rules! emit_arith {
@@ -1592,6 +1593,175 @@ pub(super) fn emit_instruction<'ctx>(
                 .expect("map_contains returns i64")
                 .into_int_value();
             store(builder, register_allocas, dst.0, val)?;
+        }
+
+        // Dynamic dispatch
+        Instruction::DynWrap(dst, src, vtable_idx) => {
+            // A dyn value is an ARC object with layout:
+            //   [header(16)] [data_ptr(8)] [vtable_ptr(8)]
+            let i64_ty = context.i64_type();
+
+            // Load the source concrete object pointer (stored as i64)
+            let data_val = load_i64(context, builder, register_allocas, src.0)?;
+
+            // Allocate dyn wrapper: 16 (header) + 8 (data_ptr) + 8 (vtable_ptr) = 32 bytes
+            let dyn_size = i64_ty.const_int(32, false);
+            let type_tag = context.i32_type().const_zero();
+            let alloc_result = builder
+                .build_direct_call(
+                    arc.arc_alloc,
+                    &[dyn_size.into(), type_tag.into()],
+                    "dyn_alloc",
+                )
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let dyn_ptr = alloc_result
+                .try_as_basic_value()
+                .basic()
+                .expect("arc_alloc returns ptr")
+                .into_pointer_value();
+
+            // Store data_ptr at offset 16 (first field after header)
+            let data_field = unsafe {
+                builder
+                    .build_gep(
+                        context.i8_type(),
+                        dyn_ptr,
+                        &[i64_ty.const_int(ARC_HEADER_SIZE, false)],
+                        "dyn_data_field",
+                    )
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            };
+            builder
+                .build_store(data_field, data_val)
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+            // Store vtable pointer at offset 24 (second field)
+            let vtable_ptr_val = if (*vtable_idx as usize) < vtable_globals.len() {
+                let vtable_global = vtable_globals[*vtable_idx as usize];
+                builder
+                    .build_ptr_to_int(vtable_global.as_pointer_value(), i64_ty, "vtable_ptr_i64")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            } else {
+                i64_ty.const_zero()
+            };
+            let vtable_field = unsafe {
+                builder
+                    .build_gep(
+                        context.i8_type(),
+                        dyn_ptr,
+                        &[i64_ty.const_int(ARC_HEADER_SIZE + FIELD_SIZE, false)],
+                        "dyn_vtable_field",
+                    )
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            };
+            builder
+                .build_store(vtable_field, vtable_ptr_val)
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+            // Store dyn wrapper pointer as i64 in dst register
+            let ptr_as_i64 = builder
+                .build_ptr_to_int(dyn_ptr, i64_ty, "dyn_i64")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            store(builder, register_allocas, dst.0, ptr_as_i64)?;
+        }
+
+        Instruction::DynCall(dst, dyn_reg, method_idx, args, ret_ty) => {
+            let i64_ty = context.i64_type();
+            let ptr_ty = context.ptr_type(AddressSpace::default());
+
+            // Load dyn wrapper pointer
+            let dyn_ptr = load_ptr(context, builder, register_allocas, dyn_reg.0)?;
+
+            // Load data_ptr from offset 16 (first field)
+            let data_field = unsafe {
+                builder
+                    .build_gep(
+                        context.i8_type(),
+                        dyn_ptr,
+                        &[i64_ty.const_int(ARC_HEADER_SIZE, false)],
+                        "dyn_data_field",
+                    )
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            };
+            let data_ptr_i64 = builder
+                .build_load(i64_ty, data_field, "data_ptr")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                .into_int_value();
+
+            // Load vtable_ptr from offset 24 (second field)
+            let vtable_field = unsafe {
+                builder
+                    .build_gep(
+                        context.i8_type(),
+                        dyn_ptr,
+                        &[i64_ty.const_int(ARC_HEADER_SIZE + FIELD_SIZE, false)],
+                        "dyn_vtable_field",
+                    )
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            };
+            let vtable_ptr_i64 = builder
+                .build_load(i64_ty, vtable_field, "vtable_ptr")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                .into_int_value();
+            let vtable_ptr = builder
+                .build_int_to_ptr(vtable_ptr_i64, ptr_ty, "vtable_ptr_as_ptr")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+            // GEP into vtable at method_idx to get function pointer
+            let fn_ptr_addr = unsafe {
+                builder
+                    .build_gep(
+                        ptr_ty,
+                        vtable_ptr,
+                        &[i64_ty.const_int(*method_idx as u64, false)],
+                        "vtable_slot",
+                    )
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?
+            };
+            let fn_ptr = builder
+                .build_load(ptr_ty, fn_ptr_addr, "fn_ptr")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?
+                .into_pointer_value();
+
+            // Build call arguments: data_ptr (self) first, then the other args
+            // The self argument is passed as i64 (pointer to concrete object)
+            let mut call_args: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> =
+                vec![data_ptr_i64.into()];
+            let mut llvm_param_types: Vec<BasicMetadataTypeEnum<'ctx>> = vec![i64_ty.into()];
+
+            for arg_reg in args {
+                let val = load_i64(context, builder, register_allocas, arg_reg.0)?;
+                call_args.push(val.into());
+                llvm_param_types.push(i64_ty.into());
+            }
+
+            // Check if the return type is a float
+            let ret_is_float = matches!(
+                types.resolve(*ret_ty),
+                TypeKind::Primitive(p) if p.is_float()
+            );
+
+            let fn_type = if ret_is_float {
+                context.f64_type().fn_type(&llvm_param_types, false)
+            } else {
+                i64_ty.fn_type(&llvm_param_types, false)
+            };
+
+            let call_result = builder
+                .build_indirect_call(fn_type, fn_ptr, &call_args, "dyn_call")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+
+            if let Some(ret_val) = call_result.try_as_basic_value().basic() {
+                if ret_is_float {
+                    if let BasicValueEnum::FloatValue(fv) = ret_val {
+                        store(builder, register_allocas, dst.0, fv)?;
+                    }
+                } else if let BasicValueEnum::IntValue(iv) = ret_val {
+                    store(builder, register_allocas, dst.0, iv)?;
+                }
+            } else {
+                store(builder, register_allocas, dst.0, i64_ty.const_zero())?;
+            }
         }
     }
     Ok(())

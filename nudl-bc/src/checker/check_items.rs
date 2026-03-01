@@ -2,6 +2,7 @@ use super::*;
 
 impl Checker {
     pub(super) fn check_fn_body(&mut self, fn_name: &str, params: &[Param], body: &Spanned<Block>) {
+        let old_fn_name = std::mem::replace(&mut self.current_fn_name, fn_name.to_string());
         let mut locals = ScopedLocals::<LocalInfo>::new();
 
         let sig = self.functions.get(fn_name).cloned();
@@ -31,6 +32,7 @@ impl Checker {
                     found: self.type_name(body_ty),
                 });
         }
+        self.current_fn_name = old_fn_name;
     }
 
     pub(super) fn check_item(&mut self, item: &SpannedItem) {
@@ -326,6 +328,14 @@ impl Checker {
                 for pat in prefix.iter().chain(suffix.iter()) {
                     self.check_pattern_bindings(&pat.node, elem_ty, is_mut, locals);
                 }
+            }
+            Pattern::Or(alternatives) => {
+                for alt in alternatives {
+                    self.check_pattern_bindings(&alt.node, val_ty, is_mut, locals);
+                }
+            }
+            Pattern::Range { .. } => {
+                // Range patterns don't bind any variables
             }
         }
     }

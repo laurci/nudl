@@ -33,6 +33,8 @@ pub enum Value {
     DynArrayRef(u64),
     /// Map reference (index into Vm::maps).
     MapRef(u64),
+    /// Dynamic dispatch wrapper: (inner_value, vtable_index)
+    Dyn(Box<Value>, u32),
 }
 
 /// VM-internal dynamic array.
@@ -62,6 +64,7 @@ impl fmt::Display for Value {
             Value::HeapRef(id) => write!(f, "heap({})", id),
             Value::DynArrayRef(id) => write!(f, "dyn_array({})", id),
             Value::MapRef(id) => write!(f, "map({})", id),
+            Value::Dyn(inner, vtable_idx) => write!(f, "dyn({}, vtable={})", inner, vtable_idx),
         }
     }
 }

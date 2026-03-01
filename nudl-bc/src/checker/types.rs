@@ -408,6 +408,25 @@ impl Checker {
         );
     }
 
+    pub(super) fn primitive_type_id(&self, name: &str) -> Option<TypeId> {
+        match name {
+            "i8" => Some(self.types.i8()),
+            "i16" => Some(self.types.i16()),
+            "i32" => Some(self.types.i32()),
+            "i64" => Some(self.types.i64()),
+            "u8" => Some(self.types.u8()),
+            "u16" => Some(self.types.u16()),
+            "u32" => Some(self.types.u32()),
+            "u64" => Some(self.types.u64()),
+            "f32" => Some(self.types.f32()),
+            "f64" => Some(self.types.f64()),
+            "bool" => Some(self.types.bool()),
+            "char" => Some(self.types.char_type()),
+            "string" => Some(self.types.string()),
+            _ => None,
+        }
+    }
+
     pub(super) fn resolve_type(&mut self, ty: &Spanned<TypeExpr>) -> TypeId {
         match &ty.node {
             TypeExpr::Unit => self.types.unit(),
@@ -538,6 +557,11 @@ impl Checker {
                     params: param_types,
                     ret,
                 })
+            }
+            TypeExpr::ImplInterface { .. } => {
+                // impl Trait in function params is desugared during collection
+                // If we reach here, treat as error
+                self.types.error()
             }
         }
     }
@@ -1303,6 +1327,23 @@ impl Checker {
             self.types.resolve(ty),
             TypeKind::Primitive(p) if p.is_integer()
         )
+    }
+
+    /// Check if `src_ty as dst_ty` is a valid concrete→dyn interface cast.
+    /// Accepts both `as dyn Shape` and `as Shape` syntax.
+    pub(super) fn is_valid_dyn_cast(&self, src_ty: TypeId, dst_ty: TypeId) -> bool {
+        let iface_name = match self.types.resolve(dst_ty) {
+            TypeKind::DynInterface { name } => Some(name.clone()),
+            TypeKind::Interface { name, .. } => Some(name.clone()),
+            _ => None,
+        };
+        if let Some(iface_name) = iface_name {
+            let concrete_name = self.type_name(src_ty);
+            if let Some(impls) = self.interface_impls.get(&iface_name) {
+                return impls.contains(&concrete_name);
+            }
+        }
+        false
     }
 
     pub(super) fn is_unsuffixed_int_literal(&self, expr: &Expr) -> bool {

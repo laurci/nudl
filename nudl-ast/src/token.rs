@@ -51,6 +51,7 @@ pub enum TokenKind {
     Match,
     Defer,
     Import,
+    Where,
 
     // Delimiters
     LParen,
@@ -169,6 +170,7 @@ pub fn keyword_from_str(s: &str) -> Option<TokenKind> {
         "match" => Some(TokenKind::Match),
         "defer" => Some(TokenKind::Defer),
         "import" => Some(TokenKind::Import),
+        "where" => Some(TokenKind::Where),
         _ => None,
     }
 }

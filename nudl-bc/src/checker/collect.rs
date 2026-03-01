@@ -3,6 +3,28 @@ use nudl_core::types::EnumVariant;
 use super::*;
 
 impl Checker {
+    /// Merge where-clause bounds into type params.
+    /// For each predicate `T: Bound1 + Bound2`, find the matching type param and add the bounds.
+    fn merge_where_clauses(
+        type_params: &[TypeParam],
+        where_clauses: &[WherePredicate],
+    ) -> Vec<TypeParam> {
+        if where_clauses.is_empty() {
+            return type_params.to_vec();
+        }
+        let mut merged: Vec<TypeParam> = type_params.to_vec();
+        for pred in where_clauses {
+            if let Some(tp) = merged.iter_mut().find(|tp| tp.name == pred.type_name) {
+                for bound in &pred.bounds {
+                    if !tp.bounds.contains(bound) {
+                        tp.bounds.push(bound.clone());
+                    }
+                }
+            }
+        }
+        merged
+    }
+
     // --- Pass 1: Collect declarations ---
 
     pub(super) fn collect_fn_sig(
@@ -22,6 +44,33 @@ impl Checker {
             });
             return;
         }
+
+        // Desugar `impl Trait` parameters into hidden type params
+        let mut effective_type_params = type_params.to_vec();
+        let mut effective_params = params.to_vec();
+        let mut impl_counter = 0;
+        for param in &mut effective_params {
+            if let TypeExpr::ImplInterface {
+                name: iface_name, ..
+            } = &param.ty.node
+            {
+                // Generate a hidden type param name
+                let hidden_name = format!("__impl_{}", impl_counter);
+                impl_counter += 1;
+
+                // Add the hidden type param with the interface as a bound
+                effective_type_params.push(TypeParam {
+                    name: hidden_name.clone(),
+                    bounds: vec![iface_name.clone()],
+                    span: param.ty.span,
+                });
+
+                // Replace the param type with the hidden type param name
+                param.ty = Spanned::new(TypeExpr::Named(hidden_name), param.ty.span);
+            }
+        }
+        let type_params = &effective_type_params;
+        let params = &effective_params;
 
         // If the function has type parameters, store as a generic template
         if !type_params.is_empty() {
@@ -111,6 +160,8 @@ impl Checker {
                 return_type,
                 body,
                 is_pub,
+                where_clauses,
+                ..
             } => {
                 if name == "main" {
                     self.found_main = true;
@@ -120,9 +171,12 @@ impl Checker {
                     }
                 }
 
+                // Merge where-clause bounds into type params
+                let merged_type_params = Self::merge_where_clauses(type_params, where_clauses);
+
                 self.collect_fn_sig(
                     name,
-                    type_params,
+                    &merged_type_params,
                     params,
                     return_type,
                     Some(body),
@@ -252,6 +306,7 @@ impl Checker {
             }
             Item::InterfaceDef {
                 name,
+                type_params,
                 methods,
                 is_pub,
                 ..
@@ -259,6 +314,31 @@ impl Checker {
                 // Record type visibility
                 self.type_visibility
                     .insert(name.clone(), (*is_pub, item.span.file_id));
+
+                // Store method defs for default method body generation
+                self.interface_method_defs
+                    .insert(name.clone(), methods.clone());
+
+                // Generic interfaces: store template, don't resolve types yet
+                if !type_params.is_empty() {
+                    self.generic_interfaces.insert(
+                        name.clone(),
+                        GenericInterfaceDef {
+                            name: name.clone(),
+                            type_params: type_params.clone(),
+                            methods: methods.clone(),
+                            span: item.span,
+                        },
+                    );
+                    // Also register a placeholder interface type so lookups don't fail
+                    let type_id = self.types.intern(TypeKind::Interface {
+                        name: name.clone(),
+                        methods: vec![],
+                    });
+                    self.interfaces.insert(name.clone(), type_id);
+                    return;
+                }
+
                 let resolved_methods: Vec<nudl_core::types::InterfaceMethod> = methods
                     .iter()
                     .map(|m| {
@@ -291,7 +371,9 @@ impl Checker {
                 type_name,
                 type_args,
                 interface_name,
+                interface_type_args,
                 methods,
+                where_clauses,
                 ..
             } => {
                 // Check if the impl block is for a generic type (has type_args like `impl Foo<T>`)
@@ -319,10 +401,11 @@ impl Checker {
                             return_type,
                             body,
                             is_pub,
+                            ..
                         } = &method_item.node
                         {
                             // Collect type params from the type_args of the impl block
-                            let impl_type_params: Vec<TypeParam> = type_args
+                            let base_type_params: Vec<TypeParam> = type_args
                                 .iter()
                                 .filter_map(|a| {
                                     if let TypeExpr::Named(n) = &a.node {
@@ -337,6 +420,9 @@ impl Checker {
                                     }
                                 })
                                 .collect();
+                            // Merge where-clause bounds into the impl type params
+                            let impl_type_params =
+                                Self::merge_where_clauses(&base_type_params, where_clauses);
 
                             methods_list.push(GenericImplMethod {
                                 type_params: impl_type_params,
@@ -360,12 +446,13 @@ impl Checker {
                     return;
                 }
 
-                // Resolve the type for self parameter (struct or enum)
+                // Resolve the type for self parameter (struct, enum, or primitive)
                 let self_ty = self
                     .structs
                     .get(type_name)
                     .or_else(|| self.enums.get(type_name))
-                    .copied();
+                    .copied()
+                    .or_else(|| self.primitive_type_id(type_name));
                 if self_ty.is_none() {
                     self.diagnostics.add(&CheckerDiagnostic::UndefinedStruct {
                         span: item.span,
@@ -377,14 +464,49 @@ impl Checker {
 
                 // If this is an interface impl, record it
                 if let Some(iface_name) = interface_name {
-                    self.interface_impls
-                        .entry(iface_name.clone())
-                        .or_default()
-                        .push(type_name.clone());
+                    // For generic interfaces (e.g., Iterator<i32>), use mangled name
+                    if !interface_type_args.is_empty() {
+                        let resolved_iface_args: Vec<TypeId> = interface_type_args
+                            .iter()
+                            .map(|ta| self.resolve_type(ta))
+                            .collect();
+                        let mangled_iface = self.mangle_name(iface_name, &resolved_iface_args);
+                        self.interface_impls
+                            .entry(mangled_iface.clone())
+                            .or_default()
+                            .push(type_name.clone());
+                        // Also record under the base name for simpler lookups
+                        self.interface_impls
+                            .entry(iface_name.clone())
+                            .or_default()
+                            .push(type_name.clone());
+                    } else {
+                        self.interface_impls
+                            .entry(iface_name.clone())
+                            .or_default()
+                            .push(type_name.clone());
+                    }
                 }
 
                 // Set Self type scope so that Self resolves to the impl target type
                 self.type_param_scope.insert("Self".into(), self_ty);
+
+                // For generic interface impls, also set interface type params in scope
+                // so that method types resolve correctly (e.g., Option<T> -> Option<i32>)
+                if let Some(iface_name) = interface_name {
+                    if !interface_type_args.is_empty() {
+                        if let Some(generic_iface) =
+                            self.generic_interfaces.get(iface_name).cloned()
+                        {
+                            for (i, tp) in generic_iface.type_params.iter().enumerate() {
+                                if let Some(ta) = interface_type_args.get(i) {
+                                    let resolved = self.resolve_type(ta);
+                                    self.type_param_scope.insert(tp.name.clone(), resolved);
+                                }
+                            }
+                        }
+                    }
+                }
 
                 // Register each method as a mangled function: TypeName__methodname
                 for method_item in methods {
@@ -452,74 +574,172 @@ impl Checker {
                     }
                 }
 
-                // Validate interface completeness
+                // Validate interface completeness and generate default methods
                 if let Some(iface_name) = interface_name {
-                    if let Some(&iface_ty) = self.interfaces.get(iface_name) {
-                        if let TypeKind::Interface {
-                            methods: iface_methods,
-                            ..
-                        } = self.types.resolve(iface_ty).clone()
-                        {
-                            for iface_method in &iface_methods {
-                                let mangled = format!("{}__{}", type_name, iface_method.name);
-                                if let Some(impl_sig) = self.functions.get(&mangled) {
-                                    // Compare return types
-                                    let ret_match =
-                                        impl_sig.return_type == iface_method.return_type;
-                                    // Compare non-self params (skip first param which is self)
-                                    let iface_non_self: Vec<_> =
-                                        iface_method.params.iter().skip(1).collect();
-                                    let impl_non_self: Vec<_> =
-                                        impl_sig.params.iter().skip(1).collect();
-                                    let params_match = iface_non_self.len() == impl_non_self.len()
-                                        && iface_non_self.iter().zip(impl_non_self.iter()).all(
-                                            |((_, iface_ty), (_, impl_ty))| iface_ty == impl_ty,
-                                        );
-                                    if !ret_match || !params_match {
-                                        let expected = format!(
-                                            "fn({}) -> {}",
-                                            iface_non_self
-                                                .iter()
-                                                .map(|(n, t)| format!(
-                                                    "{}: {}",
-                                                    n,
-                                                    self.type_name(*t)
-                                                ))
-                                                .collect::<Vec<_>>()
-                                                .join(", "),
-                                            self.type_name(iface_method.return_type)
-                                        );
-                                        let found = format!(
-                                            "fn({}) -> {}",
-                                            impl_non_self
-                                                .iter()
-                                                .map(|(n, t)| format!(
-                                                    "{}: {}",
-                                                    n,
-                                                    self.type_name(*t)
-                                                ))
-                                                .collect::<Vec<_>>()
-                                                .join(", "),
-                                            self.type_name(impl_sig.return_type)
-                                        );
-                                        self.diagnostics.add(
-                                            &CheckerDiagnostic::InterfaceMethodSignatureMismatch {
-                                                span: item.span,
-                                                type_name: type_name.clone(),
-                                                interface_name: iface_name.clone(),
-                                                method: iface_method.name.clone(),
-                                                expected,
-                                                found,
-                                            },
-                                        );
-                                    }
+                    // Get the AST method defs to check for default bodies and required methods
+                    let method_defs = self.interface_method_defs.get(iface_name).cloned();
+                    if let Some(method_defs) = method_defs {
+                        // Collect names of methods the impl block provides
+                        let provided_methods: HashSet<String> = methods
+                            .iter()
+                            .filter_map(|m| {
+                                if let Item::FnDef { name, .. } = &m.node {
+                                    Some(name.clone())
                                 } else {
+                                    None
+                                }
+                            })
+                            .collect();
+
+                        for method_def in &method_defs {
+                            let mangled = format!("{}__{}", type_name, method_def.name);
+                            if !provided_methods.contains(&method_def.name) {
+                                // Method not provided — check for default body
+                                if let Some(ref default_body) = method_def.body {
+                                    // Generate the default method
+                                    let resolved_params: Vec<(String, TypeId)> = method_def
+                                        .params
+                                        .iter()
+                                        .map(|p| {
+                                            if p.is_self {
+                                                (p.name.clone(), self_ty)
+                                            } else {
+                                                (p.name.clone(), self.resolve_type(&p.ty))
+                                            }
+                                        })
+                                        .collect();
+                                    let has_default: Vec<bool> = method_def
+                                        .params
+                                        .iter()
+                                        .map(|p| p.default_value.is_some())
+                                        .collect();
+                                    let required_params =
+                                        has_default.iter().take_while(|d| !*d).count();
+                                    let is_method =
+                                        method_def.params.first().map_or(false, |p| p.is_self);
+                                    let is_mut_method = is_method
+                                        && method_def.params.first().map_or(false, |p| p.is_mut);
+                                    let ret_ty = method_def
+                                        .return_type
+                                        .as_ref()
+                                        .map(|t| self.resolve_type(t))
+                                        .unwrap_or_else(|| self.types.unit());
+
+                                    self.functions.insert(
+                                        mangled.clone(),
+                                        FunctionSig {
+                                            name: method_def.name.clone(),
+                                            params: resolved_params,
+                                            return_type: ret_ty,
+                                            kind: FunctionKind::UserDefined,
+                                            required_params,
+                                            has_default,
+                                            is_method,
+                                            is_mut_method,
+                                            generic_def: None,
+                                            is_pub: true,
+                                            source_file_id: item.span.file_id,
+                                        },
+                                    );
+
+                                    // Store the body for type-checking and codegen
+                                    let subst = self.type_param_scope.clone();
+                                    self.mono_fn_bodies.insert(
+                                        mangled.clone(),
+                                        (
+                                            method_def.params.clone(),
+                                            default_body.clone(),
+                                            subst.clone(),
+                                        ),
+                                    );
+                                    // Queue for type-checking
+                                    self.pending_mono_checks.push((
+                                        mangled,
+                                        method_def.params.clone(),
+                                        default_body.clone(),
+                                        subst,
+                                    ));
+                                } else {
+                                    // No default body — this is a missing required method
                                     self.diagnostics.add(
                                         &CheckerDiagnostic::MissingInterfaceMethod {
                                             span: item.span,
                                             type_name: type_name.clone(),
                                             interface_name: iface_name.clone(),
-                                            method: iface_method.name.clone(),
+                                            method: method_def.name.clone(),
+                                        },
+                                    );
+                                }
+                            }
+                            // Skip signature matching for generic interfaces (types were resolved
+                            // with substitution, so the placeholder interface types won't match)
+                        }
+                    }
+
+                    // Signature matching using AST method defs with current scope
+                    // (Self is set to self_ty, so Self references resolve correctly)
+                    if let Some(method_defs_for_check) =
+                        self.interface_method_defs.get(iface_name).cloned()
+                    {
+                        for method_def in &method_defs_for_check {
+                            let mangled = format!("{}__{}", type_name, method_def.name);
+                            let impl_sig = self.functions.get(&mangled).cloned();
+                            if let Some(impl_sig) = impl_sig {
+                                // Resolve the expected types from AST with Self in scope
+                                let expected_params: Vec<(String, TypeId)> = method_def
+                                    .params
+                                    .iter()
+                                    .map(|p| {
+                                        if p.is_self {
+                                            (p.name.clone(), self_ty)
+                                        } else {
+                                            (p.name.clone(), self.resolve_type(&p.ty))
+                                        }
+                                    })
+                                    .collect();
+                                let expected_ret = method_def
+                                    .return_type
+                                    .as_ref()
+                                    .map(|t| self.resolve_type(t))
+                                    .unwrap_or_else(|| self.types.unit());
+
+                                let ret_match = impl_sig.return_type == expected_ret;
+                                let expected_non_self: Vec<_> =
+                                    expected_params.iter().skip(1).collect();
+                                let impl_non_self: Vec<_> =
+                                    impl_sig.params.iter().skip(1).collect();
+                                let params_match = expected_non_self.len() == impl_non_self.len()
+                                    && expected_non_self
+                                        .iter()
+                                        .zip(impl_non_self.iter())
+                                        .all(|((_, exp_ty), (_, impl_ty))| exp_ty == impl_ty);
+                                if !ret_match || !params_match {
+                                    let expected = format!(
+                                        "fn({}) -> {}",
+                                        expected_non_self
+                                            .iter()
+                                            .map(|(n, t)| format!("{}: {}", n, self.type_name(*t)))
+                                            .collect::<Vec<_>>()
+                                            .join(", "),
+                                        self.type_name(expected_ret)
+                                    );
+                                    let found = format!(
+                                        "fn({}) -> {}",
+                                        impl_non_self
+                                            .iter()
+                                            .map(|(n, t)| format!("{}: {}", n, self.type_name(*t)))
+                                            .collect::<Vec<_>>()
+                                            .join(", "),
+                                        self.type_name(impl_sig.return_type)
+                                    );
+                                    self.diagnostics.add(
+                                        &CheckerDiagnostic::InterfaceMethodSignatureMismatch {
+                                            span: item.span,
+                                            type_name: type_name.clone(),
+                                            interface_name: iface_name.clone(),
+                                            method: method_def.name.clone(),
+                                            expected,
+                                            found,
                                         },
                                     );
                                 }
@@ -528,8 +748,15 @@ impl Checker {
                     }
                 }
 
-                // Clear Self type scope
+                // Clear Self type scope and any interface type params
                 self.type_param_scope.remove("Self");
+                if let Some(iface_name) = interface_name {
+                    if let Some(generic_iface) = self.generic_interfaces.get(iface_name).cloned() {
+                        for tp in &generic_iface.type_params {
+                            self.type_param_scope.remove(&tp.name);
+                        }
+                    }
+                }
             }
             Item::Import { .. } => {
                 // Imports are handled at the pipeline level

@@ -130,6 +130,7 @@ fn no_entry_function_error() {
         interner: nudl_core::intern::StringInterner::new(),
         types: nudl_core::types::TypeInterner::new(),
         source_map: None,
+        vtables: vec![],
     };
     let mut vm = Vm::new();
     let result = vm.run(&program);

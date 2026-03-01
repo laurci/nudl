@@ -292,7 +292,7 @@ fn fmt_ast_expr(expr: &Expr, out: &mut String, level: usize) {
         Expr::Ident(name) => {
             out.push_str(&format!("Ident \"{}\"", name));
         }
-        Expr::Call { callee, args } => {
+        Expr::Call { callee, args, .. } => {
             out.push_str("Call ");
             fmt_ast_expr(&callee.node, out, level);
             out.push('\n');
@@ -474,6 +474,7 @@ fn fmt_ast_expr(expr: &Expr, out: &mut String, level: usize) {
             object,
             method,
             args,
+            ..
         } => {
             fmt_ast_expr(&object.node, out, level);
             out.push_str(&format!(".{}(\n", method));
@@ -492,6 +493,7 @@ fn fmt_ast_expr(expr: &Expr, out: &mut String, level: usize) {
             type_name,
             method,
             args,
+            ..
         } => {
             out.push_str(&format!("{}::{}(\n", type_name, method));
             for arg in args {
@@ -607,6 +609,14 @@ fn fmt_type_expr(ty: &TypeExpr) -> String {
                 parts.join(", "),
                 fmt_type_expr(&return_type.node)
             )
+        }
+        TypeExpr::ImplInterface { name, type_args } => {
+            if type_args.is_empty() {
+                format!("impl {}", name)
+            } else {
+                let parts: Vec<String> = type_args.iter().map(|a| fmt_type_expr(&a.node)).collect();
+                format!("impl {}<{}>", name, parts.join(", "))
+            }
         }
     }
 }
