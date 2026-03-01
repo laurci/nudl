@@ -1,0 +1,10 @@
+// Test: generic function with type inference
+
+fn identity<T>(x: T) -> T {
+    x
+}
+
+fn main() {
+    let a = identity(42);
+    let b = identity("hello");
+}

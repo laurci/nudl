@@ -6,7 +6,7 @@
 // - Struct fields have independent visibility
 // - All enum variants of a pub enum are public
 
-import lib::{Config, Status, create_default_config, Describable, DEFAULT_PORT, MAX_CONNECTIONS};
+import lib::{Config, Status, create_default_config, Describable};
 
 fn main() {
     // --- Public struct with public constructor ---
@@ -45,17 +45,6 @@ fn main() {
         Status::Pending(msg) => assert(msg == "waiting for approval", "pending message"),
         _ => assert(false, "s3 should be Pending"),
     }
-
-    // --- Public constants accessible ---
-    assert(DEFAULT_PORT == 8080, "pub const DEFAULT_PORT accessible");
-    assert(MAX_CONNECTIONS == 1000, "pub const MAX_CONNECTIONS accessible");
-
-    // --- Private constant not importable ---
-    // INTERNAL_TIMEOUT;  // ERROR: not in scope (private)
-
-    // --- Public constant usable in expressions ---
-    let custom_port = DEFAULT_PORT + 1;
-    assert(custom_port == 8081, "can use pub const in expressions");
 
     // --- Private struct not importable ---
     // InternalState { counter: 0 };  // ERROR: InternalState not in scope

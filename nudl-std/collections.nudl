@@ -1,0 +1,46 @@
+// nudl standard library: collections module
+// Collection data structures and utilities
+
+/// Check if a value exists in an i32 array
+pub fn contains(arr: i32[], value: i32) -> bool {
+    let mut i = 0i64;
+    while i < arr.len() {
+        if arr[i] == value {
+            return true;
+        }
+        i = i + 1i64;
+    }
+    false
+}
+
+/// Find the minimum value in an i32 array (returns 0 for empty)
+pub fn array_min(arr: i32[]) -> i32 {
+    if arr.len() == 0i64 {
+        return 0;
+    }
+    let mut result = arr[0];
+    let mut i = 1i64;
+    while i < arr.len() {
+        if arr[i] < result {
+            result = arr[i];
+        }
+        i = i + 1i64;
+    }
+    result
+}
+
+/// Find the maximum value in an i32 array (returns 0 for empty)
+pub fn array_max(arr: i32[]) -> i32 {
+    if arr.len() == 0i64 {
+        return 0;
+    }
+    let mut result = arr[0];
+    let mut i = 1i64;
+    while i < arr.len() {
+        if arr[i] > result {
+            result = arr[i];
+        }
+        i = i + 1i64;
+    }
+    result
+}

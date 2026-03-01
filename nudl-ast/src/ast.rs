@@ -4,83 +4,172 @@ pub type SpannedItem = Spanned<Item>;
 pub type SpannedExpr = Spanned<Expr>;
 pub type SpannedStmt = Spanned<Stmt>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Module {
     pub items: Vec<SpannedItem>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Item {
     FnDef {
         name: String,
+        type_params: Vec<TypeParam>,
         params: Vec<Param>,
         return_type: Option<Spanned<TypeExpr>>,
+        where_clauses: Vec<WherePredicate>,
         body: Spanned<Block>,
         is_pub: bool,
     },
     StructDef {
         name: String,
+        type_params: Vec<TypeParam>,
         fields: Vec<StructField>,
         is_pub: bool,
+        is_extern: bool,
+    },
+    EnumDef {
+        name: String,
+        type_params: Vec<TypeParam>,
+        variants: Vec<EnumVariantDef>,
+        is_pub: bool,
+    },
+    InterfaceDef {
+        name: String,
+        type_params: Vec<TypeParam>,
+        methods: Vec<InterfaceMethodDef>,
+        is_pub: bool,
+    },
+    ImplBlock {
+        type_name: String,
+        type_args: Vec<Spanned<TypeExpr>>,
+        interface_name: Option<String>,
+        interface_name_span: Option<Span>,
+        interface_type_args: Vec<Spanned<TypeExpr>>,
+        where_clauses: Vec<WherePredicate>,
+        methods: Vec<SpannedItem>,
     },
     ExternBlock {
         library: Option<String>,
         items: Vec<Spanned<ExternFnDecl>>,
     },
+    /// Import statement: `import std::io;` or `import std::io::{print, println};`
+    Import {
+        path: Vec<String>,          // e.g., ["std", "io"]
+        items: Option<Vec<String>>, // None = import whole module, Some = specific items
+        alias: Option<String>,      // e.g., `as p`
+    },
+    /// Type alias: `type Name = ExistingType;`
+    TypeAlias {
+        name: String,
+        ty: Spanned<TypeExpr>,
+        is_pub: bool,
+    },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub struct TypeParam {
+    pub name: String,
+    pub bounds: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct WherePredicate {
+    pub type_name: String,
+    pub bounds: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct EnumVariantDef {
+    pub name: String,
+    pub kind: VariantKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub enum VariantKind {
+    Unit,
+    Tuple(Vec<Spanned<TypeExpr>>),
+    Struct(Vec<StructField>),
+}
+
+#[derive(Debug, Clone)]
+pub struct InterfaceMethodDef {
+    pub name: String,
+    pub params: Vec<Param>,
+    pub return_type: Option<Spanned<TypeExpr>>,
+    pub body: Option<Spanned<Block>>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
 pub struct StructField {
     pub name: String,
     pub ty: Spanned<TypeExpr>,
     pub span: Span,
+    pub is_pub: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Param {
     pub name: String,
     pub ty: Spanned<TypeExpr>,
     pub is_mut: bool,
+    pub is_self: bool,
+    pub default_value: Option<Box<SpannedExpr>>,
     pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExternFnDecl {
     pub name: String,
     pub params: Vec<Param>,
     pub return_type: Option<Spanned<TypeExpr>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Block {
     pub stmts: Vec<SpannedStmt>,
     pub tail_expr: Option<Box<SpannedExpr>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Stmt {
     Expr(SpannedExpr),
     Let {
-        name: String,
+        name: Spanned<String>,
+        ty: Option<Spanned<TypeExpr>>,
+        value: SpannedExpr,
+        is_mut: bool,
+    },
+    /// Pattern-based let: `let (a, b) = expr;` or `let Foo { x, y } = expr;`
+    LetPattern {
+        pattern: Spanned<Pattern>,
         ty: Option<Spanned<TypeExpr>>,
         value: SpannedExpr,
         is_mut: bool,
     },
     Const {
-        name: String,
+        name: Spanned<String>,
         ty: Option<Spanned<TypeExpr>>,
         value: SpannedExpr,
+    },
+    /// Defer statement: `defer { ... }`
+    Defer {
+        body: Spanned<Block>,
     },
     Item(SpannedItem),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expr {
     Literal(Literal),
     Ident(String),
     Call {
         callee: Box<SpannedExpr>,
         args: Vec<CallArg>,
+        type_args: Vec<Spanned<TypeExpr>>,
     },
     Block(Block),
     Return(Option<Box<SpannedExpr>>),
@@ -136,6 +225,18 @@ pub enum Expr {
         object: Box<SpannedExpr>,
         field: String,
     },
+    MethodCall {
+        object: Box<SpannedExpr>,
+        method: String,
+        args: Vec<CallArg>,
+        type_args: Vec<Spanned<TypeExpr>>,
+    },
+    StaticCall {
+        type_name: String,
+        method: String,
+        args: Vec<CallArg>,
+        type_args: Vec<Spanned<TypeExpr>>,
+    },
     TupleLiteral(Vec<SpannedExpr>),
     ArrayLiteral(Vec<SpannedExpr>),
     ArrayRepeat {
@@ -152,10 +253,43 @@ pub enum Expr {
         inclusive: bool,
     },
     For {
-        binding: String,
+        binding: Spanned<String>,
         iter: Box<SpannedExpr>,
         body: Box<Spanned<Block>>,
     },
+    /// Enum variant construction: `Color::Red`, `Shape::Circle(5.0)`
+    EnumLiteral {
+        enum_name: String,
+        variant: String,
+        args: Vec<SpannedExpr>,
+    },
+    /// Match expression
+    Match {
+        expr: Box<SpannedExpr>,
+        arms: Vec<MatchArm>,
+    },
+    /// if let pattern = expr { ... } else { ... }
+    IfLet {
+        pattern: Spanned<Pattern>,
+        expr: Box<SpannedExpr>,
+        then_branch: Box<Spanned<Block>>,
+        else_branch: Option<Box<SpannedExpr>>,
+    },
+    /// Closure: `|params| body` or `|params| -> RetType { body }`
+    Closure {
+        params: Vec<ClosureParam>,
+        return_type: Option<Spanned<TypeExpr>>,
+        body: Box<SpannedExpr>,
+    },
+    /// `?` postfix error propagation: `expr?`
+    QuestionMark(Box<SpannedExpr>),
+}
+
+#[derive(Debug, Clone)]
+pub struct ClosureParam {
+    pub name: String,
+    pub ty: Option<Spanned<TypeExpr>>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -199,7 +333,7 @@ pub enum IntSuffix {
     U64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Literal {
     String(String),
     /// Template string: alternating text parts and expression parts.
@@ -215,13 +349,51 @@ pub enum Literal {
     Char(char),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CallArg {
     pub name: Option<String>,
     pub value: SpannedExpr,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub struct MatchArm {
+    pub pattern: Spanned<Pattern>,
+    pub guard: Option<SpannedExpr>,
+    pub body: SpannedExpr,
+}
+
+#[derive(Debug, Clone)]
+pub enum Pattern {
+    Wildcard,
+    Binding(String),
+    Literal(Literal),
+    Tuple(Vec<Spanned<Pattern>>),
+    Enum {
+        enum_name: Option<String>,
+        variant: String,
+        fields: Vec<Spanned<Pattern>>,
+    },
+    Struct {
+        name: String,
+        fields: Vec<(String, Spanned<Pattern>)>, // (field_name, pattern)
+        has_rest: bool,                          // true if `..` is present
+    },
+    Array {
+        prefix: Vec<Spanned<Pattern>>, // elements before ..
+        suffix: Vec<Spanned<Pattern>>, // elements after .. (empty if no ..)
+        has_rest: bool,                // whether .. is present
+    },
+    /// Or-pattern: `p1 | p2 | p3`
+    Or(Vec<Spanned<Pattern>>),
+    /// Range pattern: `0..=100`, `'a'..='z'`
+    Range {
+        start: Literal,
+        end: Literal,
+        inclusive: bool,
+    },
+}
+
+#[derive(Debug, Clone)]
 pub enum TypeExpr {
     Named(String),
     Unit,
@@ -229,5 +401,28 @@ pub enum TypeExpr {
     FixedArray {
         element: Box<Spanned<TypeExpr>>,
         length: usize,
+    },
+    /// Generic type: `Map<K, V>`, `Option<T>`, etc.
+    Generic {
+        name: String,
+        args: Vec<Spanned<TypeExpr>>,
+    },
+    /// Dynamic array type: `T[]`
+    DynamicArray {
+        element: Box<Spanned<TypeExpr>>,
+    },
+    /// Dynamic interface type: `dyn Interface`
+    DynInterface {
+        name: String,
+    },
+    /// Function/closure type: `|i32, i32| -> i32` or `|| -> bool`
+    FnType {
+        params: Vec<Spanned<TypeExpr>>,
+        return_type: Box<Spanned<TypeExpr>>,
+    },
+    /// `impl Interface` in parameter position (desugared to hidden type param)
+    ImplInterface {
+        name: String,
+        type_args: Vec<Spanned<TypeExpr>>,
     },
 }

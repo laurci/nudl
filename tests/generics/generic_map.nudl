@@ -1,0 +1,14 @@
+fn map<T, K>(input: T[], f: |T| -> K) -> K[] {
+    let mut result: i32[] = [];
+
+    for x in input {
+        result.push(f(x));
+    }
+
+    result
+}
+
+fn main() {
+    let nums: i32[] = [1, 2, 3];
+    let doubled = map(nums, |x| { x * 2 });
+}

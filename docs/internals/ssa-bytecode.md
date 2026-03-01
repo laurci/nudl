@@ -15,7 +15,7 @@ the comptime VM, and the native backend. Design goals:
 - **Flat.** No nested expressions. Every operation takes register operands and
   produces a register result. This makes analysis and codegen straightforward.
 - **Shared.** The same bytecode is consumed by `nudl-vm` (interpretation) and
-  `nudl-backend-arm64` (native compilation). No separate IR for comptime vs
+  `nudl-backend-llvm` (native compilation). No separate IR for comptime vs
   runtime.
 
 ### 3.2 Structure

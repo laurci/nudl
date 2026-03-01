@@ -1,0 +1,243 @@
+import std::ffi;
+import std::math;
+
+import vec;
+
+pub extern struct Color {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
+}
+
+pub extern struct Image {
+    data: RawPtr,
+    width: i32,
+    height: i32,
+    mipmaps: i32,
+    format: i32,
+}
+
+pub extern struct Texture {
+    id: u32,
+    pub width: i32,
+    pub height: i32,
+    mipmaps: i32,
+    format: i32,
+}
+
+extern struct AudioStream {
+    buffer: RawPtr,
+    audio_processor: RawPtr,
+    sample_rate: u32,
+    sample_size: u32,
+    channels: u32,
+}
+
+pub extern struct Sound {
+    stream: AudioStream,
+    frame_count: u32,
+}
+
+
+extern struct Rect {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+impl Rect { 
+    pub fn new(x: i32, y: i32, width: i32, height: i32) -> Self {
+        Rect {
+            x: x as f32,
+            y: y as f32,    
+            width: width as f32,
+            height: height as f32,
+        }
+    }    
+
+    pub fn to_string(self) -> string {
+        `Rect(x: {self.x}, y: {self.y}, w: {self.width}, h: {self.height})`    
+    }
+}
+
+extern struct Vector2 {
+    pub x: f32,
+    pub y: f32,
+}
+
+impl Vector2 {
+    pub fn from_vec(input: Vec2) -> Self {
+        Vector2 {
+            x: input.x as f32,
+            y: input.y as f32,    
+        }
+    }    
+
+    pub fn to_string(self) -> string {
+        `Vector2(x: {self.x} y: {self.y})`    
+    }
+}
+
+pub enum Key {
+    Space,
+    Down,
+    Up,
+}
+
+impl Key {
+    pub fn key_code(self) -> i32 {
+        match self {
+            Key::Space => 32,
+            Key::Down => 264,
+            Key::Up => 265,
+            _ => panic("this shouldn't happen"),    
+        }
+    }
+}
+
+extern {
+    fn InitWindow(width: i32, height: i32, title: RawPtr) -> ();
+    fn InitAudioDevice() -> ();
+    fn SetTargetFPS(fps: i32) -> ();
+    fn CloseWindow() -> ();
+    fn CloseAudioDevice() -> ();
+    fn WindowShouldClose() -> bool;
+    fn BeginDrawing() -> ();
+    fn EndDrawing() -> ();
+    fn ClearBackground(color: Color) -> ();
+    fn DrawRectangle(x: i32, y: i32, w: i32, h: i32, color: Color) -> ();
+    fn GetColor(hexValue: u32) -> Color;
+    fn LoadImage(fileName: RawPtr) -> Image;
+    fn LoadTextureFromImage(image: Image) -> Texture;
+    fn UnloadImage(image: Image) -> ();
+    fn UnloadTexture(texture: Texture) -> ();
+    fn DrawTexturePro(texture: Texture, src: Rect, dst: Rect, orig: Vector2, rotation: f32, color: Color) -> ();
+    fn LoadSound(file_name: RawPtr) -> Sound;
+    fn PlaySound(sound: Sound) -> ();
+    fn UnloadSound(sound: Sound) -> ();
+    fn IsKeyPressed(key: i32) -> bool;
+    fn IsKeyDown(key: i32) -> bool;
+
+    fn rand() -> i32;
+}
+
+pub fn init_game(width: i32, height: i32, title: string, fps: i32 = 60) {
+    InitWindow(width, height, cstr(title));
+    InitAudioDevice();
+    SetTargetFPS(fps);
+}
+
+pub fn close_game() {
+    CloseAudioDevice();
+    CloseWindow();
+}
+
+impl Color {
+    fn new(r: u8, g: u8, b: u8, a: u8) -> Color {
+        Color { r, g, b, a }
+    }
+
+    fn red() -> Color {
+        Color::new(230u8, 41u8, 55u8, 255u8)
+    }
+
+    fn green() -> Color {
+        Color::new(0u8, 228u8, 48u8, 255u8)
+    }
+
+    fn blue() -> Color {
+        Color::new(0u8, 121u8, 241u8, 255u8)
+    }
+
+    fn white() -> Color {
+        Color::new(245u8, 245u8, 245u8, 255u8)
+    }
+
+    fn black() -> Color {
+        Color::new(0u8, 0u8, 0u8, 255u8)
+    }
+}
+
+pub fn run_game_loop() -> bool {
+    !WindowShouldClose()
+}
+
+pub fn begin_drawing() {
+    BeginDrawing()
+}
+
+pub fn end_drawing() {
+    EndDrawing()
+}
+
+pub fn clear_background(color: Color) {
+    ClearBackground(color)
+}
+
+pub fn draw_rectangle(x: i32, y: i32, w: i32, h: i32, color: Color) {
+    DrawRectangle(x, y, w, h, color)
+}
+
+pub fn get_color(hexValue: u32) -> Color {
+    GetColor(hexValue)
+}
+
+pub fn load_image(fileName: string) -> Image {
+    LoadImage(cstr(fileName))
+}
+
+pub fn load_texture_from_image(image: Image) -> Texture {
+    LoadTextureFromImage(image)
+}
+
+pub fn unload_image(image: Image) {
+    UnloadImage(image)
+}
+
+pub fn unload_texture(texture: Texture) {
+    UnloadTexture(texture)
+}
+
+pub fn draw_texture(texture: Texture, pos: Vec2, color: Color = Color::white(), rotation: f32 = 0.0 as f32) {
+    let src = Rect::new(0, 0, texture.width, texture.height);
+    let dst = Rect::new(pos.x, pos.y, texture.width, texture.height);
+    let origin = Vector2 {
+        x: (texture.height / 2) as f32,
+        y: (texture.width / 2) as f32,
+    };
+    DrawTexturePro(texture, src, dst, origin, rotation, color);
+}
+
+pub fn load_texture(file_name: string) -> Texture {
+    let image = load_image(file_name);
+    let texture = load_texture_from_image(image);
+    unload_image(image);
+    texture
+}
+
+pub fn load_sound(file_name: string) -> Sound {
+    let sound = LoadSound(cstr(file_name));
+    sound
+}
+
+pub fn unload_sound(sound: Sound) -> () {
+    UnloadSound(sound);
+}
+
+pub fn play_sound(sound: Sound) -> () {
+    PlaySound(sound)
+}
+
+pub fn is_key_pressed(key: Key) -> bool {
+    IsKeyPressed(key.key_code())
+}
+
+pub fn is_key_down(key: Key) -> bool {
+    IsKeyDown(key.key_code())
+}
+
+pub fn rand_int(range: (i32, i32)) -> i32 {
+    range.0 + rand() % (range.1 - range.0 + 1)
+}

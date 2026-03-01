@@ -14,7 +14,7 @@ generated, and how each crate in the workspace contributes to the whole.
 
 ### 1.1 Crate Map
 
-The nudl compiler is a Rust workspace composed of nine crates. The dependency
+The nudl compiler is a Rust workspace composed of seven crates. The dependency
 graph flows top-down:
 
 ```
@@ -22,17 +22,15 @@ graph flows top-down:
                             |                  |
                             +--------+---------+
                                      |
-                              nudl-backend-arm64
-                               /           \
-                       nudl-packer-macho   nudl-packer-elf
-                               \           /
-                                nudl-vm
-                                  |
-                                nudl-bc
-                                  |
-                                nudl-ast
-                                  |
-                                nudl-core
+                              nudl-backend-llvm
+                                     |
+                                  nudl-vm
+                                     |
+                                  nudl-bc
+                                     |
+                                  nudl-ast
+                                     |
+                                  nudl-core
 ```
 
 ### 1.2 Crate Responsibilities
@@ -43,10 +41,8 @@ graph flows top-down:
 | `nudl-ast` | Lexer and parser. Transforms source text into an untyped AST |
 | `nudl-bc` | Type checker and SSA bytecode generator. Transforms the AST into type-checked SSA bytecode IR. Inserts ARC retain/release operations |
 | `nudl-vm` | Register-based virtual machine. Interprets SSA bytecode for comptime evaluation |
-| `nudl-backend-arm64` | Native code generator. Lowers SSA bytecode to ARM64 machine code |
-| `nudl-packer-macho` | Produces Mach-O executables for macOS/Darwin targets |
-| `nudl-packer-elf` | Produces ELF executables for Linux targets |
-| `nudl-cli` | Command-line frontend (`nudl build`, `nudl run`, `nudl check`, `nudl fmt`) |
+| `nudl-backend-llvm` | LLVM-based native code generator. Lowers SSA bytecode to LLVM IR via Inkwell, then compiles to object files and links into native executables using the system linker |
+| `nudl-cli` | Command-line frontend (`nudl build`, `nudl run`, `nudl check`, `nudl fmt`) with `--dump-ast`, `--dump-ir`, `--dump-llvm-ir`, `--dump-asm` flags |
 | `nudl-lsp` | Language Server Protocol implementation for editor integration |
 
 ### 1.3 Data Flow
@@ -88,21 +84,18 @@ and comptime feedback loops:
                    |
                    | (non-comptime BC)
                    v
-          +----------------+
-          | ARM64 Backend  |
-          +----------------+
-          (nudl-backend-arm64)
+          +------------------+
+          | LLVM Backend     |    SSA → LLVM IR → object file
+          +------------------+
+          (nudl-backend-llvm)
                    |
                    v
-       +-----------+-----------+
-       |                       |
-  +-----------+          +-----------+
-  | Mach-O    |          | ELF       |
-  | Packer    |          | Packer    |
-  +-----------+          +-----------+
-       |                       |
-       v                       v
-   a.out (macOS)         a.out (Linux)
+          +------------------+
+          | System Linker    |    links object file + ARC runtime
+          +------------------+
+                   |
+                   v
+            native executable
 ```
 
 ---
@@ -276,16 +269,17 @@ VM can produce:
 
 See Section 5 for the full comptime execution model.
 
-### 2.5 SSA BC to ARM64 Machine Code
+### 2.5 SSA BC to Native Code (LLVM Backend)
 
-The `nudl-backend-arm64` crate translates SSA bytecode into ARM64 instructions.
-This involves instruction selection, register allocation, and ABI conformance.
-See Section 7 for details.
+The `nudl-backend-llvm` crate translates SSA bytecode into LLVM IR using the
+Inkwell library (Rust bindings for LLVM 18). LLVM then handles optimization,
+instruction selection, register allocation, and object file emission. The
+backend compiles the ARC runtime (`runtime/nudl_rt.c`) and links it together
+with the generated object file using the system linker to produce a native
+executable. See Section 7 for details.
 
-### 2.6 Machine Code to Binary
-
-The packer crates (`nudl-packer-macho`, `nudl-packer-elf`) take the emitted
-machine code and data sections and wrap them in the appropriate executable
-format. See Section 8 for details.
+String parameters are expanded to `(ptr, i64)` pairs in the LLVM function
+signatures. The backend also generates DWARF debug symbols and supports
+`--dump-llvm-ir` and `--dump-asm` flags for inspecting the generated code.
 
 ---

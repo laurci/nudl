@@ -1,0 +1,22 @@
+fn maybe_decrement(n: i64) -> Option<i64> {
+    if n > 0i64 {
+        Option::Some(n - 1i64)
+    } else {
+        Option::None
+    }
+}
+
+fn main() {
+    let mut x: i64 = 5i64;
+
+    while x > 0i64 {
+        if let Option::Some(next) = maybe_decrement(x) {
+            println(`x was {x}, next is {next}`);
+            x = next;
+        } else {
+            break;
+        }
+    }
+
+    println(`done, x = {x}`);
+}

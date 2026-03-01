@@ -1,0 +1,11 @@
+// Test: generic enum with type inference
+
+enum Option<T> {
+    Some(T),
+    None,
+}
+
+fn main() {
+    let x = Option::Some(42);
+    let y = Option::Some("hello");
+}

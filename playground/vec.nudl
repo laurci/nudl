@@ -1,0 +1,38 @@
+pub struct Vec2 {
+    pub x: i32,
+    pub y: i32,
+}
+
+impl Vec2 {
+    pub fn zero() -> Vec2 {
+        Vec2 { x: 0, y: 0 }
+    }
+
+    pub fn clone(self) -> Vec2 {
+        Vec2 { x: self.x, y: self.y }    
+    }
+
+    pub fn clamp(self, min: Vec2, max: Vec2) -> Vec2 {
+        Vec2 { x: clamp(self.x, min.x, max.x), y: clamp(self.y, min.y, max.y) }
+    }
+
+    pub fn add(self, other: Vec2) -> Vec2 {
+        Vec2 { x: self.x + other.x, y: self.y + other.y }
+    }
+
+    pub fn sub(self, other: Vec2) -> Vec2 {
+        Vec2 { x: self.x - other.x, y: self.y - other.y }
+    }
+
+    pub fn mul(self, scalar: i32) -> Vec2 {
+        Vec2 { x: self.x * scalar, y: self.y * scalar }
+    }
+
+    pub fn div(self, scalar: i32) -> Vec2 {
+        Vec2 { x: self.x / scalar, y: self.y / scalar }
+    }
+
+    pub fn to_string(self) -> string {
+        `Vec2(x: {self.x}, y: {self.y})`    
+    }
+}

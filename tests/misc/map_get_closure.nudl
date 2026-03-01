@@ -1,0 +1,27 @@
+fn main() {
+    let mut target: Map<i64, i64> = Map::new();
+    target.insert(3, 3);
+    target.insert(4, 1);
+
+    // Standalone calls - should work
+    let c1 = target.get(3).unwrap_or(0);
+    println(`standalone 3 = {c1}`);
+    let c2 = target.get(4).unwrap_or(0);
+    println(`standalone 4 = {c2}`);
+
+    println("");
+
+    // Inside a map closure - this is where the crash happens
+    let search: i64[] = [3i64, 4i64, 2i64, 1i64, 3i64, 3i64];
+    let results: i64[] = search |> map {
+        let count = target.get(it).unwrap_or(0);
+        println(`{it} = {count}`);
+        it * count
+    };
+
+    println("");
+    println(`results len = {results.len()}`);
+
+    let total = results |> fold(initial: 0i64) |item, acc| { acc + item };
+    println(`total = {total}`);
+}

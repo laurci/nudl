@@ -1,0 +1,34 @@
+// Test: Basic dynamic dispatch with explicit `as Interface` casts
+
+interface Shape {
+    fn area(self) -> i32;
+}
+
+struct Circle { radius: i32 }
+struct Square { side: i32 }
+
+impl Shape for Circle {
+    fn area(self) -> i32 { self.radius * self.radius * 3 }
+}
+
+impl Shape for Square {
+    fn area(self) -> i32 { self.side * self.side }
+}
+
+fn total_area(shapes: (dyn Shape)[]) -> i32 {
+    let mut sum: i32 = 0;
+    let mut i: i32 = 0;
+    while i < shapes.len() as i32 {
+        sum = sum + shapes[i as i64].area();
+        i = i + 1;
+    }
+    sum
+}
+
+fn main() {
+    let shapes: (dyn Shape)[] = [];
+    shapes.push(Circle{radius: 2} as Shape);
+    shapes.push(Square{side: 3} as Shape);
+    let total = total_area(shapes);
+    println(`total area = {total}`);
+}

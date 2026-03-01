@@ -12,9 +12,16 @@ function createClient(): LanguageClient {
 	const configPath = config.get<string>('serverPath', '');
 	const serverCommand = configPath || 'nudl-lsp';
 
+	const stdPath = config.get<string>('stdPath', '');
+	const env: Record<string, string> = { ...process.env as Record<string, string> };
+	if (stdPath) {
+		env['NUDL_STD_PATH'] = stdPath;
+	}
+
 	const serverOptions: ServerOptions = {
 		command: serverCommand,
 		args: [],
+		options: { env },
 	};
 
 	const clientOptions: LanguageClientOptions = {

@@ -1,0 +1,38 @@
+fn main() {
+    let mut m: Map<i32, i32> = Map::new();
+    m.insert(1, 10);
+    m.insert(2, 20);
+
+    // map.get() returns Option<V>
+    if let Option::Some(val) = m.get(1) {
+        println(`found key 1: {val}`);
+    } else {
+        println("key 1 not found");
+    }
+
+    if let Option::Some(val) = m.get(99) {
+        println(`found key 99: {val}`);
+    } else {
+        println("key 99 not found");
+    }
+
+    // Match on map.get() - bind to variable first
+    let got = m.get(2);
+    let result = match got {
+        Option::Some(v) => v,
+        Option::None => -1,
+    };
+    println(`match result: {result}`);
+
+    // Missing key in match
+    let got2 = m.get(42);
+    let result2 = match got2 {
+        Option::Some(v) => v,
+        Option::None => -1,
+    };
+    println(`missing key result: {result2}`);
+
+    // unwrap
+    let val = m.get(1).unwrap();
+    println(`unwrap: {val}`);
+}

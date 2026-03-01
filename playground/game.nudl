@@ -1,0 +1,201 @@
+import raylib;
+import vec;
+
+struct Bullet {
+    pub position: Vec2,
+    pub removed: bool,
+}
+
+impl Bullet {
+    pub fn new(position: Vec2) -> Bullet {
+        Bullet {
+            position: position.clone(),
+            removed: false    
+        }    
+    }    
+
+    pub fn to_string(self) -> string {
+        `Bullet(position: {self.position.to_string()}), removed: {self.removed})`
+    }
+}
+
+struct Chicken {
+    pub position: Vec2,
+    pub alive: bool,
+    pub rotation: i32,
+}
+
+impl Chicken {
+    pub fn new(position: Vec2) -> Chicken {
+        Chicken {
+            position: position.clone(),
+            rotation: rand_int((0, 270)),
+            alive: true,
+        }    
+    }
+
+    pub fn inc_rotation(self, increment: i32) {
+        self.rotation = self.rotation + increment;
+        if self.rotation >= 360 {
+            self.rotation = 0;
+        }
+    }
+}
+
+fn find_random_chicken_pos(chickens: Chicken[], range: (i32, i32)) -> Vec2 {
+    let mut pos = Vec2 { x: 0, y: rand_int(range) };
+    for chicken in chickens {
+        if chicken.position.x <= pos.x + 200 
+            && chicken.position.x >= pos.x - 200 
+            && chicken.position.y <= pos.y + 200
+            && chicken.position.y >= pos.y - 200
+        {
+            pos = Vec2 { x: 0, y: rand_int(range) };
+        }
+    }
+    pos
+}
+
+fn main() {
+    const WIDTH: i32 = 800;
+    const HEIGHT: i32 = 600;
+
+    const PLAYER_SIZE: i32 = 150;
+
+    const MAX_CHICKENS: i64 = 15;
+
+    const BULLET_VEL = Vec2 { x: -10, y: 0 };
+    const CHICKEN_VEL = Vec2 { x: 1, y: 0 };
+
+    const CHICKEN_RANGE = (100, HEIGHT - 100);
+
+    let mut bullets: Bullet[] = [];
+    let mut chickens: Chicken[] = [
+        Chicken::new(Vec2 { x: 0, y: rand_int(CHICKEN_RANGE) })
+    ];
+
+    init_game(WIDTH, HEIGHT, "Nudl Invaders!");
+    defer { close_game() }
+
+    let texture = load_texture("playground/resx/image.png");
+    defer { unload_texture(texture) }
+
+    let chicken_texture = load_texture("playground/resx/chicken.png");
+    defer { unload_texture(chicken_texture) }
+
+    let sound = load_sound("playground/resx/sound.wav");
+    defer { unload_sound(sound) }
+
+    let mut pos = Vec2 { x: WIDTH - PLAYER_SIZE / 2 - 15, y: 100 };
+
+    while run_game_loop() {
+        let vel = if is_key_down(Key::Up) {
+            Vec2 { x: 0, y: -4 }
+        } else if is_key_down(Key::Down) {
+            Vec2 { x: 0, y:  4 }    
+        } else {
+            Vec2::zero()    
+        }
+
+        pos = pos + vel;
+
+        if pos.y <= PLAYER_SIZE / 2 || pos.y >= HEIGHT - PLAYER_SIZE / 2 {
+            // rever pos
+            pos = pos - vel;
+        }
+
+        if is_key_pressed(Key::Space) {
+            bullets.push(Bullet::new(pos - Vec2 { x: PLAYER_SIZE / 2, y: 25 }));
+            play_sound(sound);
+        }
+
+        for bullet in bullets {
+            if bullet.removed {
+                continue;
+            }
+
+            if bullet.position.x <= 0 {
+                bullet.removed = true;
+                continue;    
+            }
+
+            bullet.position = bullet.position + BULLET_VEL;
+        }
+    
+        let chance = rand_int((0, 100));
+        if chance < 20 {
+            let mut alive_chickens: i64 = 0;
+            for chicken in chickens {
+                if chicken.alive {
+                    alive_chickens += 1i64;    
+                }
+            }
+
+            if alive_chickens < MAX_CHICKENS {
+                let chance = rand_int((0, 100));
+                if chance < 5 {
+                    chickens.push(
+                        Chicken::new(Vec2 { x: 0, y: find_random_chicken_pos(chickens, CHICKEN_RANGE).y })
+                    );
+                }
+            }
+        }
+
+        for chicken in chickens {
+            if !chicken.alive {
+                continue;
+            }
+            
+            chicken.position = chicken.position + CHICKEN_VEL;
+            chicken.inc_rotation(1);
+
+            for bullet in bullets {
+                if bullet.removed {
+                    continue;    
+                }    
+
+                if bullet.position.x >= chicken.position.x - 50 
+                    && bullet.position.x <= chicken.position.x + 50 
+                    && bullet.position.y >= chicken.position.y - 50
+                    && bullet.position.y <= chicken.position.y + 50
+                {
+                    chicken.alive = false;
+                    bullet.removed = true;
+                    play_sound(sound);
+                }
+            }
+
+            if chicken.position.x >= WIDTH {
+                chicken.alive = false;
+                play_sound(sound);
+            }
+        }
+
+        begin_drawing();
+        clear_background(Color::black());
+
+        for bullet in bullets {
+            if bullet.position.x <= 0 {
+                continue;
+            }
+
+            if bullet.removed {
+                continue;
+            }
+
+            draw_rectangle(bullet.position.x, bullet.position.y, 10, 10, Color::red());
+        }
+
+        draw_texture(texture, pos.clone());
+
+        for chicken in chickens {
+            if !chicken.alive {
+                continue;
+            }    
+
+            draw_texture(chicken_texture, chicken.position, rotation: chicken.rotation as f32);
+        }
+
+        end_drawing();
+    }
+}

@@ -1,0 +1,21 @@
+// Test: Self type in impl block
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+impl Point {
+    fn origin() -> Self {
+        Point { x: 0, y: 0 }
+    }
+
+    fn translate(self, dx: i32, dy: i32) -> Self {
+        Point { x: self.x + dx, y: self.y + dy }
+    }
+}
+
+fn main() {
+    let p = Point::origin();
+    let p2 = p.translate(1, 2);
+}

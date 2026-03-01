@@ -49,6 +49,9 @@ pub enum TokenKind {
     SelfType,
     Dyn,
     Match,
+    Defer,
+    Import,
+    Where,
 
     // Delimiters
     LParen,
@@ -165,6 +168,9 @@ pub fn keyword_from_str(s: &str) -> Option<TokenKind> {
         "Self" => Some(TokenKind::SelfType),
         "dyn" => Some(TokenKind::Dyn),
         "match" => Some(TokenKind::Match),
+        "defer" => Some(TokenKind::Defer),
+        "import" => Some(TokenKind::Import),
+        "where" => Some(TokenKind::Where),
         _ => None,
     }
 }

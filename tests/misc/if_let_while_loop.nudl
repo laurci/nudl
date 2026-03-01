@@ -1,0 +1,26 @@
+import std::string;
+
+fn find_hello(haystack: string) -> Option<(string, i64)> {
+    let idx = haystack.indexof("hello");
+    if idx < 0i64 {
+        return Option::None;
+    }
+    Option::Some((haystack, idx))
+}
+
+fn main() {
+    let mut current: string = "hello world hello world hello";
+    let mut count: i64 = 0i64;
+
+    while current.len() > 0u64 {
+        if let Option::Some((s, idx)) = find_hello(current) {
+            count = count + 1i64;
+            current = substr(s, idx + 5i64, s.len() as i64);
+            println(`found at {idx}, remaining: "{current}"`);
+        } else {
+            break;
+        }
+    }
+
+    println(`total found: {count}`);
+}

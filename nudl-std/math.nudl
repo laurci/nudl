@@ -1,0 +1,67 @@
+// nudl standard library: math module
+// Mathematical constants and functions
+
+/// Mathematical constant pi (approximation)
+const PI: f64 = 3.14159265358979323846;
+
+/// Mathematical constant e (approximation)
+const E: f64 = 2.71828182845904523536;
+
+/// Absolute value of an i32
+pub fn abs(x: i32) -> i32 {
+    if x < 0 { 0 - x } else { x }
+}
+
+/// Absolute value of an i64
+pub fn abs_i64(x: i64) -> i64 {
+    if x < 0i64 { 0i64 - x } else { x }
+}
+
+/// Power function: base^exp for non-negative integer exponents
+pub fn pow(base: i32, exp: i32) -> i32 {
+    let mut result = 1;
+    let mut i = 0;
+    while i < exp {
+        result = result * base;
+        i = i + 1;
+    }
+    result
+}
+
+/// Integer square root (floor)
+pub fn isqrt(n: i32) -> i32 {
+    if n < 0 {
+        0
+    } else if n == 0 {
+        0
+    } else {
+        let mut x = n;
+        let mut y = (x + 1) / 2;
+        while y < x {
+            x = y;
+            y = (x + n / x) / 2;
+        }
+        x
+    }
+}
+
+/// Greatest common divisor
+pub fn gcd(a: i32, b: i32) -> i32 {
+    let mut x = abs(a);
+    let mut y = abs(b);
+    while y != 0 {
+        let t = y;
+        y = x % y;
+        x = t;
+    }
+    x
+}
+
+/// Least common multiple
+pub fn lcm(a: i32, b: i32) -> i32 {
+    if a == 0 {
+        0
+    } else {
+        abs(a) / gcd(a, b) * abs(b)
+    }
+}

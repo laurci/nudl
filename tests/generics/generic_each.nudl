@@ -1,0 +1,22 @@
+extern {
+    fn write(fd: i32, buf: RawPtr, count: u64) -> i64;
+}
+
+fn print(s: string) {
+    write(1, __str_ptr(s), __str_len(s));
+}
+
+fn each<T>(a: T[], f: |(T, i64)| -> ()) {
+    let len = a.len();
+    for i in 0i64..len {
+        f((a[i], i));
+    }
+}
+
+fn main() {
+    let a: i32[] = [1, 2, 3, 4, 5];
+
+    a |> each {
+        print(`a[{it.1}] = {it.0}\n`);
+    };
+}

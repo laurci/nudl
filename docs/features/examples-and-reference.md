@@ -15,10 +15,10 @@ retain/release insertion.
 SSA bytecode interpreter for comptime evaluation. Generated code feeds back to Phase 2. Sandboxed:
 no I/O, step limits.
 
-### Phase 4: Native Compilation (nudl-backend-arm64, nudl-packer-macho, nudl-packer-elf)
+### Phase 4: Native Compilation (nudl-backend-llvm)
 
-ARM64 instruction selection and register allocation. Mach-O packaging for macOS, ELF packaging for
-Linux.
+SSA bytecode to LLVM IR via Inkwell. LLVM handles optimization, instruction selection, and object
+file emission. System linker produces the final executable with the ARC runtime linked in.
 
 ### Phase 5: Tooling (nudl-cli, nudl-lsp)
 
@@ -31,7 +31,7 @@ find-references, hover, completions).
 Source --> [Lexer] --> Tokens --> [Parser] --> AST
   --> [Type Checker] --> Typed AST --> [SSA Lowering] --> SSA Bytecode
   --> [VM (comptime)] --> Generated Code --> back to Type Checker
-  --> [ARM64 Backend] --> Machine Code --> [Packer] --> Executable
+  --> [LLVM Backend] --> LLVM IR --> [LLVM] --> Object File --> [Linker] --> Executable
 ```
 
 ---

@@ -6,7 +6,8 @@ target/
 dist/
 *.vsix
 tmp/
-
+.nudl/
+benchmarks/bin/
 
 # AI tools caches and settings
 .claude

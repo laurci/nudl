@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/nudl-logo-2x.png" alt="nudl logo" width="147" />
+</p>
+
 # nudl
 
 A high-level, statically-typed, reference-counted, compiled programming language.
@@ -70,33 +74,56 @@ fn main() {
 
 ## Building
 
+Requires LLVM 18 (`brew install llvm@18` on macOS).
+
 ```bash
-cargo build --workspace
+LLVM_SYS_181_PREFIX=/opt/homebrew/opt/llvm@18 cargo build --workspace
 cargo test --workspace
 ```
 
 ## Project Structure
 
-The compiler is organized as a Cargo workspace with 9 crates, following the compilation pipeline:
+The compiler is organized as a Cargo workspace with 7 crates, following the compilation pipeline:
 
 ```
 Source (.nudl)
-  → nudl-ast        Lex and parse into an untyped AST
-  → nudl-bc         Type-check, infer, monomorphize, lower to SSA bytecode
-  → nudl-vm         Execute comptime blocks in a sandboxed VM
-  → nudl-backend-arm64   Compile SSA bytecode to ARM64 machine code
-  → nudl-packer-macho    Pack into a Mach-O executable (macOS)
-  → nudl-packer-elf      Pack into an ELF executable (Linux)
+  → nudl-ast            Lex and parse into an untyped AST
+  → nudl-bc             Type-check, infer, monomorphize, lower to SSA bytecode
+  → nudl-vm             Execute comptime blocks in a sandboxed VM
+  → nudl-backend-llvm   Compile SSA bytecode to LLVM IR → native binary
 ```
 
-`nudl-core` provides shared foundations (spans, diagnostics, type representations). `nudl-cli` and `nudl-lsp` are the user-facing frontends.
+| Directory | Description |
+|-----------|-------------|
+| `nudl-core` | Shared foundations: spans, diagnostics, type representations, interning |
+| `nudl-cli` | CLI frontend: `build`, `run`, `check`, `fmt` commands |
+| `nudl-lsp` | Language Server Protocol server for editor integration |
+| `nudl-std` | Standard library (prelude, math, string, io, collections) |
+| `runtime` | ARC runtime (`nudl_rt.c`) — compiled and linked into output binaries |
+| `editor/vscode` | VS Code extension for syntax highlighting and LSP |
+| `tools` | Build tooling: `meta` (code generation) and `test-runner` |
+| `examples` | Example nudl programs |
+| `tests` | Compiler test suite (`.nudl` source files organized by feature) |
 
 ## Documentation
 
 - **[Feature Overview](docs/features/README.md)** -- Design philosophy, feature matrix, language comparisons, and example programs
 - **[Language Specification](docs/spec/README.md)** -- Normative spec covering lexical structure, type system, memory model, expressions, pattern matching, comptime, and full grammar
-- **[Compiler Internals](docs/internals/README.md)** -- Architecture, SSA bytecode design, VM execution model, ARC implementation, native backend, and binary packers
+- **[Compiler Internals](docs/internals/README.md)** -- Architecture, SSA bytecode design, VM execution model, ARC implementation, and LLVM native codegen
+
+## Performance
+
+nudl compiles through LLVM with the full `-O3` optimization pipeline. Compute-bound code runs at C speed.
+
+| Benchmark | nudl vs C | nudl vs Swift | Description |
+|:---|:---|:---|:---|
+| Fibonacci (recursive) | **1.01x** | **0.75x (faster)** | Pure compute — matches C, beats Swift |
+| Dynamic array (10M push + sum) | **2.15x** | **1.0x (tied)** | Same ballpark as Swift's Array |
+| FFI calls (50M to C function) | **1.00x** | **1.0x (tied)** | Zero FFI overhead |
+| Struct churn (ARC, 10M alloc/free) | **271x** | **1.53x** | ARC cost; Swift's optimizer is more mature |
+
+Zero overhead for arithmetic, function calls, and FFI. The cost is in heap allocation and reference counting — the same tradeoff as Swift. See [benchmarks/](benchmarks/) for methodology, full results, and Swift struct vs class comparison.
 
 ## Status
 
-nudl is in the design phase. The language specification is complete and the compiler crates are scaffolded, but implementation has not started.
+The core compilation pipeline works end-to-end: lexer → parser → type checker → SSA IR → LLVM backend → native binary. See [STATUS.md](STATUS.md) for detailed feature-level tracking.

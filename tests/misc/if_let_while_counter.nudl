@@ -1,0 +1,25 @@
+fn try_double(n: i64) -> Option<i64> {
+    if n < 100i64 {
+        Option::Some(n * 2i64)
+    } else {
+        Option::None
+    }
+}
+
+fn main() {
+    let mut val: i64 = 1i64;
+    let mut iterations: i64 = 0i64;
+
+    while val < 1000i64 {
+        if let Option::Some(doubled) = try_double(val) {
+            val = doubled;
+            iterations = iterations + 1i64;
+            println(`iteration {iterations}: val = {val}`);
+        } else {
+            println(`val {val} too large to double, breaking`);
+            break;
+        }
+    }
+
+    println(`final val = {val}, iterations = {iterations}`);
+}

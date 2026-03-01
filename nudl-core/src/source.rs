@@ -20,6 +20,10 @@ impl SourceFile {
         offsets
     }
 
+    pub fn line_offsets(&self) -> &[u32] {
+        &self.line_offsets
+    }
+
     pub fn line_col(&self, offset: u32) -> (u32, u32) {
         let line = match self.line_offsets.binary_search(&offset) {
             Ok(i) => i,
@@ -54,6 +58,10 @@ impl SourceMap {
 
     pub fn get_file(&self, id: FileId) -> &SourceFile {
         &self.files[id.0 as usize]
+    }
+
+    pub fn file_count(&self) -> usize {
+        self.files.len()
     }
 
     pub fn span_to_location(&self, span: Span) -> (&SourceFile, u32, u32) {

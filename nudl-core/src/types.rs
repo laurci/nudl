@@ -55,6 +55,19 @@ impl PrimitiveType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnumVariant {
+    pub name: String,
+    pub fields: Vec<(String, TypeId)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InterfaceMethod {
+    pub name: String,
+    pub params: Vec<(String, TypeId)>,
+    pub return_type: TypeId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeKind {
     Primitive(PrimitiveType),
     String,
@@ -62,10 +75,43 @@ pub enum TypeKind {
     MutRawPtr,
     CStr,
     Never,
-    Function { params: Vec<TypeId>, ret: TypeId },
-    Struct { name: String, fields: Vec<(String, TypeId)> },
+    Function {
+        params: Vec<TypeId>,
+        ret: TypeId,
+    },
+    Struct {
+        name: String,
+        fields: Vec<(String, TypeId)>,
+        is_extern: bool,
+    },
+    Enum {
+        name: String,
+        variants: Vec<EnumVariant>,
+    },
+    Interface {
+        name: String,
+        methods: Vec<InterfaceMethod>,
+    },
+    DynInterface {
+        name: String,
+    },
     Tuple(Vec<TypeId>),
-    FixedArray { element: TypeId, length: usize },
+    FixedArray {
+        element: TypeId,
+        length: usize,
+    },
+    DynamicArray {
+        element: TypeId,
+    },
+    Map {
+        key: TypeId,
+        value: TypeId,
+    },
+    /// Transient type variable used during generic bound-checking. Never in final output.
+    TypeVar {
+        name: String,
+        bounds: Vec<String>,
+    },
     Error,
 }
 
@@ -179,6 +225,10 @@ impl TypeInterner {
         matches!(self.resolve(id), TypeKind::Struct { .. })
     }
 
+    pub fn is_enum(&self, id: TypeId) -> bool {
+        matches!(self.resolve(id), TypeKind::Enum { .. })
+    }
+
     pub fn is_tuple(&self, id: TypeId) -> bool {
         matches!(self.resolve(id), TypeKind::Tuple(_))
     }
@@ -187,13 +237,117 @@ impl TypeInterner {
         matches!(self.resolve(id), TypeKind::FixedArray { .. })
     }
 
+    pub fn is_dynamic_array(&self, id: TypeId) -> bool {
+        matches!(self.resolve(id), TypeKind::DynamicArray { .. })
+    }
+
+    pub fn is_map(&self, id: TypeId) -> bool {
+        matches!(self.resolve(id), TypeKind::Map { .. })
+    }
+
+    pub fn is_type_var(&self, id: TypeId) -> bool {
+        matches!(self.resolve(id), TypeKind::TypeVar { .. })
+    }
+
     /// Returns true if this type is a reference type (heap-allocated, ARC-managed)
     pub fn is_reference_type(&self, id: TypeId) -> bool {
-        matches!(self.resolve(id), TypeKind::Struct { .. } | TypeKind::String)
+        match self.resolve(id) {
+            TypeKind::Struct { is_extern, .. } => !is_extern,
+            TypeKind::Enum { .. }
+            | TypeKind::String
+            | TypeKind::DynamicArray { .. }
+            | TypeKind::Map { .. }
+            | TypeKind::DynInterface { .. }
+            | TypeKind::Function { .. } => true,
+            _ => false,
+        }
+    }
+
+    /// Returns true if this type needs ARC management (struct or enum)
+    pub fn is_arc_managed(&self, id: TypeId) -> bool {
+        match self.resolve(id) {
+            TypeKind::Struct { is_extern, .. } => !is_extern,
+            TypeKind::Enum { .. }
+            | TypeKind::DynamicArray { .. }
+            | TypeKind::Map { .. }
+            | TypeKind::DynInterface { .. } => true,
+            _ => false,
+        }
+    }
+
+    /// Returns true if this type is an extern struct (C-compatible value type)
+    pub fn is_extern_struct(&self, id: TypeId) -> bool {
+        matches!(
+            self.resolve(id),
+            TypeKind::Struct {
+                is_extern: true,
+                ..
+            }
+        )
+    }
+
+    /// Produce a human-readable display name for a type. Standalone version of
+    /// `Checker::type_name` that can be used outside the checker (e.g. in the LSP).
+    pub fn type_display_name(&self, ty: TypeId) -> String {
+        match self.resolve(ty) {
+            TypeKind::Primitive(p) => match p {
+                PrimitiveType::Char => "char".into(),
+                p => format!("{:?}", p).to_lowercase(),
+            },
+            TypeKind::String => "string".into(),
+            TypeKind::RawPtr => "RawPtr".into(),
+            TypeKind::MutRawPtr => "MutRawPtr".into(),
+            TypeKind::CStr => "CStr".into(),
+            TypeKind::Never => "!".into(),
+            TypeKind::Function { params, ret } => {
+                let param_strs: Vec<String> =
+                    params.iter().map(|p| self.type_display_name(*p)).collect();
+                let is_unit =
+                    matches!(self.resolve(*ret), TypeKind::Primitive(PrimitiveType::Unit));
+                if is_unit {
+                    format!("|{}|", param_strs.join(", "))
+                } else {
+                    format!(
+                        "|{}| -> {}",
+                        param_strs.join(", "),
+                        self.type_display_name(*ret)
+                    )
+                }
+            }
+            TypeKind::Struct { name, .. } => name.clone(),
+            TypeKind::Enum { name, .. } => name.clone(),
+            TypeKind::Interface { name, .. } => name.clone(),
+            TypeKind::DynInterface { name } => format!("dyn {}", name),
+            TypeKind::Tuple(elements) => {
+                let parts: Vec<String> = elements
+                    .iter()
+                    .map(|e| self.type_display_name(*e))
+                    .collect();
+                format!("({})", parts.join(", "))
+            }
+            TypeKind::FixedArray { element, length } => {
+                format!("[{}; {}]", self.type_display_name(*element), length)
+            }
+            TypeKind::DynamicArray { element } => {
+                format!("{}[]", self.type_display_name(*element))
+            }
+            TypeKind::Map { key, value } => {
+                format!(
+                    "Map<{}, {}>",
+                    self.type_display_name(*key),
+                    self.type_display_name(*value)
+                )
+            }
+            TypeKind::TypeVar { name, .. } => name.clone(),
+            TypeKind::Error => "<error>".into(),
+        }
     }
 
     pub fn iter_types(&self) -> impl Iterator<Item = (TypeId, &TypeKind)> {
-        self.types.iter().enumerate().map(|(i, k)| (TypeId(i as u32), k))
+        self.types
+            .iter()
+            .enumerate()
+            .map(|(i, k)| (TypeId(i as u32), k))
     }
 }
 
@@ -233,18 +387,12 @@ mod tests {
     #[test]
     fn all_pre_interned_types() {
         let ti = TypeInterner::new();
-        assert_eq!(
-            *ti.resolve(ti.i8()),
-            TypeKind::Primitive(PrimitiveType::I8)
-        );
+        assert_eq!(*ti.resolve(ti.i8()), TypeKind::Primitive(PrimitiveType::I8));
         assert_eq!(
             *ti.resolve(ti.i16()),
             TypeKind::Primitive(PrimitiveType::I16)
         );
-        assert_eq!(
-            *ti.resolve(ti.u8()),
-            TypeKind::Primitive(PrimitiveType::U8)
-        );
+        assert_eq!(*ti.resolve(ti.u8()), TypeKind::Primitive(PrimitiveType::U8));
         assert_eq!(
             *ti.resolve(ti.u16()),
             TypeKind::Primitive(PrimitiveType::U16)

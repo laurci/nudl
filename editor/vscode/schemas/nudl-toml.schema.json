@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "nudl.toml",
+  "description": "Configuration file for a nudl project",
+  "type": "object",
+  "required": [
+    "package"
+  ],
+  "properties": {
+    "package": {
+      "type": "object",
+      "description": "Package metadata",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The project name"
+        }
+      },
+      "additionalProperties": false
+    },
+    "bin": {
+      "type": "array",
+      "description": "Binary targets to build",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "path"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The binary target name (used as the output binary name)"
+          },
+          "path": {
+            "type": "string",
+            "description": "Path to the entry source file, relative to the directory containing nudl.toml"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

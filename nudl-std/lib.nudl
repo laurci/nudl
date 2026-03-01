@@ -1,0 +1,18 @@
+// nudl standard library
+//
+// The standard library provides commonly used types, functions, and utilities.
+//
+// Modules:
+//   std::prelude  - Automatically imported types (Option, Result, min, max, clamp)
+//   std::math     - Mathematical constants and functions (PI, E, abs, pow, gcd, lcm)
+//   std::string   - String utilities (is_empty, repeat, join)
+//   std::ffi      - Foreign Function Interface utilities (cstr, cstr_len)
+//   std::io       - Input/Output and file operations (open, read, write_file, etc.)
+//   std::collections - Collection utilities (contains, array_min, array_max)
+//
+// Usage:
+//   import std::math;
+//   import std::string;
+//   import std::ffi;
+//   import std::io;
+//   import std::collections;

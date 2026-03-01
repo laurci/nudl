@@ -1,0 +1,106 @@
+// nudl standard library: string module
+// String utility functions backed by C runtime builtins.
+
+// ================================================================
+// Core string methods
+// ================================================================
+
+impl string {
+    // Find index of needle in self. Returns -1 if not found.
+    pub fn indexof(self, needle: string) -> i64 {
+        __str_indexof(self, needle)
+    }
+
+    // Trim leading and trailing whitespace.
+    pub fn trim(self) -> string {
+        __str_trim(self)
+    }
+
+    // Check if self contains needle.
+    pub fn contains(self, needle: string) -> bool {
+        __str_contains(self, needle) != 0i64
+    }
+
+    // Check if string starts with prefix.
+    pub fn starts_with(self, prefix: string) -> bool {
+        __str_starts_with(self, prefix) != 0i64
+    }
+
+    // Check if string ends with suffix.
+    pub fn ends_with(self, suffix: string) -> bool {
+        __str_ends_with(self, suffix) != 0i64
+    }
+
+    // Convert ASCII string to uppercase.
+    pub fn to_upper(self) -> string {
+        __str_to_upper(self)
+    }
+
+    // Convert ASCII string to lowercase.
+    pub fn to_lower(self) -> string {
+        __str_to_lower(self)
+    }
+
+    // Replace all occurrences of old with new_str.
+    pub fn replace(self, old: string, new_str: string) -> string {
+        __str_replace(self, old, new_str)
+    }
+
+    // Repeat string count times.
+    pub fn repeat(self, count: i64) -> string {
+        __str_repeat(self, count)
+    }
+
+    // Check if a string is empty (length == 0).
+    pub fn is_empty(self) -> bool {
+        __str_len(self) == 0u64
+    }
+}
+
+// ================================================================
+// Utility functions (kept as free functions)
+// ================================================================
+
+// Substring extraction: s[start..end]
+pub fn substr(s: string, start: i64, end: i64) -> string {
+    __str_substr(s, start, end)
+}
+
+// Split string by separator. Implemented in pure nudl using indexof + substr.
+pub fn split(s: string, sep: string) -> string[] {
+    let mut result: string[] = [];
+    let sep_len = __str_len(sep);
+    let s_len = __str_len(s);
+    let mut start = 0u64;
+
+    while start <= s_len {
+        let rest_ptr = start;
+        let rest_len = s_len - start;
+        let idx = __str_indexof(
+            __str_substr(s, start as i64, s_len as i64),
+            sep
+        );
+        if idx < 0i64 {
+            result.push(substr(s, start as i64, s_len as i64));
+            return result;
+        }
+        result.push(substr(s, start as i64, start as i64 + idx as i64));
+        start = start + idx as u64 + sep_len;
+    }
+    result
+}
+
+// Join array of strings with separator.
+pub fn join(parts: string[], sep: string) -> string {
+    let len = parts.len();
+    if len == 0i64 {
+        return "";
+    }
+    let mut result = parts[0i64];
+    let mut i = 1i64;
+    while i < len {
+        result = __str_concat(__str_concat(result, sep), parts[i]);
+        i = i + 1i64;
+    }
+    result
+}

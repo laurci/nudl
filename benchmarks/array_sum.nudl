@@ -1,0 +1,17 @@
+// Dynamic array push + sum — measures collection/runtime overhead
+
+fn main() {
+    let n = 10000000i64;
+    let mut arr: i64[] = [];
+
+    for i in 0i64..n {
+        arr.push(i);
+    }
+
+    let mut sum = 0i64;
+    for x in arr {
+        sum = sum + x;
+    }
+
+    println(`{sum}`);
+}

@@ -52,13 +52,13 @@ pub enum Instruction {
     Mul(Register, Register, Register),
     Div(Register, Register, Register),
     Mod(Register, Register, Register),
-    Shl(Register, Register, Register), // dst = lhs << rhs
-    Shr(Register, Register, Register), // dst = lhs >> rhs
+    Shl(Register, Register, Register),    // dst = lhs << rhs
+    Shr(Register, Register, Register),    // dst = lhs >> rhs
     BitAnd(Register, Register, Register), // dst = lhs & rhs
     BitOr(Register, Register, Register),  // dst = lhs | rhs
     BitXor(Register, Register, Register), // dst = lhs ^ rhs
-    Neg(Register, Register), // dst = -src
-    BitNot(Register, Register), // dst = ~src
+    Neg(Register, Register),              // dst = -src
+    BitNot(Register, Register),           // dst = ~src
 
     // Comparison
     Eq(Register, Register, Register), // dst = lhs == rhs (bool)
@@ -75,19 +75,55 @@ pub enum Instruction {
     Cast(Register, Register, TypeId), // dst = src as target_type
 
     // ARC / heap operations
-    Alloc(Register, TypeId),          // dst = heap-allocate object of given type
-    Load(Register, Register, u32),    // dst = ptr.field[offset] (load from heap object)
-    Store(Register, u32, Register),   // ptr.field[offset] = src (store into heap object)
-    Retain(Register),                 // ++strong_count (ARC retain)
+    Alloc(Register, TypeId),       // dst = heap-allocate object of given type
+    Load(Register, Register, u32), // dst = ptr.field[offset] (load from heap object)
+    Store(Register, u32, Register), // ptr.field[offset] = src (store into heap object)
+    Retain(Register),              // ++strong_count (ARC retain)
     Release(Register, Option<TypeId>), // --strong_count, free if zero (ARC release); type used for drop fn
 
     // Tuple/Array operations (stack-allocated value types)
-    TupleAlloc(Register, TypeId, Vec<Register>),        // dst = allocate tuple, store elements
-    FixedArrayAlloc(Register, TypeId, Vec<Register>),    // dst = allocate fixed array, store elements
-    TupleLoad(Register, Register, u32),                  // dst = tuple[offset] (load from stack tuple)
-    TupleStore(Register, u32, Register),                 // tuple[offset] = src (store into stack tuple)
-    IndexLoad(Register, Register, Register, TypeId),     // dst = array[index] (dynamic index load)
-    IndexStore(Register, Register, Register),             // array[index] = value (dynamic index store)
+    TupleAlloc(Register, TypeId, Vec<Register>), // dst = allocate tuple, store elements
+    FixedArrayAlloc(Register, TypeId, Vec<Register>), // dst = allocate fixed array, store elements
+    TupleLoad(Register, Register, u32),          // dst = tuple[offset] (load from stack tuple)
+    TupleStore(Register, u32, Register),         // tuple[offset] = src (store into stack tuple)
+    IndexLoad(Register, Register, Register, TypeId), // dst = array[index] (dynamic index load)
+    IndexStore(Register, Register, Register),    // array[index] = value (dynamic index store)
+
+    // Closure operations
+    /// Create a closure: dst = { fn_ptr (as FunctionId index), env_ptr }
+    /// captures contains the registers to store into the capture environment
+    ClosureCreate(Register, FunctionId, Vec<Register>), // dst, thunk_fn, captures
+    /// Call a closure value: dst = closure(args...)
+    /// Fields: dst, closure_reg, args, param_types, return_type
+    ClosureCall(Register, Register, Vec<Register>, Vec<TypeId>, TypeId),
+
+    // Dynamic array operations (calls into C runtime)
+    DynArrayAlloc(Register, TypeId), // dst = new empty dynamic array of element type
+    DynArrayPush(Register, Register), // array, value — push value onto array
+    DynArrayPop(Register, Register), // dst, array — pop last element
+    DynArrayLen(Register, Register), // dst, array — get length
+    DynArrayGet(Register, Register, Register), // dst, array, index — get element at index
+    DynArraySet(Register, Register, Register), // array, index, value — set element at index
+    DynArrayRemove(Register, Register, Register), // dst, array, index — remove element at index, shift remaining
+
+    // String indexing
+    StringCharAt(Register, Register, Register), // dst, string_reg, index_reg — get char at index
+
+    // Map operations (calls into C runtime)
+    MapAlloc(Register, TypeId),                // dst = new empty map
+    MapInsert(Register, Register, Register),   // map, key, value — insert key-value pair
+    MapGet(Register, Register, Register),      // dst, map, key — get value (0 if not found)
+    MapLen(Register, Register),                // dst, map — get entry count
+    MapContains(Register, Register, Register), // dst, map, key — bool: contains key?
+
+    // Dynamic dispatch operations
+    /// Wrap a concrete value into a fat pointer (data_ptr, vtable_ptr):
+    /// dst = DynWrap(src_value, interface_name_index, concrete_type_id)
+    /// interface_name_index: index into vtables list for the right vtable
+    DynWrap(Register, Register, u32),
+    /// Call a method through a vtable:
+    /// dst = dyn_reg.vtable[method_index](dyn_reg.data_ptr, args...)
+    DynCall(Register, Register, u32, Vec<Register>, TypeId),
 }
 
 #[derive(Debug, Clone)]
@@ -114,9 +150,22 @@ pub struct Function {
     pub return_type: TypeId,
     pub blocks: Vec<BasicBlock>,
     pub register_count: u32,
+    /// TypeId for each register (indexed by Register.0). Defaults to i64.
+    pub register_types: Vec<TypeId>,
     pub is_extern: bool,
     pub extern_symbol: Option<String>,
     pub span: Span,
+}
+
+/// A vtable entry: maps (concrete_type, interface) → method function names
+#[derive(Debug, Clone)]
+pub struct VtableEntry {
+    /// The concrete type name (e.g., "Circle")
+    pub concrete_type: String,
+    /// The interface name (e.g., "Shape")
+    pub interface_name: String,
+    /// Method function names in interface-declaration order
+    pub method_names: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -128,4 +177,6 @@ pub struct Program {
     pub interner: StringInterner,
     pub types: TypeInterner,
     pub source_map: Option<SourceMap>,
+    /// Vtable entries for dynamic dispatch
+    pub vtables: Vec<VtableEntry>,
 }
