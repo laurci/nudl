@@ -1413,6 +1413,53 @@ pub(super) fn emit_instruction<'ctx>(
                 .map_err(|e| BackendError::LlvmError(e.to_string()))?;
         }
 
+        Instruction::DynArrayRemove(dst, arr_reg, idx_reg) => {
+            let i64_ty = context.i64_type();
+            let ptr_ty = context.ptr_type(AddressSpace::default());
+            let array_remove = module
+                .get_function("__nudl_array_remove")
+                .unwrap_or_else(|| {
+                    let fn_ty = i64_ty.fn_type(&[ptr_ty.into(), i64_ty.into()], false);
+                    module.add_function(
+                        "__nudl_array_remove",
+                        fn_ty,
+                        Some(inkwell::module::Linkage::External),
+                    )
+                });
+            let arr_ptr = load_ptr(context, builder, register_allocas, arr_reg.0)?;
+            let idx = load_i64(context, builder, register_allocas, idx_reg.0)?;
+            let call_result = builder
+                .build_direct_call(array_remove, &[arr_ptr.into(), idx.into()], "remove_val")
+                .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+            let val = call_result
+                .try_as_basic_value()
+                .basic()
+                .expect("array_remove returns i64")
+                .into_int_value();
+            store(builder, register_allocas, dst.0, val)?;
+
+            // If element is a string, extract (ptr, len) from the heap string object.
+            let dst_ty = func.register_types.get(dst.0 as usize).copied();
+            let is_string = dst_ty.is_some_and(|ty| matches!(types.resolve(ty), TypeKind::String));
+            if is_string {
+                let heap_ptr = builder
+                    .build_int_to_ptr(val, ptr_ty, "str_heap_ptr")
+                    .map_err(|e| BackendError::LlvmError(e.to_string()))?;
+                let (data_ptr, len_val) = extract_heap_string(context, builder, heap_ptr)?;
+                store_string_result(
+                    context,
+                    builder,
+                    str_ptr_allocas,
+                    str_len_allocas,
+                    register_allocas,
+                    reg_string_info,
+                    dst.0,
+                    data_ptr,
+                    len_val,
+                )?;
+            }
+        }
+
         // ---- Map operations ----
         Instruction::MapAlloc(dst, _type_id) => {
             let i64_ty = context.i64_type();

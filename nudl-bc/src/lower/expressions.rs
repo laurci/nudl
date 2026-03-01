@@ -134,6 +134,14 @@ impl<'a> FunctionLowerCtx<'a> {
                                     self.push_inst(Instruction::DynArrayPop(dst, obj_reg));
                                     return dst;
                                 }
+                                "remove" => {
+                                    let idx_reg = self.lower_expr(&args[0].value);
+                                    let dst = self.alloc_typed_register(elem_ty);
+                                    self.push_inst(Instruction::DynArrayRemove(
+                                        dst, obj_reg, idx_reg,
+                                    ));
+                                    return dst;
+                                }
                                 "len" => {
                                     let i64_ty = self.types.i64();
                                     let dst = self.alloc_typed_register(i64_ty);

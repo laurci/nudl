@@ -288,6 +288,12 @@ fn fmt_instruction(
         Instruction::DynArraySet(arr, idx, val) => {
             out.push_str(&format!("DynArraySet(r{}, r{}, r{})", arr.0, idx.0, val.0));
         }
+        Instruction::DynArrayRemove(dst, arr, idx) => {
+            out.push_str(&format!(
+                "r{} = DynArrayRemove(r{}, r{})",
+                dst.0, arr.0, idx.0
+            ));
+        }
         // Map operations
         Instruction::MapAlloc(dst, _ty) => {
             out.push_str(&format!("r{} = MapAlloc", dst.0));

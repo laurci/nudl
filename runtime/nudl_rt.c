@@ -209,6 +209,24 @@ void __nudl_array_set(void *arr_ptr, int64_t index, int64_t value) {
     buf[index] = value;
 }
 
+/* Remove element at index and return it. Shifts remaining elements down. Panics on OOB. */
+int64_t __nudl_array_remove(void *arr_ptr, int64_t index) {
+    NudlDynArray *arr = (NudlDynArray *)arr_ptr;
+    if (index < 0 || index >= arr->length) {
+        fprintf(stderr, "nudl: array index out of bounds: index %lld, length %lld\n",
+                (long long)index, (long long)arr->length);
+        abort();
+    }
+    int64_t *buf = (int64_t *)(uintptr_t)arr->data_ptr;
+    int64_t removed = buf[index];
+    int64_t remaining = arr->length - index - 1;
+    if (remaining > 0) {
+        memmove(&buf[index], &buf[index + 1], (size_t)remaining * sizeof(int64_t));
+    }
+    arr->length--;
+    return removed;
+}
+
 /* Destroy a dynamic array: release reference-typed elements if is_ref_elem,
  * then free the data buffer.
  * Called as part of a drop function when a DynArray's ARC refcount reaches 0.

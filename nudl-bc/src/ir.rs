@@ -104,6 +104,7 @@ pub enum Instruction {
     DynArrayLen(Register, Register), // dst, array — get length
     DynArrayGet(Register, Register, Register), // dst, array, index — get element at index
     DynArraySet(Register, Register, Register), // array, index, value — set element at index
+    DynArrayRemove(Register, Register, Register), // dst, array, index — remove element at index, shift remaining
 
     // String indexing
     StringCharAt(Register, Register, Register), // dst, string_reg, index_reg — get char at index

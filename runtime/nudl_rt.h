@@ -47,6 +47,7 @@ int64_t __nudl_array_pop(void *arr_ptr);
 int64_t __nudl_array_len(void *arr_ptr);
 int64_t __nudl_array_get(void *arr_ptr, int64_t index);
 void __nudl_array_set(void *arr_ptr, int64_t index, int64_t value);
+int64_t __nudl_array_remove(void *arr_ptr, int64_t index);
 
 /* Map operations. */
 void *__nudl_map_alloc(void);

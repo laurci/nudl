@@ -678,6 +678,33 @@ impl Vm {
                     }
                 }
             }
+            Instruction::DynArrayRemove(dst, arr_reg, idx_reg) => {
+                let id = match &registers[arr_reg.0 as usize] {
+                    Value::DynArrayRef(id) => *id,
+                    _ => {
+                        registers[dst.0 as usize] = Value::Unit;
+                        return Ok(());
+                    }
+                };
+                let idx = match &registers[idx_reg.0 as usize] {
+                    Value::I32(v) => *v as usize,
+                    Value::I64(v) => *v as usize,
+                    _ => {
+                        registers[dst.0 as usize] = Value::Unit;
+                        return Ok(());
+                    }
+                };
+                let val = if let Some(arr) = self.dyn_arrays.get_mut(&id) {
+                    if idx < arr.elements.len() {
+                        arr.elements.remove(idx)
+                    } else {
+                        Value::Unit
+                    }
+                } else {
+                    Value::Unit
+                };
+                registers[dst.0 as usize] = val;
+            }
 
             // Map operations
             Instruction::MapAlloc(dst, _) => {

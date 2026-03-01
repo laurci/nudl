@@ -318,6 +318,12 @@ impl Checker {
                                 "pop" => {
                                     return elem;
                                 }
+                                "remove" => {
+                                    if let Some(arg) = args.first() {
+                                        self.check_expr(&arg.value, locals);
+                                    }
+                                    return elem;
+                                }
                                 "len" => {
                                     return self.types.i64();
                                 }
