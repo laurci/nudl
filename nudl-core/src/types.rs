@@ -286,6 +286,63 @@ impl TypeInterner {
         )
     }
 
+    /// Produce a human-readable display name for a type. Standalone version of
+    /// `Checker::type_name` that can be used outside the checker (e.g. in the LSP).
+    pub fn type_display_name(&self, ty: TypeId) -> String {
+        match self.resolve(ty) {
+            TypeKind::Primitive(p) => match p {
+                PrimitiveType::Char => "char".into(),
+                p => format!("{:?}", p).to_lowercase(),
+            },
+            TypeKind::String => "string".into(),
+            TypeKind::RawPtr => "RawPtr".into(),
+            TypeKind::MutRawPtr => "MutRawPtr".into(),
+            TypeKind::CStr => "CStr".into(),
+            TypeKind::Never => "!".into(),
+            TypeKind::Function { params, ret } => {
+                let param_strs: Vec<String> =
+                    params.iter().map(|p| self.type_display_name(*p)).collect();
+                let is_unit =
+                    matches!(self.resolve(*ret), TypeKind::Primitive(PrimitiveType::Unit));
+                if is_unit {
+                    format!("|{}|", param_strs.join(", "))
+                } else {
+                    format!(
+                        "|{}| -> {}",
+                        param_strs.join(", "),
+                        self.type_display_name(*ret)
+                    )
+                }
+            }
+            TypeKind::Struct { name, .. } => name.clone(),
+            TypeKind::Enum { name, .. } => name.clone(),
+            TypeKind::Interface { name, .. } => name.clone(),
+            TypeKind::DynInterface { name } => format!("dyn {}", name),
+            TypeKind::Tuple(elements) => {
+                let parts: Vec<String> = elements
+                    .iter()
+                    .map(|e| self.type_display_name(*e))
+                    .collect();
+                format!("({})", parts.join(", "))
+            }
+            TypeKind::FixedArray { element, length } => {
+                format!("[{}; {}]", self.type_display_name(*element), length)
+            }
+            TypeKind::DynamicArray { element } => {
+                format!("{}[]", self.type_display_name(*element))
+            }
+            TypeKind::Map { key, value } => {
+                format!(
+                    "Map<{}, {}>",
+                    self.type_display_name(*key),
+                    self.type_display_name(*value)
+                )
+            }
+            TypeKind::TypeVar { name, .. } => name.clone(),
+            TypeKind::Error => "<error>".into(),
+        }
+    }
+
     pub fn iter_types(&self) -> impl Iterator<Item = (TypeId, &TypeKind)> {
         self.types
             .iter()

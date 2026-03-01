@@ -59,6 +59,7 @@ impl<'a> FunctionLowerCtx<'a> {
             | Stmt::Const {
                 name, ty, value, ..
             } => {
+                let name = &name.node;
                 // If there's a type annotation, resolve it first
                 let annotated_type = ty.as_ref().map(|t| self.resolve_type_expr(&t.node));
 

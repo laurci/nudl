@@ -15,6 +15,7 @@ use nudl_core::types::{PrimitiveType, TypeId, TypeInterner, TypeKind};
 
 use crate::checker_diagnostic::CheckerDiagnostic;
 use crate::scoped_locals::ScopedLocals;
+use crate::symbol_table::{DefinitionInfo, SymbolKind, SymbolTable};
 
 #[derive(Debug, Clone)]
 pub struct FunctionSig {
@@ -36,6 +37,8 @@ pub struct FunctionSig {
     pub is_pub: bool,
     /// Which file this function was defined in
     pub source_file_id: FileId,
+    /// The span of the function definition (name span)
+    pub def_span: Span,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,12 +115,17 @@ pub struct CheckedModule {
     pub interface_method_defs: HashMap<String, Vec<InterfaceMethodDef>>,
     /// Dynamic dispatch call resolutions: span → (interface_name, method_index)
     pub dyn_call_resolutions: HashMap<Span, (String, usize)>,
+    /// Symbol table for IDE features (go-to-def, hover, completions)
+    pub symbol_table: SymbolTable,
+    /// Item definition spans: item_name → definition span (for find-implementations)
+    pub item_def_spans: HashMap<String, Span>,
 }
 
 #[derive(Debug, Clone)]
 pub(super) struct LocalInfo {
     pub(super) ty: TypeId,
     pub(super) is_mut: bool,
+    pub(super) def_span: Span,
 }
 
 pub struct Checker {
@@ -177,6 +185,10 @@ pub struct Checker {
     pub(super) mono_type_args: HashMap<String, (String, Vec<TypeId>)>,
     /// Dynamic dispatch call resolutions: span → (interface_name, method_index)
     pub(super) dyn_call_resolutions: HashMap<Span, (String, usize)>,
+    /// Item definition spans: item_name → definition span
+    pub(super) item_def_spans: HashMap<String, Span>,
+    /// Symbol table for IDE features
+    pub(super) symbol_table: SymbolTable,
 }
 
 impl Checker {
@@ -211,6 +223,8 @@ impl Checker {
             mono_fn_bodies: HashMap::new(),
             mono_type_args: HashMap::new(),
             dyn_call_resolutions: HashMap::new(),
+            item_def_spans: HashMap::new(),
+            symbol_table: SymbolTable::new(),
         }
     }
 
@@ -259,6 +273,51 @@ impl Checker {
             }
         }
 
+        // Populate file_symbols for autocomplete
+        for (name, sig) in &self.functions {
+            if !name.contains("__") && sig.kind == FunctionKind::UserDefined {
+                self.symbol_table.file_symbols.push((
+                    name.clone(),
+                    SymbolKind::Function,
+                    Some(sig.return_type),
+                    sig.def_span,
+                ));
+            }
+        }
+        for (name, &ty) in &self.structs {
+            let span = self
+                .item_def_spans
+                .get(name)
+                .copied()
+                .unwrap_or(Span::dummy());
+            self.symbol_table
+                .file_symbols
+                .push((name.clone(), SymbolKind::Struct, Some(ty), span));
+        }
+        for (name, &ty) in &self.enums {
+            let span = self
+                .item_def_spans
+                .get(name)
+                .copied()
+                .unwrap_or(Span::dummy());
+            self.symbol_table
+                .file_symbols
+                .push((name.clone(), SymbolKind::Enum, Some(ty), span));
+        }
+        for (name, &ty) in &self.interfaces {
+            let span = self
+                .item_def_spans
+                .get(name)
+                .copied()
+                .unwrap_or(Span::dummy());
+            self.symbol_table.file_symbols.push((
+                name.clone(),
+                SymbolKind::Interface,
+                Some(ty),
+                span,
+            ));
+        }
+
         let checked = CheckedModule {
             functions: self.functions,
             structs: self.structs,
@@ -272,6 +331,8 @@ impl Checker {
             interface_impls: self.interface_impls,
             interface_method_defs: self.interface_method_defs,
             dyn_call_resolutions: self.dyn_call_resolutions,
+            symbol_table: self.symbol_table,
+            item_def_spans: self.item_def_spans,
         };
         (checked, self.diagnostics)
     }

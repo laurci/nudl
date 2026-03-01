@@ -6,6 +6,16 @@ impl Checker {
         expr: &SpannedExpr,
         locals: &mut ScopedLocals<LocalInfo>,
     ) -> TypeId {
+        let ty = self.check_expr_inner(expr, locals);
+        self.symbol_table.record_expr_type(expr.span, ty);
+        ty
+    }
+
+    fn check_expr_inner(
+        &mut self,
+        expr: &SpannedExpr,
+        locals: &mut ScopedLocals<LocalInfo>,
+    ) -> TypeId {
         match &expr.node {
             Expr::Literal(Literal::String(_)) => self.types.string(),
             Expr::Literal(Literal::TemplateString { exprs, .. }) => {
@@ -31,9 +41,29 @@ impl Checker {
 
             Expr::Ident(name) => {
                 if let Some(info) = locals.get(name) {
+                    self.symbol_table.record_definition(
+                        expr.span,
+                        DefinitionInfo {
+                            name: name.clone(),
+                            kind: SymbolKind::LocalVariable,
+                            def_span: info.def_span,
+                            type_id: Some(info.ty),
+                        },
+                    );
                     info.ty
                 } else if let Some(&struct_ty) = self.structs.get(name.as_str()) {
                     // Unit struct constructor: just the name creates an instance
+                    if let Some(&def_span) = self.item_def_spans.get(name.as_str()) {
+                        self.symbol_table.record_definition(
+                            expr.span,
+                            DefinitionInfo {
+                                name: name.clone(),
+                                kind: SymbolKind::Struct,
+                                def_span,
+                                type_id: Some(struct_ty),
+                            },
+                        );
+                    }
                     struct_ty
                 } else {
                     self.diagnostics.add(&CheckerDiagnostic::UndefinedVariable {
@@ -52,6 +82,18 @@ impl Checker {
                 if let Expr::Ident(name) = &callee.node {
                     let sig = self.functions.get(name).cloned();
                     if let Some(sig) = sig {
+                        // Record function call definition
+                        if !sig.def_span.is_empty() {
+                            self.symbol_table.record_definition(
+                                callee.span,
+                                DefinitionInfo {
+                                    name: name.clone(),
+                                    kind: SymbolKind::Function,
+                                    def_span: sig.def_span,
+                                    type_id: Some(sig.return_type),
+                                },
+                            );
+                        }
                         // Check visibility: reject calls to non-public functions from other modules
                         if !sig.is_pub && self.is_cross_module_access(expr.span, sig.source_file_id)
                         {
@@ -351,6 +393,18 @@ impl Checker {
                 let sig = self.functions.get(&mangled_name).cloned();
 
                 if let Some(sig) = sig {
+                    // Record method definition
+                    if !sig.def_span.is_empty() {
+                        self.symbol_table.record_definition(
+                            expr.span,
+                            DefinitionInfo {
+                                name: method.clone(),
+                                kind: SymbolKind::Method,
+                                def_span: sig.def_span,
+                                type_id: Some(sig.return_type),
+                            },
+                        );
+                    }
                     // Check visibility: reject calls to non-public methods from other modules
                     if !sig.is_pub && self.is_cross_module_access(expr.span, sig.source_file_id) {
                         self.diagnostics.add(&CheckerDiagnostic::PrivateMethod {
@@ -400,19 +454,25 @@ impl Checker {
                                             );
                                         }
                                     }
-                                    return self.types.unit();
+                                    let ret = self.types.unit();
+                                    self.record_builtin_method(expr.span, method, ret);
+                                    return ret;
                                 }
                                 "pop" => {
+                                    self.record_builtin_method(expr.span, method, elem);
                                     return elem;
                                 }
                                 "remove" => {
                                     if let Some(arg) = args.first() {
                                         self.check_expr(&arg.value, locals);
                                     }
+                                    self.record_builtin_method(expr.span, method, elem);
                                     return elem;
                                 }
                                 "len" => {
-                                    return self.types.i64();
+                                    let ret = self.types.i64();
+                                    self.record_builtin_method(expr.span, method, ret);
+                                    return ret;
                                 }
                                 _ => {}
                             }
@@ -425,34 +485,44 @@ impl Checker {
                                     for arg in args {
                                         self.check_expr(&arg.value, locals);
                                     }
-                                    return self.types.unit();
+                                    let ret = self.types.unit();
+                                    self.record_builtin_method(expr.span, method, ret);
+                                    return ret;
                                 }
                                 "get" => {
                                     for arg in args {
                                         self.check_expr(&arg.value, locals);
                                     }
                                     // Return Option<V> instead of raw V
-                                    return self.monomorphize_enum_concrete(
+                                    let ret = self.monomorphize_enum_concrete(
                                         "Option",
                                         &[v],
                                         1,
                                         expr.span,
                                     );
+                                    self.record_builtin_method(expr.span, method, ret);
+                                    return ret;
                                 }
                                 "contains_key" => {
                                     for arg in args {
                                         self.check_expr(&arg.value, locals);
                                     }
-                                    return self.types.bool();
+                                    let ret = self.types.bool();
+                                    self.record_builtin_method(expr.span, method, ret);
+                                    return ret;
                                 }
                                 "remove" => {
                                     for arg in args {
                                         self.check_expr(&arg.value, locals);
                                     }
-                                    return self.types.bool();
+                                    let ret = self.types.bool();
+                                    self.record_builtin_method(expr.span, method, ret);
+                                    return ret;
                                 }
                                 "len" => {
-                                    return self.types.i64();
+                                    let ret = self.types.i64();
+                                    self.record_builtin_method(expr.span, method, ret);
+                                    return ret;
                                 }
                                 _ => {
                                     let _ = (k, v);
@@ -1441,6 +1511,18 @@ impl Checker {
                 }
 
                 let struct_ty = if let Some(&ty) = self.structs.get(name.as_str()) {
+                    // Record struct literal definition
+                    if let Some(&def_span) = self.item_def_spans.get(name.as_str()) {
+                        self.symbol_table.record_definition(
+                            expr.span,
+                            DefinitionInfo {
+                                name: name.clone(),
+                                kind: SymbolKind::Struct,
+                                def_span,
+                                type_id: Some(ty),
+                            },
+                        );
+                    }
                     ty
                 } else {
                     self.diagnostics.add(&CheckerDiagnostic::UndefinedStruct {
@@ -1533,6 +1615,18 @@ impl Checker {
                 match self.types.resolve(obj_ty).clone() {
                     TypeKind::Struct { name, fields, .. } => {
                         if let Some((_, field_ty)) = fields.iter().find(|(n, _)| n == field) {
+                            // Record field definition
+                            if let Some(&struct_def_span) = self.item_def_spans.get(&name) {
+                                self.symbol_table.record_definition(
+                                    expr.span,
+                                    DefinitionInfo {
+                                        name: field.clone(),
+                                        kind: SymbolKind::Field,
+                                        def_span: struct_def_span,
+                                        type_id: Some(*field_ty),
+                                    },
+                                );
+                            }
                             // Check field visibility
                             if let Some(&(_, file_id)) = self.type_visibility.get(&name) {
                                 if self.is_cross_module_access(expr.span, file_id) {
@@ -1784,12 +1878,24 @@ impl Checker {
 
                 locals.push_scope();
                 locals.insert(
-                    binding.clone(),
+                    binding.node.clone(),
                     LocalInfo {
                         ty: elem_ty,
                         is_mut: false,
+                        def_span: binding.span,
                     },
                 );
+                // Record the binding itself in the symbol table for hover/go-to-def
+                self.symbol_table.record_definition(
+                    binding.span,
+                    DefinitionInfo {
+                        name: binding.node.clone(),
+                        kind: SymbolKind::LocalVariable,
+                        def_span: binding.span,
+                        type_id: Some(elem_ty),
+                    },
+                );
+                self.symbol_table.record_expr_type(binding.span, elem_ty);
                 self.check_block(&body.node, locals);
                 locals.pop_scope();
                 self.types.unit()
@@ -2119,7 +2225,15 @@ impl Checker {
                         self.types.i32()
                     };
                     param_types.push(ty);
-                    locals.insert(p.name.clone(), LocalInfo { ty, is_mut: false });
+                    let param_def_span = p.ty.as_ref().map_or(Span::dummy(), |t| t.span);
+                    locals.insert(
+                        p.name.clone(),
+                        LocalInfo {
+                            ty,
+                            is_mut: false,
+                            def_span: param_def_span,
+                        },
+                    );
                 }
                 // Set up return type context for the closure body so that
                 // `return` statements are checked against the closure's return
@@ -2204,8 +2318,21 @@ impl Checker {
                     LocalInfo {
                         ty: scrutinee_ty,
                         is_mut: false,
+                        def_span: pattern.span,
                     },
                 );
+                // Record the binding in the symbol table for hover/go-to-def
+                self.symbol_table.record_definition(
+                    pattern.span,
+                    DefinitionInfo {
+                        name: name.clone(),
+                        kind: SymbolKind::LocalVariable,
+                        def_span: pattern.span,
+                        type_id: Some(scrutinee_ty),
+                    },
+                );
+                self.symbol_table
+                    .record_expr_type(pattern.span, scrutinee_ty);
             }
             Pattern::Literal(_) => {
                 // Literal patterns - type already checked by virtue of being in a match
@@ -2306,5 +2433,19 @@ impl Checker {
                 // Range patterns match against int/char types - no bindings introduced
             }
         }
+    }
+
+    /// Record a built-in method (e.g., array.push, map.insert) in the symbol table
+    /// so hover shows type information.
+    fn record_builtin_method(&mut self, call_span: Span, method: &str, return_type: TypeId) {
+        self.symbol_table.record_definition(
+            call_span,
+            DefinitionInfo {
+                name: method.to_string(),
+                kind: SymbolKind::Method,
+                def_span: Span::dummy(),
+                type_id: Some(return_type),
+            },
+        );
     }
 }

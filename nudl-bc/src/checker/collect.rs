@@ -88,22 +88,39 @@ impl Checker {
                 span,
             };
 
-            // Register a placeholder sig with error types — will be replaced by monomorphized versions
-            let _param_count = params.len();
+            // Register a placeholder sig with TypeVar types for display in hover/completions
             let has_default: Vec<bool> = params.iter().map(|p| p.default_value.is_some()).collect();
             let required_params = has_default.iter().take_while(|d| !*d).count();
             let is_method = params.first().map_or(false, |p| p.is_self);
             let is_mut_method = is_method && params.first().map_or(false, |p| p.is_mut);
 
+            // Temporarily add type params to scope so resolve_type produces TypeVar
+            for tp in type_params {
+                let type_var = self.types.intern(TypeKind::TypeVar {
+                    name: tp.name.clone(),
+                    bounds: tp.bounds.clone(),
+                });
+                self.type_param_scope.insert(tp.name.clone(), type_var);
+            }
+            let resolved_params: Vec<(String, TypeId)> = params
+                .iter()
+                .map(|p| (p.name.clone(), self.resolve_type(&p.ty)))
+                .collect();
+            let resolved_return = match return_type {
+                Some(rt) => self.resolve_type(rt),
+                None => self.types.unit(),
+            };
+            for tp in type_params {
+                self.type_param_scope.remove(&tp.name);
+            }
+
+            self.item_def_spans.insert(name.into(), span);
             self.functions.insert(
                 name.into(),
                 FunctionSig {
                     name: name.into(),
-                    params: params
-                        .iter()
-                        .map(|p| (p.name.clone(), self.types.error()))
-                        .collect(),
-                    return_type: self.types.error(),
+                    params: resolved_params,
+                    return_type: resolved_return,
                     kind: FunctionKind::UserDefined,
                     required_params,
                     has_default,
@@ -112,6 +129,7 @@ impl Checker {
                     generic_def: Some(generic_def),
                     is_pub,
                     source_file_id: span.file_id,
+                    def_span: span,
                 },
             );
             return;
@@ -133,6 +151,7 @@ impl Checker {
             .map(|t| self.resolve_type(t))
             .unwrap_or_else(|| self.types.unit());
 
+        self.item_def_spans.insert(name.into(), span);
         self.functions.insert(
             name.into(),
             FunctionSig {
@@ -147,6 +166,7 @@ impl Checker {
                 generic_def: None,
                 is_pub,
                 source_file_id: span.file_id,
+                def_span: span,
             },
         );
     }
@@ -198,6 +218,8 @@ impl Checker {
                     });
                     return;
                 }
+
+                self.item_def_spans.insert(name.clone(), item.span);
 
                 // Record type visibility
                 self.type_visibility
@@ -258,6 +280,8 @@ impl Checker {
                     return;
                 }
 
+                self.item_def_spans.insert(name.clone(), item.span);
+
                 // Record type visibility
                 self.type_visibility
                     .insert(name.clone(), (*is_pub, item.span.file_id));
@@ -311,6 +335,8 @@ impl Checker {
                 is_pub,
                 ..
             } => {
+                self.item_def_spans.insert(name.clone(), item.span);
+
                 // Record type visibility
                 self.type_visibility
                     .insert(name.clone(), (*is_pub, item.span.file_id));
@@ -371,11 +397,30 @@ impl Checker {
                 type_name,
                 type_args,
                 interface_name,
+                interface_name_span,
                 interface_type_args,
                 methods,
                 where_clauses,
                 ..
             } => {
+                // Record definition for the interface name in `impl Interface for Type`
+                if let (Some(iface_name), Some(iface_span)) =
+                    (interface_name.as_ref(), interface_name_span)
+                {
+                    if let Some(&iface_def_span) = self.item_def_spans.get(iface_name) {
+                        let type_id = self.interfaces.get(iface_name).copied();
+                        self.symbol_table.record_definition(
+                            *iface_span,
+                            DefinitionInfo {
+                                name: iface_name.clone(),
+                                kind: SymbolKind::Interface,
+                                def_span: iface_def_span,
+                                type_id,
+                            },
+                        );
+                    }
+                }
+
                 // Check if the impl block is for a generic type (has type_args like `impl Foo<T>`)
                 let _is_generic_impl = !type_args.is_empty()
                     && type_args.iter().any(|a| {
@@ -555,6 +600,10 @@ impl Checker {
                         // Interface impl methods are auto-pub
                         let effective_pub = *method_is_pub || interface_name.is_some();
 
+                        let mangled_for_spans = format!("{}__{}", type_name, method_name);
+                        self.item_def_spans
+                            .insert(mangled_for_spans, method_item.span);
+
                         self.functions.insert(
                             mangled_name,
                             FunctionSig {
@@ -569,6 +618,7 @@ impl Checker {
                                 generic_def: None,
                                 is_pub: effective_pub,
                                 source_file_id: method_item.span.file_id,
+                                def_span: method_item.span,
                             },
                         );
                     }
@@ -639,6 +689,7 @@ impl Checker {
                                             generic_def: None,
                                             is_pub: true,
                                             source_file_id: item.span.file_id,
+                                            def_span: item.span,
                                         },
                                     );
 
@@ -808,6 +859,7 @@ impl Checker {
                             generic_def: None,
                             is_pub: true, // extern functions are implicitly pub
                             source_file_id: extern_fn.span.file_id,
+                            def_span: extern_fn.span,
                         },
                     );
                 }

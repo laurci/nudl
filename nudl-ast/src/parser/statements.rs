@@ -177,7 +177,8 @@ impl Parser {
         }
 
         // Simple let: let name = expr;
-        let name = self.expect(TokenKind::Ident)?.text.clone();
+        let name_tok = self.expect(TokenKind::Ident)?;
+        let name = Spanned::new(name_tok.text.clone(), name_tok.span);
 
         let ty = if self.eat(TokenKind::Colon) {
             Some(self.parse_type()?)
@@ -203,7 +204,8 @@ impl Parser {
 
     fn parse_const_stmt(&mut self) -> Option<SpannedStmt> {
         let start = self.expect(TokenKind::Const)?.span;
-        let name = self.expect(TokenKind::Ident)?.text.clone();
+        let name_tok = self.expect(TokenKind::Ident)?;
+        let name = Spanned::new(name_tok.text.clone(), name_tok.span);
 
         let ty = if self.eat(TokenKind::Colon) {
             Some(self.parse_type()?)

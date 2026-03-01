@@ -317,7 +317,9 @@ impl Parser {
         let impl_type_params = self.parse_optional_type_params();
 
         // Parse the first identifier (could be interface name or type name)
-        let first_name = self.expect(TokenKind::Ident)?.text.clone();
+        let first_token = self.expect(TokenKind::Ident)?;
+        let first_name = first_token.text.clone();
+        let first_name_span = first_token.span;
 
         // Check for interface type args: `impl Iterator<i32> for RangeIter`
         let first_type_args = if self.peek_kind() == TokenKind::Lt {
@@ -327,7 +329,7 @@ impl Parser {
         };
 
         // Check for `impl Interface for Type` or `impl Interface<T> for Type`
-        let (interface_name, interface_type_args, type_name, type_args) =
+        let (interface_name, interface_name_span, interface_type_args, type_name, type_args) =
             if self.peek_kind() == TokenKind::For {
                 self.advance();
                 let tn = self.expect(TokenKind::Ident)?.text.clone();
@@ -337,10 +339,16 @@ impl Parser {
                 } else {
                     Vec::new()
                 };
-                (Some(first_name), first_type_args, tn, ta)
+                (
+                    Some(first_name),
+                    Some(first_name_span),
+                    first_type_args,
+                    tn,
+                    ta,
+                )
             } else {
                 // No interface — first_type_args are the type's own type args
-                (None, Vec::new(), first_name, first_type_args)
+                (None, None, Vec::new(), first_name, first_type_args)
             };
 
         // Parse optional where clause
@@ -368,6 +376,7 @@ impl Parser {
                 type_name,
                 type_args,
                 interface_name,
+                interface_name_span,
                 interface_type_args,
                 where_clauses,
                 methods,

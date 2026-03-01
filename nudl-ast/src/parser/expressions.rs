@@ -863,7 +863,8 @@ impl Parser {
 
     fn parse_for_expr(&mut self) -> Option<SpannedExpr> {
         let start = self.expect(TokenKind::For)?.span;
-        let binding = self.expect(TokenKind::Ident)?.text.clone();
+        let binding_tok = self.expect(TokenKind::Ident)?;
+        let binding = Spanned::new(binding_tok.text.clone(), binding_tok.span);
         self.expect(TokenKind::In)?;
         let saved = self.inhibit_trailing_lambda;
         self.inhibit_trailing_lambda = true;

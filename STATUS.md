@@ -16,7 +16,7 @@
 - [x] Diagnostic system with error codes and severity levels
 - [x] Source map and span tracking
 - [x] String interning
-- [x] LSP server (diagnostics on document change)
+- [x] LSP server (diagnostics on document change, go-to-definition, hover type info, autocomplete with dot completions + import suggestions, cross-file invalidation via import graph tracking)
 - [x] Debug symbols (DWARF) generation
 - [~] ARC runtime (`runtime/nudl_rt.c`) — compiled at build time, linked into output binaries; inline LLVM retain/release fast paths; compiler now emits Retain/Release for struct types; runtime extended with dynamic array (alloc/push/pop/get/set/len), map (hash table alloc/insert/get/contains/remove/len), and closure environment allocation
 

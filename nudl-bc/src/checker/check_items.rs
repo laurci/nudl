@@ -9,7 +9,15 @@ impl Checker {
         let ret_ty = if let Some(ref sig) = sig {
             for (i, (pname, pty)) in sig.params.iter().enumerate() {
                 let is_mut = params.get(i).map_or(false, |p| p.is_mut);
-                locals.insert(pname.clone(), LocalInfo { ty: *pty, is_mut });
+                let def_span = params.get(i).map_or(Span::dummy(), |p| p.ty.span);
+                locals.insert(
+                    pname.clone(),
+                    LocalInfo {
+                        ty: *pty,
+                        is_mut,
+                        def_span,
+                    },
+                );
             }
             sig.return_type
         } else {
@@ -135,6 +143,7 @@ impl Checker {
                 let val_ty = self.check_expr(value, locals);
 
                 // If explicit type annotation, check it matches
+                let final_ty;
                 if let Some(type_expr) = ty {
                     let declared_ty = self.resolve_type(type_expr);
                     // Allow unsuffixed integer literals to coerce to any integer type
@@ -174,11 +183,13 @@ impl Checker {
                             found: self.type_name(val_ty),
                         });
                     }
+                    final_ty = declared_ty;
                     locals.insert(
-                        name.clone(),
+                        name.node.clone(),
                         LocalInfo {
                             ty: declared_ty,
                             is_mut: *is_mut,
+                            def_span: name.span,
                         },
                     );
                 } else {
@@ -191,14 +202,27 @@ impl Checker {
                                 .to_string(),
                         });
                     }
+                    final_ty = val_ty;
                     locals.insert(
-                        name.clone(),
+                        name.node.clone(),
                         LocalInfo {
                             ty: val_ty,
                             is_mut: *is_mut,
+                            def_span: name.span,
                         },
                     );
                 }
+                // Record the binding in the symbol table for hover/go-to-def
+                self.symbol_table.record_definition(
+                    name.span,
+                    DefinitionInfo {
+                        name: name.node.clone(),
+                        kind: SymbolKind::LocalVariable,
+                        def_span: name.span,
+                        type_id: Some(final_ty),
+                    },
+                );
+                self.symbol_table.record_expr_type(name.span, final_ty);
             }
             Stmt::LetPattern {
                 pattern,
@@ -207,10 +231,11 @@ impl Checker {
                 is_mut,
             } => {
                 let val_ty = self.check_expr(value, locals);
-                self.check_pattern_bindings(&pattern.node, val_ty, *is_mut, locals);
+                self.check_pattern_bindings(pattern, val_ty, *is_mut, locals);
             }
             Stmt::Const { name, ty, value } => {
                 let val_ty = self.check_expr(value, locals);
+                let final_ty;
                 if let Some(type_expr) = ty {
                     let declared_ty = self.resolve_type(type_expr);
                     let is_coercible = self.is_unsuffixed_int_literal(&value.node)
@@ -229,22 +254,37 @@ impl Checker {
                             found: self.type_name(val_ty),
                         });
                     }
+                    final_ty = declared_ty;
                     locals.insert(
-                        name.clone(),
+                        name.node.clone(),
                         LocalInfo {
                             ty: declared_ty,
                             is_mut: false,
+                            def_span: name.span,
                         },
                     );
                 } else {
+                    final_ty = val_ty;
                     locals.insert(
-                        name.clone(),
+                        name.node.clone(),
                         LocalInfo {
                             ty: val_ty,
                             is_mut: false,
+                            def_span: name.span,
                         },
                     );
                 }
+                // Record the binding in the symbol table for hover/go-to-def
+                self.symbol_table.record_definition(
+                    name.span,
+                    DefinitionInfo {
+                        name: name.node.clone(),
+                        kind: SymbolKind::LocalVariable,
+                        def_span: name.span,
+                        type_id: Some(final_ty),
+                    },
+                );
+                self.symbol_table.record_expr_type(name.span, final_ty);
             }
             Stmt::Defer { body } => {
                 // Type-check the defer body
@@ -257,15 +297,33 @@ impl Checker {
     /// Check pattern bindings and add them to locals
     fn check_pattern_bindings(
         &mut self,
-        pattern: &Pattern,
+        pattern: &Spanned<Pattern>,
         val_ty: TypeId,
         is_mut: bool,
         locals: &mut ScopedLocals<LocalInfo>,
     ) {
-        match pattern {
+        match &pattern.node {
             Pattern::Wildcard => {} // ignore
             Pattern::Binding(name) => {
-                locals.insert(name.clone(), LocalInfo { ty: val_ty, is_mut });
+                locals.insert(
+                    name.clone(),
+                    LocalInfo {
+                        ty: val_ty,
+                        is_mut,
+                        def_span: pattern.span,
+                    },
+                );
+                // Record the binding in the symbol table for hover/go-to-def
+                self.symbol_table.record_definition(
+                    pattern.span,
+                    DefinitionInfo {
+                        name: name.clone(),
+                        kind: SymbolKind::LocalVariable,
+                        def_span: pattern.span,
+                        type_id: Some(val_ty),
+                    },
+                );
+                self.symbol_table.record_expr_type(pattern.span, val_ty);
             }
             Pattern::Tuple(elements) => {
                 // Destructure tuple type
@@ -275,12 +333,12 @@ impl Checker {
                             .get(i)
                             .copied()
                             .unwrap_or_else(|| self.types.error());
-                        self.check_pattern_bindings(&pat.node, elem_ty, is_mut, locals);
+                        self.check_pattern_bindings(pat, elem_ty, is_mut, locals);
                     }
                 } else {
                     // Not a tuple, all bindings get the val_ty
                     for pat in elements {
-                        self.check_pattern_bindings(&pat.node, val_ty, is_mut, locals);
+                        self.check_pattern_bindings(pat, val_ty, is_mut, locals);
                     }
                 }
             }
@@ -302,19 +360,15 @@ impl Checker {
                             .find(|(n, _)| n == field_name)
                             .map(|(_, ty)| *ty)
                             .unwrap_or_else(|| self.types.error());
-                        self.check_pattern_bindings(&pat.node, field_ty, is_mut, locals);
+                        self.check_pattern_bindings(pat, field_ty, is_mut, locals);
                     }
                 }
             }
             Pattern::Enum { fields, .. } => {
                 // For now, bind each sub-pattern with error type
+                let error_ty = self.types.error();
                 for field_pat in fields {
-                    self.check_pattern_bindings(
-                        &field_pat.node,
-                        self.types.error(),
-                        is_mut,
-                        locals,
-                    );
+                    self.check_pattern_bindings(field_pat, error_ty, is_mut, locals);
                 }
             }
             Pattern::Literal(_) => {} // nothing to bind
@@ -326,12 +380,12 @@ impl Checker {
                     _ => self.types.error(),
                 };
                 for pat in prefix.iter().chain(suffix.iter()) {
-                    self.check_pattern_bindings(&pat.node, elem_ty, is_mut, locals);
+                    self.check_pattern_bindings(pat, elem_ty, is_mut, locals);
                 }
             }
             Pattern::Or(alternatives) => {
                 for alt in alternatives {
-                    self.check_pattern_bindings(&alt.node, val_ty, is_mut, locals);
+                    self.check_pattern_bindings(alt, val_ty, is_mut, locals);
                 }
             }
             Pattern::Range { .. } => {
@@ -504,6 +558,7 @@ impl Checker {
                 LocalInfo {
                     ty,
                     is_mut: p.is_mut,
+                    def_span: p.ty.span,
                 },
             );
         }
@@ -592,6 +647,7 @@ impl Checker {
                         LocalInfo {
                             ty,
                             is_mut: p.is_mut,
+                            def_span: p.ty.span,
                         },
                     );
                 }

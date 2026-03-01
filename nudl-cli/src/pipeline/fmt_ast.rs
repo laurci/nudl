@@ -216,7 +216,7 @@ fn fmt_ast_stmt(stmt: &Stmt, out: &mut String, level: usize) {
             if *is_mut {
                 out.push_str("mut ");
             }
-            out.push_str(name);
+            out.push_str(&name.node);
             if let Some(t) = ty {
                 out.push_str(&format!(": {}", fmt_type_expr(&t.node)));
             }
@@ -227,7 +227,7 @@ fn fmt_ast_stmt(stmt: &Stmt, out: &mut String, level: usize) {
         Stmt::Const { name, ty, value } => {
             indent(out, level);
             out.push_str("Const ");
-            out.push_str(name);
+            out.push_str(&name.node);
             if let Some(t) = ty {
                 out.push_str(&format!(": {}", fmt_type_expr(&t.node)));
             }
@@ -465,7 +465,7 @@ fn fmt_ast_expr(expr: &Expr, out: &mut String, level: usize) {
             iter,
             body,
         } => {
-            out.push_str(&format!("For {} in ", binding));
+            out.push_str(&format!("For {} in ", binding.node));
             fmt_ast_expr(&iter.node, out, level);
             out.push('\n');
             fmt_ast_block(&body.node, out, level + 1);

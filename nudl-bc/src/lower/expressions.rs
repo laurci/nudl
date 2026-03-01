@@ -1222,7 +1222,7 @@ impl<'a> FunctionLowerCtx<'a> {
                         start,
                         end,
                         inclusive,
-                    } => self.lower_for_range(binding, start, end, *inclusive, &body.node),
+                    } => self.lower_for_range(&binding.node, start, end, *inclusive, &body.node),
                     _ => {
                         let iter_ty = self.infer_expr_type(iter);
                         let is_string = iter_ty.is_some_and(|tid| {
@@ -1243,11 +1243,11 @@ impl<'a> FunctionLowerCtx<'a> {
                             false
                         };
                         if is_string {
-                            self.lower_for_string(binding, iter, &body.node)
+                            self.lower_for_string(&binding.node, iter, &body.node)
                         } else if is_iterable {
-                            self.lower_for_iterable(binding, iter, &body.node)
+                            self.lower_for_iterable(&binding.node, iter, &body.node)
                         } else {
-                            self.lower_for_array(binding, iter, &body.node)
+                            self.lower_for_array(&binding.node, iter, &body.node)
                         }
                     }
                 }

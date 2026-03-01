@@ -43,6 +43,7 @@ pub enum Item {
         type_name: String,
         type_args: Vec<Spanned<TypeExpr>>,
         interface_name: Option<String>,
+        interface_name_span: Option<Span>,
         interface_type_args: Vec<Spanned<TypeExpr>>,
         where_clauses: Vec<WherePredicate>,
         methods: Vec<SpannedItem>,
@@ -137,7 +138,7 @@ pub struct Block {
 pub enum Stmt {
     Expr(SpannedExpr),
     Let {
-        name: String,
+        name: Spanned<String>,
         ty: Option<Spanned<TypeExpr>>,
         value: SpannedExpr,
         is_mut: bool,
@@ -150,7 +151,7 @@ pub enum Stmt {
         is_mut: bool,
     },
     Const {
-        name: String,
+        name: Spanned<String>,
         ty: Option<Spanned<TypeExpr>>,
         value: SpannedExpr,
     },
@@ -252,7 +253,7 @@ pub enum Expr {
         inclusive: bool,
     },
     For {
-        binding: String,
+        binding: Spanned<String>,
         iter: Box<SpannedExpr>,
         body: Box<Spanned<Block>>,
     },
