@@ -1,0 +1,150 @@
+import std::ffi;
+import std::math;
+
+// GLFW constants
+pub fn GLFW_CONTEXT_VERSION_MAJOR() -> i32 { 0x00022002 }
+pub fn GLFW_CONTEXT_VERSION_MINOR() -> i32 { 0x00022003 }
+pub fn GLFW_OPENGL_PROFILE() -> i32 { 0x00022008 }
+pub fn GLFW_OPENGL_CORE_PROFILE() -> i32 { 0x00032001 }
+pub fn GLFW_OPENGL_FORWARD_COMPAT() -> i32 { 0x00022006 }
+
+// OpenGL constants
+pub fn GL_COLOR_BUFFER_BIT() -> u32 { 0x00004000u32 }
+pub fn GL_DEPTH_BUFFER_BIT() -> u32 { 0x00000100u32 }
+pub fn GL_TRIANGLES() -> u32 { 0x0004u32 }
+pub fn GL_TRUE() -> i32 { 1 }
+pub fn GL_FALSE() -> i32 { 0 }
+
+// GLFW key codes
+pub enum GlfwKey {
+    Escape,
+    Space,
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+impl GlfwKey {
+    pub fn code(self) -> i32 {
+        match self {
+            GlfwKey::Escape => 256,
+            GlfwKey::Space => 32,
+            GlfwKey::Up => 265,
+            GlfwKey::Down => 264,
+            GlfwKey::Left => 263,
+            GlfwKey::Right => 262,
+            _ => panic("unknown key"),
+        }
+    }
+}
+
+pub fn GLFW_PRESS() -> i32 { 1 }
+pub fn GLFW_RELEASE() -> i32 { 0 }
+
+extern {
+    // GLFW functions
+    fn glfwInit() -> i32;
+    fn glfwTerminate() -> ();
+    fn glfwWindowHint(hint: i32, value: i32) -> ();
+    fn glfwCreateWindow(width: i32, height: i32, title: RawPtr, monitor: RawPtr, share: RawPtr) -> RawPtr;
+    fn glfwMakeContextCurrent(window: RawPtr) -> ();
+    fn glfwWindowShouldClose(window: RawPtr) -> i32;
+    fn glfwSwapBuffers(window: RawPtr) -> ();
+    fn glfwPollEvents() -> ();
+    fn glfwSetWindowShouldClose(window: RawPtr, value: i32) -> ();
+    fn glfwGetKey(window: RawPtr, key: i32) -> i32;
+    fn glfwGetTime() -> f64;
+    fn glfwSwapInterval(interval: i32) -> ();
+
+    // OpenGL functions (legacy/compatibility profile)
+    fn glClearColor(r: f32, g: f32, b: f32, a: f32) -> ();
+    fn glClear(mask: u32) -> ();
+    fn glBegin(mode: u32) -> ();
+    fn glEnd() -> ();
+    fn glVertex2f(x: f32, y: f32) -> ();
+    fn glColor3f(r: f32, g: f32, b: f32) -> ();
+    fn glLoadIdentity() -> ();
+    fn glRotatef(angle: f32, x: f32, y: f32, z: f32) -> ();
+    fn glViewport(x: i32, y: i32, width: i32, height: i32) -> ();
+    fn glMatrixMode(mode: u32) -> ();
+    fn glOrtho(left: f64, right: f64, bottom: f64, top: f64, near: f64, far: f64) -> ();
+    fn glPushMatrix() -> ();
+    fn glPopMatrix() -> ();
+    fn glEnable(cap: u32) -> ();
+    fn glLineWidth(width: f32) -> ();
+    fn glVertex3f(x: f32, y: f32, z: f32) -> ();
+    fn glColor4f(r: f32, g: f32, b: f32, a: f32) -> ();
+}
+
+// GL matrix modes
+pub fn GL_MODELVIEW() -> u32 { 0x1700u32 }
+pub fn GL_PROJECTION() -> u32 { 0x1701u32 }
+pub fn GL_LINES() -> u32 { 0x0001u32 }
+pub fn GL_LINE_LOOP() -> u32 { 0x0002u32 }
+pub fn GL_LINE_STRIP() -> u32 { 0x0003u32 }
+pub fn GL_TRIANGLE_FAN() -> u32 { 0x0006u32 }
+pub fn GL_BLEND() -> u32 { 0x0BE2u32 }
+
+fn null_ptr() -> RawPtr {
+    nullptr()
+}
+
+pub fn init_window(width: i32, height: i32, title: string) -> RawPtr {
+    if glfwInit() == 0 {
+        panic("failed to initialize GLFW");
+    }
+
+    let window = glfwCreateWindow(width, height, cstr(title), null_ptr(), null_ptr());
+    glfwMakeContextCurrent(window);
+    glfwSwapInterval(1); // vsync
+    glViewport(0, 0, width, height);
+
+    // Set up orthographic projection
+    glMatrixMode(GL_PROJECTION());
+    glLoadIdentity();
+    glOrtho(0.0, width as f64, height as f64, 0.0, -1.0, 1.0);
+    glMatrixMode(GL_MODELVIEW());
+    glLoadIdentity();
+
+    window
+}
+
+pub fn close_window() {
+    glfwTerminate();
+}
+
+pub fn should_close(window: RawPtr) -> bool {
+    glfwWindowShouldClose(window) != 0
+}
+
+pub fn begin_frame() {
+    glClear(GL_COLOR_BUFFER_BIT());
+    glLoadIdentity();
+}
+
+pub fn end_frame(window: RawPtr) {
+    glfwSwapBuffers(window);
+    glfwPollEvents();
+}
+
+pub fn set_background(r: f32, g: f32, b: f32) {
+    glClearColor(r, g, b, 1.0 as f32);
+}
+
+pub fn get_time() -> f64 {
+    glfwGetTime()
+}
+
+pub fn is_key_pressed(window: RawPtr, key: GlfwKey) -> bool {
+    glfwGetKey(window, key.code()) == GLFW_PRESS()
+}
+
+pub fn draw_triangle(x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32, r: f32, g: f32, b: f32) {
+    glBegin(GL_TRIANGLES());
+    glColor3f(r, g, b);
+    glVertex2f(x1, y1);
+    glVertex2f(x2, y2);
+    glVertex2f(x3, y3);
+    glEnd();
+}

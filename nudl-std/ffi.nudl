@@ -1,6 +1,15 @@
 // nudl standard library: ffi module
 // Foreign Function Interface utilities
 
+extern {
+    fn __nudl_null_ptr() -> RawPtr;
+}
+
+/// Return a null pointer (RawPtr).
+pub fn nullptr() -> RawPtr {
+    __nudl_null_ptr()
+}
+
 /// Get a null-terminated C string pointer from a nudl string.
 /// The pointer is valid as long as the string's ARC reference is alive.
 pub fn cstr(s: string) -> RawPtr {

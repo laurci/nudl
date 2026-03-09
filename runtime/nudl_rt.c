@@ -41,6 +41,9 @@ typedef struct {
   };
 } NudlTypeDesc;
 
+/* Return a null pointer. Used by nudl code to obtain a typed null for FFI. */
+void *__nudl_null_ptr(void) { return NULL; }
+
 /* Allocate a new ARC object. total_size includes the 16-byte header. */
 void *__nudl_arc_alloc(uint64_t total_size, uint32_t type_tag) {
   void *mem = malloc((size_t)total_size);

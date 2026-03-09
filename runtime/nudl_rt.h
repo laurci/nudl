@@ -45,6 +45,9 @@ typedef struct {
 extern const NudlTypeDesc *__nudl_type_table[];
 extern uint32_t __nudl_type_table_len;
 
+/* Return a null pointer for FFI use. */
+void *__nudl_null_ptr(void);
+
 /* Allocate a new ARC object. total_size includes the 16-byte header. */
 void *__nudl_arc_alloc(uint64_t total_size, uint32_t type_tag);
 

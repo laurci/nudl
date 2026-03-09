@@ -19,5 +19,17 @@ link = [
 ]
 
 [[bin]]
+name = "opengl"
+path = "playground/opengl.nudl"
+link = [
+    "-L/opt/homebrew/lib",
+    "-lglfw",
+    "-framework", "OpenGL",
+    "-framework", "Cocoa",
+    "-framework", "IOKit",
+    "-framework", "CoreVideo",
+]
+
+[[bin]]
 name = "server"
 path = "playground/server.nudl"
