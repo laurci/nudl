@@ -1,11 +1,6 @@
 import glfw;
 import std::math;
 
-extern {
-    fn sin(x: f64) -> f64;
-    fn cos(x: f64) -> f64;
-}
-
 fn draw_spinning_triangle(cx: f32, cy: f32, size: f32, angle: f64, r: f32, g: f32, b: f32) {
     let a = angle;
     let x1 = cx + size * sin(a) as f32;

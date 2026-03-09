@@ -55,6 +55,7 @@ pub(super) fn link(
 
     if cfg!(not(target_os = "macos")) {
         cmd.arg("-lc");
+        cmd.arg("-lm");
     }
 
     let status = cmd.status()?;
